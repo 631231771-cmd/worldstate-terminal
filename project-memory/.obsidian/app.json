@@ -1,0 +1,7 @@
+{
+  "alwaysUpdateLinks": true,
+  "newFileLocation": "folder",
+  "newFileFolderPath": "00-checkpoints",
+  "showUnsupportedFiles": true,
+  "useMarkdownLinks": true
+}
