@@ -1,4 +1,4 @@
-.PHONY: help lint generate breaking format check clean deps install install-buf install-plugins install-npm install-playwright
+.PHONY: help lint generate breaking format check clean deps install install-buf install-plugins install-npm install-playwright macro-dev macro-sync macro-test macro-build macro-down
 .DEFAULT_GOAL := help
 
 # Variables
@@ -15,6 +15,8 @@ GO_INSTALL := $(GO_PROXY) $(GO_PRIVATE) go install
 # Required tool versions
 BUF_VERSION := v1.64.0
 SEBUF_VERSION := v0.11.1
+MACRO_ENGINE_DIR := services/macro-engine
+UV ?= uv
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -143,3 +145,20 @@ clean: ## Clean generated files
 	@rm -rf $(GEN_SERVER_DIR)
 	@rm -rf $(DOCS_API_DIR)
 	@echo "Clean complete!"
+
+macro-dev: ## Build and start PostgreSQL, Macro Engine, and World Monitor
+	docker compose -f docker-compose.macro.yml up --build
+
+macro-sync: ## Run the configured Macro Engine synchronization
+	cd $(MACRO_ENGINE_DIR) && $(UV) run macro-engine sync --all
+
+macro-test: ## Run Macro Engine lint, types, and tests
+	cd $(MACRO_ENGINE_DIR) && $(UV) run ruff check .
+	cd $(MACRO_ENGINE_DIR) && $(UV) run mypy src tests
+	cd $(MACRO_ENGINE_DIR) && $(UV) run pytest
+
+macro-build: ## Build Macro Engine and World Monitor containers
+	docker compose -f docker-compose.macro.yml build macro-engine worldmonitor
+
+macro-down: ## Stop the local macro stack without deleting database data
+	docker compose -f docker-compose.macro.yml down

@@ -14,6 +14,7 @@ src-tauri/sidecar/node
 *.log
 *.md
 !README.md
+!services/macro-engine/README.md
 !CHANGELOG.md
 docs/internal
 docs/Docs_To_Review

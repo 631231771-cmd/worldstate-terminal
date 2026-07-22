@@ -1,0 +1,147 @@
+version: 1
+series:
+  - canonical_key: US.GROWTH.INDUSTRIAL_PRODUCTION
+    provider: fred_alfred
+    native_id: INDPRO
+    entity: US
+    title: Industrial Production
+    frequency: monthly
+    unit: index
+    transform: yoy
+    orientation: 1
+    state_dimensions: [growth]
+    weight: 1.0
+    freshness_half_life_days: 45
+    minimum_history: 60
+    availability:
+      method: provider_realtime_start
+      precision: day
+    tags: [growth, production]
+    source_url: https://fred.stlouisfed.org/series/INDPRO
+  - canonical_key: US.INFLATION.CPI_HEADLINE
+    provider: fred_alfred
+    native_id: CPIAUCSL
+    entity: US
+    title: Consumer Price Index for All Urban Consumers
+    frequency: monthly
+    unit: index
+    transform: yoy
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 1.0
+    freshness_half_life_days: 45
+    minimum_history: 60
+    availability:
+      method: provider_realtime_start
+      precision: day
+    tags: [inflation, consumer_prices]
+    source_url: https://fred.stlouisfed.org/series/CPIAUCSL
+  - canonical_key: US.POLICY.FED_FUNDS_EFFECTIVE
+    provider: fred_alfred
+    native_id: DFF
+    entity: US
+    title: Effective Federal Funds Rate
+    frequency: daily
+    unit: percent
+    transform: level
+    orientation: 1
+    state_dimensions: [policy_tightness]
+    weight: 1.0
+    freshness_half_life_days: 7
+    minimum_history: 252
+    availability:
+      method: provider_realtime_start
+      precision: day
+    tags: [policy, rates]
+    source_url: https://fred.stlouisfed.org/series/DFF
+  - canonical_key: US.LIQUIDITY.FED_BALANCE_SHEET
+    provider: fred_alfred
+    native_id: WALCL
+    entity: US
+    title: Federal Reserve Total Assets
+    frequency: weekly
+    unit: millions_of_us_dollars
+    transform: percent_change
+    orientation: 1
+    state_dimensions: [liquidity]
+    weight: 1.0
+    freshness_half_life_days: 21
+    minimum_history: 156
+    availability:
+      method: provider_realtime_start
+      precision: day
+    tags: [liquidity, central_bank_balance_sheet]
+    source_url: https://fred.stlouisfed.org/series/WALCL
+  - canonical_key: US.CREDIT.HIGH_YIELD_SPREAD
+    provider: fred_alfred
+    native_id: BAMLH0A0HYM2
+    entity: US
+    title: US High Yield Option-Adjusted Spread
+    frequency: daily
+    unit: percent
+    transform: level
+    orientation: -1
+    state_dimensions: [credit, risk]
+    weight: 1.0
+    freshness_half_life_days: 7
+    minimum_history: 252
+    availability:
+      method: provider_realtime_start
+      precision: day
+    tags: [credit, spread, risk]
+    source_url: https://fred.stlouisfed.org/series/BAMLH0A0HYM2
+  - canonical_key: US.RISK.VIX
+    provider: fred_alfred
+    native_id: VIXCLS
+    entity: US
+    title: CBOE Volatility Index
+    frequency: daily
+    unit: index
+    transform: rolling_percentile
+    orientation: 1
+    state_dimensions: [risk]
+    weight: 1.0
+    freshness_half_life_days: 7
+    minimum_history: 252
+    availability:
+      method: provider_realtime_start
+      precision: day
+    tags: [risk, volatility]
+    source_url: https://fred.stlouisfed.org/series/VIXCLS
+  - canonical_key: US.EXTERNAL.BROAD_DOLLAR
+    provider: fred_alfred
+    native_id: DTWEXBGS
+    entity: US
+    title: Nominal Broad US Dollar Index
+    frequency: daily
+    unit: index
+    transform: percent_change
+    orientation: 1
+    state_dimensions: [external, risk]
+    weight: 0.5
+    freshness_half_life_days: 7
+    minimum_history: 252
+    availability:
+      method: provider_realtime_start
+      precision: day
+    tags: [external, currency]
+    source_url: https://fred.stlouisfed.org/series/DTWEXBGS
+  - canonical_key: US.FISCAL.FEDERAL_DEBT_GDP
+    provider: fred_alfred
+    native_id: GFDEGDQ188S
+    entity: US
+    title: Federal Debt Held by the Public as Percent of GDP
+    frequency: quarterly
+    unit: percent_of_gdp
+    transform: difference
+    orientation: 1
+    state_dimensions: [fiscal]
+    weight: 0.5
+    freshness_half_life_days: 120
+    minimum_history: 40
+    availability:
+      method: provider_realtime_start
+      precision: day
+    tags: [fiscal, debt]
+    source_url: https://fred.stlouisfed.org/series/GFDEGDQ188S
+

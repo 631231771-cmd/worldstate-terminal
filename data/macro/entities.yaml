@@ -1,0 +1,75 @@
+version: 1
+entities:
+  - key: GLOBAL
+    name: Global
+    entity_type: global
+    timezone: UTC
+  - key: US
+    iso2: US
+    iso3: USA
+    name: United States
+    entity_type: country
+    currency: USD
+    timezone: America/New_York
+  - key: CN
+    iso2: CN
+    iso3: CHN
+    name: China
+    entity_type: country
+    currency: CNY
+    timezone: Asia/Shanghai
+  - key: EA
+    name: Euro Area
+    entity_type: economic_area
+    currency: EUR
+    timezone: Europe/Brussels
+  - key: JP
+    iso2: JP
+    iso3: JPN
+    name: Japan
+    entity_type: country
+    currency: JPY
+    timezone: Asia/Tokyo
+  - key: GB
+    iso2: GB
+    iso3: GBR
+    name: United Kingdom
+    entity_type: country
+    currency: GBP
+    timezone: Europe/London
+  - key: IN
+    iso2: IN
+    iso3: IND
+    name: India
+    entity_type: country
+    currency: INR
+    timezone: Asia/Kolkata
+  - key: CA
+    iso2: CA
+    iso3: CAN
+    name: Canada
+    entity_type: country
+    currency: CAD
+    timezone: America/Toronto
+  - key: AU
+    iso2: AU
+    iso3: AUS
+    name: Australia
+    entity_type: country
+    currency: AUD
+    timezone: Australia/Sydney
+  - key: BR
+    iso2: BR
+    iso3: BRA
+    name: Brazil
+    entity_type: country
+    currency: BRL
+    timezone: America/Sao_Paulo
+  - key: KR
+    iso2: KR
+    iso3: KOR
+    name: South Korea
+    entity_type: country
+    currency: KRW
+    timezone: Asia/Seoul
+

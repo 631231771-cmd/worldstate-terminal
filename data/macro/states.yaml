@@ -1,0 +1,28 @@
+version: 1
+methodology_version: wst-state-v1-draft
+states:
+  - key: growth
+    title: Growth
+    meaning_of_positive: growth is stronger
+  - key: inflation
+    title: Inflation
+    meaning_of_positive: inflation is hotter
+  - key: liquidity
+    title: Liquidity
+    meaning_of_positive: liquidity is easier
+  - key: credit
+    title: Credit
+    meaning_of_positive: credit conditions are easier
+  - key: fiscal
+    title: Fiscal
+    meaning_of_positive: fiscal policy is more expansionary
+  - key: external
+    title: External
+    meaning_of_positive: external balance and currency competitiveness are stronger
+  - key: policy_tightness
+    title: Policy Tightness
+    meaning_of_positive: policy is tighter
+  - key: risk
+    title: Risk
+    meaning_of_positive: systemic risk and financial stress are higher
+

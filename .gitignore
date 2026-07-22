@@ -1,4 +1,11 @@
 node_modules/
+.venv/
+__pycache__/
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
 .idea/
 dist/
 public/blog/

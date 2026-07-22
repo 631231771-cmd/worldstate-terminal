@@ -360,6 +360,7 @@ Runs before every `git push`:
 | Workflow | Trigger | Checks |
 |----------|---------|--------|
 | `typecheck.yml` | PR, push to main | `tsc --noEmit` for src and API tsconfigs |
+| `macro-engine.yml` | PR + push to main (macro paths) | Python 3.12 lint, types, tests, migrations, catalog, and container build |
 | `lint-code.yml` | PR, push to main | Biome lint + sebuf API-contract enforcement |
 | `lint.yml` | PR (markdown changes) | markdownlint-cli2 |
 | `test.yml` | PR, push to main | Unit/integration suite, docs-stats guardrail, plus conditional digest-image and resilience-validation smoke gates |
