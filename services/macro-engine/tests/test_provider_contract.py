@@ -34,8 +34,9 @@ class FixtureProvider:
         start: date | None = None,
         end: date | None = None,
     ) -> AsyncIterator[ObservationRecord]:
-        if False:
-            yield  # pragma: no cover
+        records: list[ObservationRecord] = []
+        for record in records:
+            yield record
 
     async def fetch_vintages(self, native_id: str) -> Sequence[date]:
         return [date(2026, 1, 1)]
@@ -64,4 +65,3 @@ async def test_runtime_provider_protocol_and_normalized_metadata() -> None:
     assert metadata.native_id == "TEST"
     assert metadata.model_config["frozen"] is True
     assert (await provider.healthcheck()).status is ProviderStatus.OK
-

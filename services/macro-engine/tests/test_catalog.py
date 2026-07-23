@@ -35,8 +35,9 @@ availability: {method: unknown, precision: unknown}
 tags: [fixture]
 source_url: https://example.test/series/TEST
 """
+    indented_item = item.strip().replace("\n", "\n    ")
     (catalogs / "duplicate.yaml").write_text(
-        f"version: 1\nseries:\n  - {item.strip().replace(chr(10), chr(10) + '    ')}\n  - {item.strip().replace(chr(10), chr(10) + '    ')}\n",
+        f"version: 1\nseries:\n  - {indented_item}\n  - {indented_item}\n",
         encoding="utf-8",
     )
 
@@ -59,4 +60,3 @@ def test_loaded_records_are_normalized() -> None:
 
     assert {record.provider for record in records} == {"fred_alfred"}
     assert all(record.orientation in {-1, 1} for record in records)
-

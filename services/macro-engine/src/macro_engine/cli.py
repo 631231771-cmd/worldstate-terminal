@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, NoReturn
@@ -25,7 +24,9 @@ def emit(status: str, command: str, **details: Any) -> None:
 
 
 def unsupported(command: str, phase: str) -> NoReturn:
-    emit("unsupported", command, available_in=phase, message="command is not implemented in Phase 1")
+    emit(
+        "unsupported", command, available_in=phase, message="command is not implemented in Phase 1"
+    )
     raise SystemExit(EXIT_UNSUPPORTED)
 
 
@@ -96,7 +97,9 @@ def run(argv: Sequence[str] | None = None) -> int:
             "unavailable",
             "data-health",
             database="not_checked",
-            providers={"fred_alfred": "not_configured" if not settings.fred_api_key else "unsupported"},
+            providers={
+                "fred_alfred": "not_configured" if not settings.fred_api_key else "unsupported"
+            },
             message="no observations exist in the Phase 1 skeleton",
         )
         return EXIT_OK
@@ -128,4 +131,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

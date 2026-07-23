@@ -7,7 +7,9 @@ from typing import Any
 
 import structlog
 
-_SENSITIVE_KEY = re.compile(r"(?:api[_-]?key|authorization|bearer|password|secret|token|database[_-]?url|connection)", re.I)
+_SENSITIVE_KEY = re.compile(
+    r"(?:api[_-]?key|authorization|bearer|password|secret|token|database[_-]?url|connection)", re.I
+)
 _BEARER = re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+")
 _URL_CREDENTIALS = re.compile(r"(?P<scheme>[a-z][a-z0-9+.-]*://)[^/@\s:]+:[^/@\s]+@", re.I)
 REDACTED = "[REDACTED]"
@@ -58,4 +60,3 @@ def configure_logging(level: str = "INFO") -> None:
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
     )
-

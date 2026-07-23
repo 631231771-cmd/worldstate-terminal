@@ -83,4 +83,3 @@ class ObservationQuery(DomainModel):
     start: date | None = None
     end: date | None = None
     as_of: datetime | None = None
-

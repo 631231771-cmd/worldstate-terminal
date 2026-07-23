@@ -40,4 +40,3 @@ class ErrorResponse(ApiModel):
     code: str
     message: str
     generated_at: datetime
-

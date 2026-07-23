@@ -1,2 +1,1 @@
 """Catalog and ingestion orchestration."""
-

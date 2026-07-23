@@ -30,8 +30,12 @@ def upgrade() -> None:
         sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("requires_credentials", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("terms_url", sa.String(2048)),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
     )
     op.create_table(
         "economic_entities",
@@ -57,7 +61,9 @@ def upgrade() -> None:
         sa.Column("provider_id", sa.BigInteger(), sa.ForeignKey("providers.id"), nullable=False),
         sa.Column("native_id", sa.String(255), nullable=False),
         sa.Column("canonical_key", sa.String(255), nullable=False, unique=True),
-        sa.Column("entity_id", sa.BigInteger(), sa.ForeignKey("economic_entities.id"), nullable=False),
+        sa.Column(
+            "entity_id", sa.BigInteger(), sa.ForeignKey("economic_entities.id"), nullable=False
+        ),
         sa.Column("title", sa.String(512), nullable=False),
         sa.Column("description", sa.Text()),
         sa.Column("frequency", sa.String(32), nullable=False),
@@ -71,8 +77,12 @@ def upgrade() -> None:
         sa.Column("default_transform", sa.String(64), nullable=False),
         sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("metadata_json", postgresql.JSONB(), nullable=False, server_default=JSON_OBJECT),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.UniqueConstraint("provider_id", "native_id", name="uq_series_provider_native"),
     )
     op.create_index("ix_series_entity_active", "series", ["entity_id", "active"])
@@ -103,7 +113,9 @@ def upgrade() -> None:
         ),
     )
     op.create_index("ix_observations_series_period", "observations", ["series_id", "period_start"])
-    op.create_index("ix_observations_series_available", "observations", ["series_id", "available_at"])
+    op.create_index(
+        "ix_observations_series_available", "observations", ["series_id", "available_at"]
+    )
     op.create_index("ix_observations_series_vintage", "observations", ["series_id", "vintage_date"])
     op.create_index(
         "ix_observations_as_of",
@@ -129,13 +141,22 @@ def upgrade() -> None:
         sa.Column("importance", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("source_url", sa.String(2048), nullable=False),
         sa.Column("metadata_json", postgresql.JSONB(), nullable=False, server_default=JSON_OBJECT),
-        sa.UniqueConstraint("provider_id", "native_id", "scheduled_at", name="uq_release_native_time"),
+        sa.UniqueConstraint(
+            "provider_id", "native_id", "scheduled_at", name="uq_release_native_time"
+        ),
     )
     op.create_index("ix_releases_scheduled", "releases", ["scheduled_at", "status"])
     op.create_table(
         "release_series",
-        sa.Column("release_id", sa.Uuid(), sa.ForeignKey("releases.id", ondelete="CASCADE"), primary_key=True),
-        sa.Column("series_id", sa.Uuid(), sa.ForeignKey("series.id", ondelete="CASCADE"), primary_key=True),
+        sa.Column(
+            "release_id",
+            sa.Uuid(),
+            sa.ForeignKey("releases.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "series_id", sa.Uuid(), sa.ForeignKey("series.id", ondelete="CASCADE"), primary_key=True
+        ),
     )
     op.create_table(
         "sync_runs",
@@ -145,7 +166,9 @@ def upgrade() -> None:
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("finished_at", sa.DateTime(timezone=True)),
         sa.Column("status", sa.String(32), nullable=False),
-        sa.Column("requested_series", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY),
+        sa.Column(
+            "requested_series", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY
+        ),
         sa.Column("inserted_rows", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("updated_rows", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("skipped_rows", sa.Integer(), nullable=False, server_default="0"),
@@ -164,7 +187,9 @@ def upgrade() -> None:
     )
     op.create_table(
         "state_components",
-        sa.Column("state_key", sa.String(64), sa.ForeignKey("state_definitions.key"), primary_key=True),
+        sa.Column(
+            "state_key", sa.String(64), sa.ForeignKey("state_definitions.key"), primary_key=True
+        ),
         sa.Column("series_id", sa.Uuid(), sa.ForeignKey("series.id"), primary_key=True),
         sa.Column("transform", sa.String(64), nullable=False),
         sa.Column("orientation", sa.Integer(), nullable=False),
@@ -175,9 +200,13 @@ def upgrade() -> None:
     )
     op.create_table(
         "state_snapshots",
-        sa.Column("entity_id", sa.BigInteger(), sa.ForeignKey("economic_entities.id"), primary_key=True),
+        sa.Column(
+            "entity_id", sa.BigInteger(), sa.ForeignKey("economic_entities.id"), primary_key=True
+        ),
         sa.Column("as_of", sa.DateTime(timezone=True), primary_key=True),
-        sa.Column("state_key", sa.String(64), sa.ForeignKey("state_definitions.key"), primary_key=True),
+        sa.Column(
+            "state_key", sa.String(64), sa.ForeignKey("state_definitions.key"), primary_key=True
+        ),
         sa.Column("methodology_version", sa.String(64), primary_key=True),
         sa.Column("score", sa.Float(), nullable=False),
         sa.Column("confidence", sa.Float(), nullable=False),
@@ -188,9 +217,13 @@ def upgrade() -> None:
         sa.Column("label", sa.String(64), nullable=False),
         sa.Column("components_json", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY),
         sa.Column("source_snapshot_hash", sa.String(64), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint("score >= -1 AND score <= 1", name="ck_state_snapshots_score"),
-        sa.CheckConstraint("confidence >= 0 AND confidence <= 1", name="ck_state_snapshots_confidence"),
+        sa.CheckConstraint(
+            "confidence >= 0 AND confidence <= 1", name="ck_state_snapshots_confidence"
+        ),
     )
     op.create_index("ix_state_snapshots_entity_as_of", "state_snapshots", ["entity_id", "as_of"])
     op.create_table(
@@ -230,8 +263,12 @@ def upgrade() -> None:
         sa.Column("confidence", sa.Float(), nullable=False),
         sa.Column("start_date", sa.Date(), nullable=False),
         sa.Column("review_date", sa.Date(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint(
             "status IN ('draft','active','confirmed','invalidated','archived')",
             name="ck_theses_status",
@@ -241,7 +278,9 @@ def upgrade() -> None:
     op.create_table(
         "thesis_conditions",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("thesis_id", sa.Uuid(), sa.ForeignKey("theses.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "thesis_id", sa.Uuid(), sa.ForeignKey("theses.id", ondelete="CASCADE"), nullable=False
+        ),
         sa.Column("condition_type", sa.String(32), nullable=False),
         sa.Column("metric_ref", sa.String(255), nullable=False),
         sa.Column("operator", sa.String(16), nullable=False),
@@ -258,7 +297,9 @@ def upgrade() -> None:
     op.create_table(
         "thesis_evidence",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("thesis_id", sa.Uuid(), sa.ForeignKey("theses.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "thesis_id", sa.Uuid(), sa.ForeignKey("theses.id", ondelete="CASCADE"), nullable=False
+        ),
         sa.Column("evidence_type", sa.String(64), nullable=False),
         sa.Column("reference_id", sa.String(255), nullable=False),
         sa.Column("stance", sa.String(32), nullable=False),
@@ -274,7 +315,9 @@ def upgrade() -> None:
     op.create_table(
         "thesis_snapshots",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("thesis_id", sa.Uuid(), sa.ForeignKey("theses.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "thesis_id", sa.Uuid(), sa.ForeignKey("theses.id", ondelete="CASCADE"), nullable=False
+        ),
         sa.Column("captured_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("confidence", sa.Float(), nullable=False),
         sa.Column("evidence_state", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY),

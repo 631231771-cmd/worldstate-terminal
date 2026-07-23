@@ -12,13 +12,24 @@
 - npm reports two high-severity dependency findings in the existing lockfile.
   No force remediation was attempted.
 
-## Product limitations at Phase 0
+## Product limitations after Phase 1
 
-- Macro Engine is not yet implemented.
-- No provider is configured and no external data is presented as available.
-- No catalog series has been validated.
+- Macro Engine provides a service, schema, protocol, catalog, health, and CLI
+  skeleton; provider ingestion and scoring intentionally begin in Phase 2.
+- No provider adapter is active and no external observation is presented as
+  available.
+- Eight initial U.S. catalog entries pass structural validation, but live source
+  metadata validation requires the Phase 2 FRED/ALFRED adapter and credentials.
 - No point-in-time state, revision history, macro variant, or research workflow is
   available.
+- The local verification machine has no Docker CLI. Compose and Dockerfile
+  invariants were checked statically, while the Linux CI workflow owns the live
+  PostgreSQL migration and image build.
+- The FastAPI test client emits an upstream Starlette deprecation warning about
+  the current `httpx` integration. Tests pass; a coordinated dependency update is
+  deferred rather than overriding the lock without evidence.
+- OpenBB 4.7.2 is locked as an optional extra but is not installed in the default
+  service or container environment.
 
 Unavailable functionality must remain explicit in API and UI responses. Missing
 values must never be replaced with zero or synthetic production data.

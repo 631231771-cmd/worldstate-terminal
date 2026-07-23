@@ -22,4 +22,3 @@ class CatalogValidationError(MacroEngineError):
 
 class ProviderError(MacroEngineError):
     """Normalized provider failure."""
-

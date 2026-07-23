@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -8,10 +9,12 @@ from macro_engine.config import default_catalog_root
 
 
 def output_json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
-    return json.loads(capsys.readouterr().out)
+    return cast(dict[str, object], json.loads(capsys.readouterr().out))
 
 
-def test_catalog_validate_command(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_catalog_validate_command(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setenv("MACRO_CATALOG_ROOT", str(default_catalog_root()))
 
     assert cli.run(["catalog", "validate"]) == cli.EXIT_OK
@@ -57,11 +60,19 @@ def test_serve_delegates_to_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("uvicorn.run", fake_run)
 
-    assert cli.run(["serve", "--host", "0.0.0.0", "--port", "9000"]) == cli.EXIT_OK
-    assert called == {"app": "macro_engine.main:app", "host": "0.0.0.0", "port": 9000, "factory": False}
+    host = "0.0.0.0"  # noqa: S104 - container binding is intentional
+    assert cli.run(["serve", "--host", host, "--port", "9000"]) == cli.EXIT_OK
+    assert called == {
+        "app": "macro_engine.main:app",
+        "host": host,
+        "port": 9000,
+        "factory": False,
+    }
 
 
-def test_migrate_delegates_to_alembic(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_migrate_delegates_to_alembic(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     called: list[str] = []
 
     def fake_upgrade(_config: object, revision: str) -> None:
@@ -92,7 +103,9 @@ def test_every_command_has_help() -> None:
         assert command in help_text
 
 
-def test_catalog_invalid_returns_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_catalog_invalid_returns_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setenv("MACRO_CATALOG_ROOT", str(tmp_path))
 
     assert cli.run(["catalog", "validate"]) == cli.EXIT_ERROR

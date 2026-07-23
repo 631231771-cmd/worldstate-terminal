@@ -1,6 +1,6 @@
 # World State Terminal architecture
 
-Status: Phase 0 draft.
+Status: Phase 1 service baseline.
 
 ## Context
 

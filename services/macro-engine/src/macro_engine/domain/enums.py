@@ -58,4 +58,3 @@ class EvidenceStance(StrEnum):
     SUPPORT = "support"
     CONTRADICT = "contradict"
     NEUTRAL = "neutral"
-

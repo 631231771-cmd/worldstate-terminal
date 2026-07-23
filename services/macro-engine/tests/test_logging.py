@@ -21,4 +21,3 @@ def test_structlog_processor_returns_sanitized_mapping() -> None:
     result = redact_event(None, "info", {"event": "ok", "authorization": "Bearer abc"})
 
     assert result == {"event": "ok", "authorization": REDACTED}
-

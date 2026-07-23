@@ -16,4 +16,3 @@ linked rather than duplicated here.
 3. [Implementation plan](../docs/macro/plan/IMPLEMENTATION_PLAN.md)
 4. [Architecture](../docs/macro/ARCHITECTURE.md)
 5. [Decision log](../docs/macro/DECISIONS.md)
-

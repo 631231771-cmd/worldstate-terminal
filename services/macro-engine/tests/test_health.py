@@ -1,6 +1,8 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 
 from macro_engine.api import health as health_module
@@ -10,11 +12,13 @@ from macro_engine.domain.schemas import ComponentHealth
 from macro_engine.main import create_app
 
 
-def test_health_response_is_explicit_and_secret_free(monkeypatch: object) -> None:
-    async def healthy_database(_request: object, _timeout: float) -> ComponentHealth:
+def test_health_response_is_explicit_and_secret_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def healthy_database(_request: Request, _timeout: float) -> ComponentHealth:
         return ComponentHealth(status=ServiceStatus.OK)
 
-    monkeypatch.setattr(health_module, "probe_database", healthy_database)  # type: ignore[attr-defined]
+    monkeypatch.setattr(health_module, "probe_database", healthy_database)
     app = create_app(Settings(database_url="postgresql+asyncpg://user:pass@localhost/test"))
 
     with TestClient(app) as client:
@@ -29,11 +33,13 @@ def test_health_response_is_explicit_and_secret_free(monkeypatch: object) -> Non
     assert "pass" not in response.text
 
 
-def test_health_degrades_when_database_probe_fails(monkeypatch: object) -> None:
-    async def unavailable_database(_request: object, _timeout: float) -> ComponentHealth:
+def test_health_degrades_when_database_probe_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def unavailable_database(_request: Request, _timeout: float) -> ComponentHealth:
         return ComponentHealth(status=ServiceStatus.UNAVAILABLE, message="database probe failed")
 
-    monkeypatch.setattr(health_module, "probe_database", unavailable_database)  # type: ignore[attr-defined]
+    monkeypatch.setattr(health_module, "probe_database", unavailable_database)
     app = create_app(Settings())
 
     with TestClient(app) as client:
@@ -45,10 +51,13 @@ def test_health_degrades_when_database_probe_fails(monkeypatch: object) -> None:
 
 async def test_probe_database_collapses_driver_errors() -> None:
     class BrokenEngine:
+        should_fail: bool = True
+
         @asynccontextmanager
         async def connect(self) -> AsyncIterator[None]:
-            raise RuntimeError("connection contains a secret that must not escape")
-            yield
+            if self.should_fail:
+                raise RuntimeError("connection contains a secret that must not escape")
+            yield None
 
     class State:
         database_engine = BrokenEngine()
@@ -63,4 +72,3 @@ async def test_probe_database_collapses_driver_errors() -> None:
 
     assert result.status is ServiceStatus.UNAVAILABLE
     assert result.message == "database probe failed: RuntimeError"
-

@@ -6,6 +6,14 @@ Each phase ends with focused tests, static analysis, a production build where th
 phase has a build artifact, an updated progress record, and a single-scope commit.
 Existing variants and upstream attribution remain intact.
 
+## Status
+
+| Phase | State | Evidence |
+| --- | --- | --- |
+| 0 | complete, 2026-07-22 | `docs/macro/progress/phase-00.md` |
+| 1 | complete, 2026-07-23 | `docs/macro/progress/phase-01.md` |
+| 2 | next | FRED/ALFRED ingestion and deterministic state |
+
 ## Phase 0: upstream audit and plan
 
 - pin upstream and establish the feature branch;

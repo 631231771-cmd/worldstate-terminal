@@ -138,4 +138,3 @@ def validate_catalog(catalog_root: Path) -> CatalogValidationResult:
         series=len(series),
         warnings=["live provider metadata validation is unavailable in Phase 1"],
     )
-

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from macro_engine.db.base import Base
 from macro_engine.db import models as _models  # noqa: F401
+from macro_engine.db.base import Base
 
 
 def test_initial_schema_contains_required_entities_and_indexes() -> None:
@@ -35,4 +35,3 @@ def test_production_code_never_uses_create_all() -> None:
     sources = "\n".join(path.read_text(encoding="utf-8") for path in source_root.rglob("*.py"))
 
     assert "create_all" not in sources
-

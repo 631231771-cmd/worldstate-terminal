@@ -27,7 +27,7 @@ class Settings(BaseSettings):
         validation_alias="MACRO_DATABASE_URL",
     )
     engine_url: HttpUrl = Field(
-        default="http://127.0.0.1:8000",
+        default=HttpUrl("http://127.0.0.1:8000"),
         validation_alias="MACRO_ENGINE_URL",
     )
     write_token: SecretStr | None = Field(default=None, validation_alias="MACRO_WRITE_TOKEN")
@@ -41,7 +41,9 @@ class Settings(BaseSettings):
         validation_alias="MACRO_STRICT_POINT_IN_TIME",
     )
     enable_writes: bool = Field(default=False, validation_alias="MACRO_ENABLE_WRITES")
-    catalog_root: Path = Field(default_factory=default_catalog_root, validation_alias="MACRO_CATALOG_ROOT")
+    catalog_root: Path = Field(
+        default_factory=default_catalog_root, validation_alias="MACRO_CATALOG_ROOT"
+    )
     log_level: str = Field(default="INFO", validation_alias="MACRO_LOG_LEVEL")
     health_timeout_seconds: float = Field(
         default=2.0,
@@ -57,7 +59,7 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = Field(default=None, validation_alias="OPENAI_API_KEY")
     ollama_base_url: HttpUrl | None = Field(default=None, validation_alias="OLLAMA_BASE_URL")
     dbnomics_base_url: HttpUrl = Field(
-        default="https://api.db.nomics.world/v22",
+        default=HttpUrl("https://api.db.nomics.world/v22"),
         validation_alias="DBNOMICS_BASE_URL",
     )
 
@@ -66,4 +68,3 @@ class Settings(BaseSettings):
         """Return whether write routes can be enabled safely."""
 
         return self.enable_writes and self.write_token is not None
-

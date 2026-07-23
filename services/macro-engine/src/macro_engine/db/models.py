@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -15,7 +16,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    JSON,
     Numeric,
     String,
     Text,
@@ -77,7 +77,9 @@ class EconomicEntity(Base):
     timezone: Mapped[str | None] = mapped_column(String(64))
     latitude: Mapped[float | None] = mapped_column(Float)
     longitude: Mapped[float | None] = mapped_column(Float)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
 
 
 class Series(TimestampMixin, Base):
@@ -104,7 +106,9 @@ class Series(TimestampMixin, Base):
     availability_precision: Mapped[str] = mapped_column(String(32), nullable=False)
     default_transform: Mapped[str] = mapped_column(String(64), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
 
 
 class Observation(Base):
@@ -166,7 +170,9 @@ class Release(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     importance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     source_url: Mapped[str] = mapped_column(String(2048), nullable=False)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
 
 
 class ReleaseSeries(Base):
@@ -197,8 +203,12 @@ class SyncRun(Base):
     updated_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     skipped_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     warnings: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
-    errors: Mapped[list[dict[str, Any]]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+    errors: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
 
 
 class StateDefinition(Base):
@@ -228,7 +238,9 @@ class StateSnapshot(Base):
     __tablename__ = "state_snapshots"
     __table_args__ = (
         CheckConstraint("score >= -1 AND score <= 1", name="ck_state_snapshots_score"),
-        CheckConstraint("confidence >= 0 AND confidence <= 1", name="ck_state_snapshots_confidence"),
+        CheckConstraint(
+            "confidence >= 0 AND confidence <= 1", name="ck_state_snapshots_confidence"
+        ),
         Index("ix_state_snapshots_entity_as_of", "entity_id", "as_of"),
     )
 
@@ -238,12 +250,16 @@ class StateSnapshot(Base):
     methodology_version: Mapped[str] = mapped_column(String(64), primary_key=True)
     score: Mapped[float] = mapped_column(Float, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    momentum: Mapped[dict[str, float | None]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+    momentum: Mapped[dict[str, float | None]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
     coverage: Mapped[float] = mapped_column(Float, nullable=False)
     agreement: Mapped[float] = mapped_column(Float, nullable=False)
     freshness: Mapped[float] = mapped_column(Float, nullable=False)
     label: Mapped[str] = mapped_column(String(64), nullable=False)
-    components_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    components_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
     source_snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -261,7 +277,9 @@ class CausalNode(Base):
     category: Mapped[str] = mapped_column(String(64), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     linked_series: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
 
 
 class CausalEdge(Base):
@@ -275,8 +293,12 @@ class CausalEdge(Base):
     lag_max_days: Mapped[int] = mapped_column(Integer, nullable=False)
     conditions: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
     confidence: Mapped[str] = mapped_column(String(32), nullable=False)
-    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
-    counterexamples: Mapped[list[dict[str, Any]]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    evidence: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    counterexamples: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
@@ -347,7 +369,9 @@ class ThesisEvidence(Base):
     weight: Mapped[float] = mapped_column(Float, nullable=False)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     note: Mapped[str | None] = mapped_column(Text)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
 
 
 class ThesisSnapshot(Base):
@@ -361,7 +385,8 @@ class ThesisSnapshot(Base):
     )
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    evidence_state: Mapped[list[dict[str, Any]]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    evidence_state: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
     world_state: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
     source_snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-

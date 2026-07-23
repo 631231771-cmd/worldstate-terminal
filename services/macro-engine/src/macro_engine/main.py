@@ -1,13 +1,13 @@
 """FastAPI application factory."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
 import structlog
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from prometheus_client import make_asgi_app
 
 from macro_engine import __version__
@@ -40,11 +40,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     @app.middleware("http")
-    async def request_context(request: Request, call_next: object) -> object:
+    async def request_context(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         request_id = request.headers.get("x-request-id", str(uuid4()))[:128]
         structlog.contextvars.bind_contextvars(request_id=request_id)
         try:
-            response = await call_next(request)  # type: ignore[operator]
+            response = await call_next(request)
             response.headers["X-Request-ID"] = request_id
             return response
         finally:
@@ -67,4 +70,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
-

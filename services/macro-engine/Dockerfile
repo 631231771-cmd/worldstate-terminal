@@ -7,10 +7,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY services/macro-engine/pyproject.toml services/macro-engine/uv.lock ./
+COPY services/macro-engine/pyproject.toml services/macro-engine/uv.lock \
+    services/macro-engine/README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY services/macro-engine/README.md ./README.md
 COPY services/macro-engine/alembic.ini ./alembic.ini
 COPY services/macro-engine/migrations ./migrations
 COPY services/macro-engine/src ./src
@@ -28,4 +28,3 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=3)"]
 
 CMD ["uv", "run", "--no-sync", "macro-engine", "serve", "--host", "0.0.0.0", "--port", "8000"]
-

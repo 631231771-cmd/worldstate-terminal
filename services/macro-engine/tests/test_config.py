@@ -29,4 +29,3 @@ def test_explicit_environment_aliases(monkeypatch: object, tmp_path: Path) -> No
     assert isinstance(settings.write_token, SecretStr)
     assert isinstance(settings.fred_api_key, SecretStr)
     assert settings.catalog_root == tmp_path
-

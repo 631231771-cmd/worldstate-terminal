@@ -1,18 +1,19 @@
 ---
 project: World State Terminal
-status: phase-1-wip
-updated: 2026-07-22
+status: phase-1-complete
+updated: 2026-07-23
 branch: feature/world-state-terminal
 phase_1_checkpoint: 7d70d3d2ee8d4476a5c310a62274b6952ccc7865
-resume_from: dependency-lock-and-verification
+phase_1_formal_commit: resolve-from-git-log
+resume_from: phase-2-fred-alfred-and-state-engine
 ---
 
 # Current continuation point
 
 > [!important] Resume here
-> Phase 0 is complete. Phase 1 implementation is saved as an intentionally
-> unverified WIP commit. Do not treat Phase 1 as complete until its lockfile,
-> strict checks, tests, build, progress report, and final phase commit pass.
+> Phases 0 and 1 are complete. Begin Phase 2 with official FRED/ALFRED
+> ingestion, point-in-time persistence, deterministic transforms, state
+> computation, and the expanded catalog. Do not start Phase 3 frontend work.
 
 ## Repository state
 
@@ -21,7 +22,8 @@ resume_from: dependency-lock-and-verification
 - Upstream baseline: `7fe22e47dc90ee2693d0071323561e5bbffe5c42`
 - Phase 0 commit: `8059b7aaa0fe8c2ef24774a5998c0695d391abeb`
 - Phase 1 WIP checkpoint: `7d70d3d2ee8d4476a5c310a62274b6952ccc7865`
-- Worktree was clean immediately after the WIP commit.
+- Formal Phase 1 commit: find the latest `feat(macro-engine): complete phase 1
+  service foundation` entry in Git history.
 - Git remote is named `upstream` and points to `koala73/worldmonitor`.
 
 ## Completed
@@ -38,28 +40,34 @@ resume_from: dependency-lock-and-verification
 - Added initial macro catalogs without fabricated observations.
 - Added Dockerfile, Compose stack, CI workflow, environment example, Make
   targets, and initial unit tests.
+- Locked Python dependencies and confirmed OpenBB is excluded from the default
+  environment.
+- Passed Ruff, strict mypy, 25 tests at 96.76% coverage, CLI/catalog/Alembic
+  validation, Python package build, root type/lint checks, 250 sidecar tests, and
+  the full frontend production build.
+- Added Phase 1 API, operations, security, limitations, dependency, and progress
+  documentation.
 
 ## Exact next actions
 
-1. In `services/macro-engine`, run `python -m uv lock`.
-2. Run `python -m uv sync --group dev`.
-3. Run Ruff, fix all findings, then run strict mypy and fix all findings.
-4. Run pytest with the configured coverage threshold and close coverage gaps.
-5. Validate the CLI help, catalog command, and Alembic offline SQL generation.
-6. Validate Docker Compose configuration and build the Macro Engine image if
-   Docker is available.
-7. Re-run relevant root checks: documentation checks, TypeScript typecheck,
-   lint, and a production frontend build.
-8. Add `docs/macro/progress/phase-01.md`, update limitations/customizations,
-   run secret and diff checks, then make the formal Phase 1 commit.
+1. Confirm the formal Phase 1 commit and a clean worktree.
+2. Read the Phase 2 section of `docs/macro/plan/IMPLEMENTATION_PLAN.md`.
+3. Design the FRED/ALFRED provider around realtime/vintage semantics before
+   implementing network calls.
+4. Add idempotent repositories and sync-run accounting against PostgreSQL.
+5. Implement point-in-time filters and deterministic transforms with property
+   tests before state aggregation.
+6. Expand the U.S. catalog to at least 35 live-validated series.
+7. Finish Phase 2 with focused tests, production build, progress record, and
+   a separate phase commit.
 
-## Likely first fixes
+## Phase 2 first design questions
 
-- Correct FastAPI middleware typing in `macro_engine/main.py`.
-- Use `pytest.MonkeyPatch` types in configuration and health tests.
-- Ensure the Dockerfile copies `README.md` before the frozen dependency sync.
-- Resolve any Ruff or mypy findings in the large ORM and migration modules.
-- Confirm the optional `openbb==4.7.2` extra does not affect the core sync.
+- Exact ALFRED realtime-window paging and availability timestamp policy.
+- Observation uniqueness and revision replacement semantics.
+- Retry, rate-limit, concurrency, and last-known-good behavior.
+- Transform warm-up/minimum-history rules and strict missing-data behavior.
+- State component versioning, source hashes, confidence, and reproducibility.
 
 ## Known baseline constraints
 
@@ -72,6 +80,8 @@ resume_from: dependency-lock-and-verification
   Chromium download timed out, so browser smoke testing is still unavailable.
 - Buf lint has pre-existing protobuf naming/import/package findings.
 - Never use fabricated macro data. Missing providers must remain explicit.
+- Docker is not installed locally; use the Linux CI job for live PostgreSQL and
+  container verification.
 
 ## Guardrails
 
@@ -81,12 +91,13 @@ resume_from: dependency-lock-and-verification
 - Use SQLite only for isolated tests; PostgreSQL and Alembic are authoritative.
 - Run heavy verification commands serially on this machine.
 - Do not amend the WIP checkpoint merely to hide intermediate history; finish
-  Phase 1 with a separate verified phase commit.
+  every future phase with a separate verified phase commit.
 
 ## Canonical links
 
 - [[00-checkpoints/2026-07-22-phase-1-wip]]
 - [Phase 0 progress](../docs/macro/progress/phase-00.md)
+- [Phase 1 progress](../docs/macro/progress/phase-01.md)
 - [Implementation plan](../docs/macro/plan/IMPLEMENTATION_PLAN.md)
 - [Known limitations](../docs/macro/KNOWN_LIMITATIONS.md)
 - [Customization ledger](../docs/macro/CUSTOMIZATIONS.md)

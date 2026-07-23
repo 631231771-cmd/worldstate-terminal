@@ -2,25 +2,32 @@
 
 ## Policy
 
-This inventory is provisional until dependency locking in Phase 1. Exact package
-metadata and license texts must be captured from the resolved distributions before
-a release candidate. Dataset terms are reviewed separately from software package
-licenses.
+The Python graph is locked by `services/macro-engine/uv.lock`. The table below
+records the direct dependency versions installed by the Phase 1 core/development
+environment and the license metadata exposed by those distributions. Exact
+license texts and all transitive packages still require a release-candidate
+notice bundle. Dataset terms are reviewed separately from software licenses.
 
-## Planned Macro Engine dependencies
+## Locked Macro Engine dependencies
 
-| Package or service | Pinned or planned version | Purpose | Review status |
+| Package or service | Locked version | Purpose | Distribution metadata |
 | --- | --- | --- | --- |
-| OpenBB | 4.7.2 | provider and data access layer | license and provider-terms review required |
-| FastAPI / Uvicorn | lockfile resolution | HTTP service | pending locked metadata review |
-| Pydantic / pydantic-settings | major version 2 | validation and settings | pending locked metadata review |
-| SQLAlchemy / asyncpg / Alembic | current compatible lock | PostgreSQL and migrations | pending locked metadata review |
-| httpx / tenacity | current compatible lock | provider HTTP, timeout, retry | pending locked metadata review |
-| Polars / NumPy | current compatible lock | deterministic transforms | pending locked metadata review |
-| APScheduler | current compatible lock | local scheduling | pending locked metadata review |
-| PyYAML / structlog / prometheus-client | current compatible lock | catalog, logs, metrics | pending locked metadata review |
-| pytest / pytest-asyncio / respx / hypothesis / coverage | current compatible lock | tests | pending locked metadata review |
-| Ruff / mypy | current compatible lock | quality gates | pending locked metadata review |
+| OpenBB | 4.7.2, optional extra | provider/data access | not installed by default; license and provider terms pending |
+| FastAPI / Uvicorn | 0.136.3 / 0.40.0 | HTTP service | MIT / BSD-3-Clause |
+| Pydantic / pydantic-settings | 2.13.4 / 2.14.2 | validation and settings | MIT / MIT |
+| SQLAlchemy / asyncpg / Alembic | 2.0.51 / 0.31.0 / 1.18.5 | PostgreSQL and migrations | MIT / Apache-2.0 / MIT |
+| httpx / tenacity | 0.28.1 / 9.1.4 | provider HTTP, timeout, retry | BSD-3-Clause / Apache-2.0 |
+| Polars / NumPy | 1.43.0 / 2.5.1 | deterministic transforms | package metadata captured; notice review pending |
+| APScheduler | 3.11.3 | local scheduling | MIT |
+| PyYAML / structlog | 6.0.3 / 25.5.0 | catalog and logs | MIT / MIT OR Apache-2.0 |
+| prometheus-client | 0.25.0 | metrics | Apache-2.0 AND BSD-2-Clause |
+| pytest / pytest-asyncio | 8.4.2 / 0.26.0 | tests | MIT / Apache-2.0 |
+| respx / Hypothesis / coverage | 0.23.1 / 6.160.0 / 7.15.2 | tests | BSD-3-Clause / MPL-2.0 / Apache-2.0 |
+| Ruff / mypy | 0.15.22 / 1.20.2 | quality gates | MIT / MIT |
+
+`uv.lock` includes hashes for registry artifacts. `python -m uv sync --group
+dev` installed 56 packages without the OpenBB extra; `python -m uv lock
+--check` confirmed the lock remained current.
 
 ## Planned data providers
 

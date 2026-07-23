@@ -26,7 +26,7 @@ async def probe_database(request: Request, timeout_seconds: float) -> ComponentH
             async with request.app.state.database_engine.connect() as connection:
                 await connection.execute(text("SELECT 1"))
         return ComponentHealth(status=ServiceStatus.OK)
-    except Exception as exc:  # noqa: BLE001 - health must collapse driver failures
+    except Exception as exc:
         return ComponentHealth(
             status=ServiceStatus.UNAVAILABLE,
             message=f"database probe failed: {type(exc).__name__}",
@@ -36,7 +36,9 @@ async def probe_database(request: Request, timeout_seconds: float) -> ComponentH
 def provider_summaries(settings: Settings) -> list[ProviderHealthSummary]:
     """Report configuration state without contacting providers in Phase 1."""
 
-    fred_status = ProviderStatus.DEGRADED if settings.fred_api_key else ProviderStatus.NOT_CONFIGURED
+    fred_status = (
+        ProviderStatus.DEGRADED if settings.fred_api_key else ProviderStatus.NOT_CONFIGURED
+    )
     fred_message = (
         "adapter implementation is scheduled for Phase 2"
         if settings.fred_api_key
@@ -85,4 +87,3 @@ async def health(request: Request) -> HealthResponse:
         default_timezone=settings.default_timezone,
         warnings=warnings,
     )
-
