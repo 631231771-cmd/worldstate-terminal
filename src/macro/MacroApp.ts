@@ -101,6 +101,7 @@ export class MacroApp {
     const root = document.getElementById(rootId);
     if (!root) throw new Error(`Missing application root #${rootId}`);
     this.root = root;
+    this.prepareDocument();
   }
 
   public async init(): Promise<void> {
@@ -110,6 +111,14 @@ export class MacroApp {
     this.renderLoading();
     await this.refresh(false);
     this.refreshTimer = window.setInterval(() => void this.refresh(false), 5 * 60_000);
+  }
+
+  private prepareDocument(): void {
+    document.documentElement.classList.add('js', 'world-macro-active');
+    const prerender = document.getElementById('seo-prerender');
+    if (prerender) prerender.hidden = true;
+    const crawlerHeading = document.querySelector<HTMLElement>('body > .app-heading');
+    if (crawlerHeading) crawlerHeading.hidden = true;
   }
 
   private applyDefaultLanguage(): void {
@@ -173,22 +182,21 @@ export class MacroApp {
   private render(): void {
     if (!this.briefing) return;
     const shell = el('main', 'world-shell');
-    shell.append(
-      this.renderHeader(),
-      this.renderHero(),
-      this.renderMarketStrip(),
-    );
+    shell.append(this.renderHeader(), this.renderMarketTicker());
 
-    const content = el('div', 'world-content-grid');
+    const workspace = el('div', 'world-workspace');
     const editorial = el('div', 'world-editorial-column');
+    const insightGrid = el('div', 'world-insight-grid');
+    insightGrid.append(this.renderTransmission(), this.renderLesson());
     editorial.append(
+      this.renderHero(),
       this.renderEvents(),
-      this.renderTransmission(),
-      this.renderLesson(),
+      this.renderMarketStrip(),
+      insightGrid,
       this.renderMacroFoundation(),
     );
-    content.append(editorial, this.renderTutor());
-    shell.appendChild(content);
+    workspace.append(editorial, this.renderTutor());
+    shell.appendChild(workspace);
     shell.appendChild(this.renderFooter());
     this.root.replaceChildren(shell);
   }
@@ -201,6 +209,19 @@ export class MacroApp {
       el('span', 'world-brand-mark', 'WST'),
       el('div', 'world-brand-copy', '世界状态终端'),
     );
+    const nav = el('nav', 'world-nav');
+    nav.setAttribute('aria-label', '页面导航');
+    const navItems: Array<readonly [string, string]> = [
+      ['#today', '今日简报'],
+      ['#events', '关键事件'],
+      ['#markets', '市场脉冲'],
+      ['#learn', '学习'],
+    ];
+    for (const [href, label] of navItems) {
+      const link = el('a', '', label);
+      link.href = href;
+      nav.appendChild(link);
+    }
     const meta = el('div', 'world-topbar-meta');
     const mode = el(
       'span',
@@ -221,36 +242,92 @@ export class MacroApp {
       window.location.href = url.toString();
     });
     meta.append(mode, updated, refresh, language);
-    header.append(brand, meta);
+    header.append(brand, nav, meta);
     return header;
+  }
+
+  private renderMarketTicker(): HTMLElement {
+    const ticker = el('section', 'world-ticker');
+    ticker.setAttribute('aria-label', '全球市场速览');
+    for (const market of this.briefing!.markets) {
+      const item = el('div', `world-ticker-item world-move-${market.direction}`);
+      const change =
+        market.change_percent === undefined
+          ? '待更新'
+          : `${market.change_percent >= 0 ? '+' : ''}${market.change_percent.toFixed(2)}%`;
+      item.append(
+        el('span', 'world-ticker-name', market.name_zh),
+        el('strong', '', formatPrice(market)),
+        el('span', 'world-ticker-change', change),
+      );
+      ticker.appendChild(item);
+    }
+    return ticker;
   }
 
   private renderHero(): HTMLElement {
     const briefing = this.briefing!;
+    const lead = briefing.events[0];
     const hero = el('section', 'world-hero');
+    hero.id = 'today';
     const copy = el('div', 'world-hero-copy');
     copy.append(
-      el('div', 'world-kicker', `TODAY'S WORLD · ${formatDate(briefing.generated_at, false)}`),
+      el('div', 'world-kicker', `DAILY WORLD BRIEF · ${formatDate(briefing.generated_at, false)}`),
       el('h1', '', briefing.headline),
       el('p', 'world-mission', briefing.mission),
     );
-    const orientation = el('div', 'world-orientation');
-    orientation.append(
-      el('span', 'world-orientation-label', '阅读方法'),
-      el('strong', '', '事实 → 预期 → 传导 → 市场确认'),
-      el('p', '', '我们不把“有人买入”当成最终原因，也不会假装知道看不见的机构订单流。'),
+    const stats = el('div', 'world-hero-stats');
+    stats.append(
+      this.heroStat(String(briefing.events.length), '关键事件'),
+      this.heroStat(
+        `${briefing.markets.filter((market) => market.available).length}/${briefing.markets.length}`,
+        '市场在线',
+      ),
+      this.heroStat(String(briefing.sources.news.length), '新闻来源'),
     );
-    hero.append(copy, orientation);
+    copy.appendChild(stats);
+
+    const focus = el('article', 'world-focus-card');
+    focus.append(
+      el('div', 'world-focus-header', '今天先理解这一条链'),
+      el('h2', '', lead?.display_title ?? '等待公开证据形成今日主线'),
+    );
+    if (lead) {
+      const chain = el('ol', 'world-focus-chain');
+      lead.causal_chain.slice(0, 4).forEach((step, index) => {
+        const item = el('li');
+        item.append(el('span', '', String(index + 1)), el('p', '', step));
+        chain.appendChild(item);
+      });
+      const assets = el('div', 'world-asset-tags');
+      for (const asset of lead.assets.slice(0, 6)) assets.appendChild(el('span', '', asset));
+      focus.append(chain, assets);
+    }
+    focus.appendChild(
+      el(
+        'p',
+        'world-focus-note',
+        '事实与行情由数据核对；因果链是可检验的解释，不代表我们看得到机构私有订单。',
+      ),
+    );
+    hero.append(copy, focus);
     return hero;
+  }
+
+  private heroStat(value: string, label: string): HTMLElement {
+    const stat = el('div', 'world-hero-stat');
+    stat.append(el('strong', '', value), el('span', '', label));
+    return stat;
   }
 
   private renderMarketStrip(): HTMLElement {
     const section = el('section', 'world-market-section');
+    section.id = 'markets';
     const heading = el('div', 'world-section-heading');
     heading.append(
-      el('div', 'world-kicker', 'GLOBAL MARKET PULSE'),
-      el('h2', '', '全球市场正在怎样反应'),
-      el('p', '', '日线免费行情 · 点击来源可核对原始数据'),
+      el('div', 'world-section-index', '02 / MARKET PULSE'),
+      el('h2', '', '市场如何回应这组信息'),
+      el('p', '', '先看价格，再看解释；日线免费行情可点击来源核对。'),
     );
     section.appendChild(heading);
     const grid = el('div', 'world-market-grid');
@@ -290,11 +367,13 @@ export class MacroApp {
 
   private renderEvents(): HTMLElement {
     const section = el('section', 'world-section');
+    section.id = 'events';
     const heading = el('div', 'world-section-heading world-heading-row');
     const title = el('div');
     title.append(
-      el('div', 'world-kicker', 'TOP WORLD EVENTS'),
+      el('div', 'world-section-index', '01 / TOP WORLD EVENTS'),
       el('h2', '', '今天全球最重要的事情'),
+      el('p', '', '按跨市场影响排序。展开后查看原始报道、传导路径与证据边界。'),
     );
     heading.append(title, el('span', 'world-count', `${this.briefing!.events.length} 个主题`));
     section.appendChild(heading);
@@ -302,14 +381,13 @@ export class MacroApp {
     if (!this.briefing!.events.length) {
       list.appendChild(el('p', 'world-empty', '免费新闻源暂时没有返回可核对的高影响事件。'));
     }
-    this.briefing!.events.forEach((event, index) => list.appendChild(this.eventCard(event, index)));
+    this.briefing!.events.forEach((event) => list.appendChild(this.eventCard(event)));
     section.appendChild(list);
     return section;
   }
 
-  private eventCard(event: WorldEvent, index: number): HTMLElement {
+  private eventCard(event: WorldEvent): HTMLElement {
     const details = el('details', 'world-event-card');
-    details.open = index === 0;
     const summary = el('summary', 'world-event-summary');
     const rank = el('span', 'world-event-rank', String(event.rank).padStart(2, '0'));
     const content = el('div', 'world-event-title-block');
@@ -317,10 +395,14 @@ export class MacroApp {
     meta.append(
       el('span', 'world-category', event.category.replace('_', ' ')),
       el('span', '', formatDate(event.published_at)),
-      el('span', '', `重要度 ${event.importance}`),
+      el('span', '', `影响 ${event.importance}/100`),
     );
-    content.append(meta, el('h3', '', event.display_title));
-    summary.append(rank, content, el('span', 'world-expand', '展开'));
+    content.append(
+      meta,
+      el('h3', '', event.display_title),
+      el('p', 'world-event-deck', event.why_it_matters),
+    );
+    summary.append(rank, content, el('span', 'world-expand', '查看分析'));
     details.appendChild(summary);
 
     const body = el('div', 'world-event-body');
@@ -333,12 +415,21 @@ export class MacroApp {
     );
     const chain = el('ol', 'world-causal-chain');
     for (const step of event.causal_chain) chain.appendChild(el('li', '', step));
+    const assets = el('div', 'world-asset-tags');
+    for (const asset of event.assets) assets.appendChild(el('span', '', asset));
     const evidence = el('div', 'world-event-evidence');
     evidence.append(
       el('span', '', `因果解释：假设 · 信心 ${confidenceLabel(event.confidence)}`),
       externalLink(`${event.source} · 查看原文`, event.url),
     );
-    body.append(why, el('div', 'world-mini-label', '可能的传导链'), chain, evidence);
+    body.append(
+      why,
+      el('div', 'world-mini-label', '可能的传导链'),
+      chain,
+      el('div', 'world-mini-label', '可能受影响的资产'),
+      assets,
+      evidence,
+    );
     details.appendChild(body);
     return details;
   }
@@ -347,7 +438,7 @@ export class MacroApp {
     const event = this.briefing!.events[0];
     const section = el('section', 'world-section world-transmission');
     const heading = el('div', 'world-section-heading');
-    heading.append(el('div', 'world-kicker', 'TRANSMISSION MAP'), el('h2', '', '一件事如何穿过市场'));
+    heading.append(el('div', 'world-section-index', '03 / TRANSMISSION'), el('h2', '', '一件事如何穿过市场'));
     section.appendChild(heading);
     if (!event) {
       section.appendChild(el('p', 'world-empty', '等待高影响事件后生成传导图。'));
@@ -373,8 +464,9 @@ export class MacroApp {
   private renderLesson(): HTMLElement {
     const lesson = this.briefing!.lesson;
     const section = el('section', 'world-section world-lesson');
+    section.id = 'learn';
     const heading = el('div', 'world-section-heading');
-    heading.append(el('div', 'world-kicker', 'DAILY LEARNING'), el('h2', '', `今日学习：${lesson.concept}`));
+    heading.append(el('div', 'world-section-index', '04 / DAILY LEARNING'), el('h2', '', `今日学习：${lesson.concept}`));
     const body = el('div', 'world-lesson-grid');
     const simple = el('article');
     simple.append(el('span', 'world-mini-label', '先这样理解'), el('h3', '', lesson.question), el('p', '', lesson.simple));
