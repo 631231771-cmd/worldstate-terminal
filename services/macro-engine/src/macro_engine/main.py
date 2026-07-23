@@ -14,6 +14,7 @@ from prometheus_client import make_asgi_app
 from macro_engine import __version__
 from macro_engine.api.health import router as health_router
 from macro_engine.api.terminal import router as terminal_router
+from macro_engine.api.world import router as world_router
 from macro_engine.config import Settings
 from macro_engine.db.session import create_engine
 from macro_engine.domain.errors import MacroEngineError
@@ -48,7 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "http://127.0.0.1:5173",
             "http://localhost:5173",
         ],
-        allow_methods=["GET", "OPTIONS"],
+        allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
     )
 
@@ -79,6 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(terminal_router)
+    app.include_router(world_router)
     app.mount("/metrics", make_asgi_app())
     return app
 

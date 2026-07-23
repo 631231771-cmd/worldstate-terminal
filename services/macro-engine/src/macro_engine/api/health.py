@@ -45,6 +45,24 @@ def provider_summaries(settings: Settings) -> list[ProviderHealthSummary]:
     return [
         ProviderHealthSummary(key="fred_alfred", status=fred_status, message=fred_message),
         ProviderHealthSummary(
+            key="public_intelligence",
+            status=ProviderStatus.OK,
+            message="keyless RSS and public daily market evidence enabled",
+        ),
+        ProviderHealthSummary(
+            key="ai_tutor",
+            status=(
+                ProviderStatus.OK
+                if settings.resolved_ai_provider != "none"
+                else ProviderStatus.NOT_CONFIGURED
+            ),
+            message=(
+                f"{settings.resolved_ai_provider} configured"
+                if settings.resolved_ai_provider != "none"
+                else "AI is optional; deterministic evidence tutor remains available"
+            ),
+        ),
+        ProviderHealthSummary(
             key="openbb",
             status=ProviderStatus.UNSUPPORTED,
             message="optional adapter is not enabled",

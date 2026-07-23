@@ -1,6 +1,6 @@
 # Macro Terminal operations
 
-Status: Phase 2 local-first MVP.
+Status: Phase 3 world-explanation MVP.
 
 ## Windows one-click workflow
 
@@ -55,6 +55,47 @@ Without a key, synchronization loads deterministic fixtures and the UI displays
 `DEMO` prominently. If a configured provider later fails while real local data
 exists, the app keeps the last-known-good observations and reports `STALE`.
 
+The daily world briefing does not need the FRED key. Its public RSS and daily
+market evidence are keyless and report their own `LIVE`, `PARTIAL`, or `OFFLINE`
+status.
+
+## Configure the optional AI tutor
+
+The terminal is useful without an AI key. In that state,
+`POST /v1/world/ask` uses `evidence-rules-v1` and still distinguishes facts,
+hypotheses, unknown order flow, and validation signals.
+
+Edit ignored `.runtime/worldstate.env`, then restart.
+
+OpenAI:
+
+```text
+MACRO_AI_PROVIDER=openai
+OPENAI_API_KEY=your-key
+MACRO_AI_MODEL=gpt-5.6-sol
+```
+
+Local Ollama:
+
+```text
+MACRO_AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+MACRO_OLLAMA_MODEL=qwen3:8b
+```
+
+Generic OpenAI-compatible endpoint:
+
+```text
+MACRO_AI_PROVIDER=compatible
+MACRO_AI_BASE_URL=https://provider.example/v1
+MACRO_AI_COMPATIBLE_API_KEY=your-key
+MACRO_AI_MODEL=provider-model-id
+```
+
+`MACRO_AI_PROVIDER=auto` selects OpenAI when its key exists, then Ollama when a
+base URL exists, then a compatible provider key. Secrets are read only by the
+backend. ChatGPT subscriptions and OpenAI API billing are separate.
+
 ## Direct developer workflow
 
 ```powershell
@@ -101,6 +142,9 @@ npm run build:macro
 | page says engine offline | `WorldState.bat status`, then `WorldState.bat logs` |
 | mode remains `DEMO` | check `FRED_API_KEY` and run `WorldState.bat sync` |
 | mode is `STALE` | provider failed or last live sync exceeded 72 hours |
+| world evidence is `PARTIAL` | one or more free news/market upstreams are unavailable |
+| AI shows evidence rules mode | add an AI provider, or keep using the free fallback |
+| AI provider fails | inspect engine logs; the answer automatically falls back to evidence rules |
 | one series fails | inspect sync warnings; remaining series continue |
 | port already in use | stop the owning application; WorldState never kills an unowned process |
 | migration error | back up `.runtime/worldstate.db`, then inspect engine logs |

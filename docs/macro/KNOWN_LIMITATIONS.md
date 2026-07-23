@@ -1,5 +1,27 @@
 # Known limitations
 
+## Phase 3 world-explanation limits
+
+- Free news and market endpoints can be delayed, rate-limited, regionally
+  unavailable, or incomplete. The API reports `PARTIAL` rather than presenting
+  missing evidence as complete.
+- The market layer uses daily public quotes, not tick-level exchange feeds.
+  It supports event-after-the-fact learning, not millisecond attribution.
+- The deterministic event ranker and causal playbooks identify plausible
+  transmission mechanisms. They do not prove causality.
+- Public data does not reveal complete institutional order flow, private fund
+  positioning, dealer books, or every options hedge. The UI explicitly marks
+  that unknown instead of naming a buyer without evidence.
+- Keyless explanations are rules-based. Rich natural-language follow-up
+  requires a local Ollama model or a separately billed cloud-model API key.
+- News titles may remain in the publisher's original language. The interface
+  adds a Chinese learning title and explanation without pretending to be a
+  verbatim translation.
+- The five-minute server cache deliberately favors stable daily research over
+  continuous streaming. `fresh=true` bypasses it for manual refresh.
+- Market explanations are educational hypotheses and not investment advice,
+  price targets, or automated trading signals.
+
 ## Phase 2 product limits
 
 - FRED/ALFRED live calls require a user-supplied key. The delivery environment

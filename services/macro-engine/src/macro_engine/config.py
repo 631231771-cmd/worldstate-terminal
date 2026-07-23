@@ -1,6 +1,7 @@
 """Typed environment configuration for the Macro Engine."""
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -79,7 +80,36 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("FRED_API_KEY", "MACRO_FRED_API_KEY"),
     )
     openai_api_key: SecretStr | None = Field(default=None, validation_alias="OPENAI_API_KEY")
-    ollama_base_url: HttpUrl | None = Field(default=None, validation_alias="OLLAMA_BASE_URL")
+    ai_provider: Literal["auto", "none", "openai", "ollama", "compatible"] = Field(
+        default="auto",
+        validation_alias="MACRO_AI_PROVIDER",
+    )
+    ai_model: str = Field(default="gpt-5.6-sol", validation_alias="MACRO_AI_MODEL")
+    ai_base_url: HttpUrl = Field(
+        default=HttpUrl("https://api.openai.com/v1"),
+        validation_alias="MACRO_AI_BASE_URL",
+    )
+    ai_compatible_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias="MACRO_AI_COMPATIBLE_API_KEY",
+    )
+    ollama_base_url: HttpUrl | None = Field(
+        default=None,
+        validation_alias="OLLAMA_BASE_URL",
+    )
+    ollama_model: str = Field(default="qwen3:8b", validation_alias="MACRO_OLLAMA_MODEL")
+    ai_timeout_seconds: float = Field(
+        default=45.0,
+        ge=2.0,
+        le=180.0,
+        validation_alias="MACRO_AI_TIMEOUT_SECONDS",
+    )
+    public_data_timeout_seconds: float = Field(
+        default=8.0,
+        ge=1.0,
+        le=30.0,
+        validation_alias="MACRO_PUBLIC_DATA_TIMEOUT_SECONDS",
+    )
     dbnomics_base_url: HttpUrl = Field(
         default=HttpUrl("https://api.db.nomics.world/v22"),
         validation_alias="DBNOMICS_BASE_URL",
@@ -90,3 +120,17 @@ class Settings(BaseSettings):
         """Return whether write routes can be enabled safely."""
 
         return self.enable_writes and self.write_token is not None
+
+    @property
+    def resolved_ai_provider(self) -> Literal["none", "openai", "ollama", "compatible"]:
+        """Resolve automatic AI selection without exposing or fabricating credentials."""
+
+        if self.ai_provider != "auto":
+            return self.ai_provider
+        if self.openai_api_key is not None:
+            return "openai"
+        if self.ollama_base_url is not None:
+            return "ollama"
+        if self.ai_compatible_api_key is not None:
+            return "compatible"
+        return "none"

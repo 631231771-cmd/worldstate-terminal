@@ -36,7 +36,33 @@ function Get-ToolPath {
 
 function Ensure-LocalConfig {
     Ensure-RuntimeDirectories
-    if (Test-Path -LiteralPath $ConfigPath) { return }
+    $aiDefaults = @(
+        "MACRO_AI_PROVIDER=auto"
+        "OPENAI_API_KEY="
+        "MACRO_AI_MODEL=gpt-5.6-sol"
+        "MACRO_AI_BASE_URL=https://api.openai.com/v1"
+        "MACRO_AI_COMPATIBLE_API_KEY="
+        "OLLAMA_BASE_URL="
+        "MACRO_OLLAMA_MODEL=qwen3:8b"
+    )
+    if (Test-Path -LiteralPath $ConfigPath) {
+        $existingConfig = Get-Content -LiteralPath $ConfigPath
+        $missingDefaults = foreach ($defaultLine in $aiDefaults) {
+            $defaultKey = $defaultLine.Split("=", 2)[0]
+            if (-not ($existingConfig | Where-Object { $_ -match "^$([regex]::Escape($defaultKey))=" })) {
+                $defaultLine
+            }
+        }
+        if ($missingDefaults) {
+            Add-Content -LiteralPath $ConfigPath -Value @(
+                ""
+                "# Optional evidence-grounded AI tutor"
+                $missingDefaults
+            ) -Encoding UTF8
+            Write-WorldState "Updated local configuration with optional AI settings." Green
+        }
+        return
+    }
     $databaseUrl = "sqlite+aiosqlite:///$($DatabasePath.Replace('\', '/'))"
     $content = @(
         "# World State Terminal local configuration"
@@ -49,6 +75,8 @@ function Ensure-LocalConfig {
         "MACRO_ENABLE_WRITES=false"
         "MACRO_STALE_AFTER_HOURS=72"
         "FRED_API_KEY="
+        "# AI is optional. Use openai, ollama, compatible, or none."
+        $aiDefaults
     )
     Set-Content -LiteralPath $ConfigPath -Value $content -Encoding UTF8
     Write-WorldState "Created local configuration: .runtime\worldstate.env" Green

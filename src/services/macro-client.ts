@@ -92,6 +92,113 @@ export interface MacroSeriesDetail extends MacroSeriesSummary {
   }>;
 }
 
+export type WorldEvidenceMode = 'LIVE' | 'PARTIAL' | 'OFFLINE';
+export type TutorMode = 'beginner' | 'deep' | 'socratic';
+
+export interface WorldEvent {
+  id: string;
+  rank: number;
+  title: string;
+  display_title: string;
+  summary: string;
+  source: string;
+  url: string;
+  published_at: string | null;
+  category: string;
+  language: string;
+  importance: number;
+  why_it_matters: string;
+  causal_chain: string[];
+  assets: string[];
+  concept: string;
+  confidence: number;
+  analysis_type: 'evidence_based_hypothesis';
+}
+
+export interface WorldMarket {
+  key: string;
+  name_zh: string;
+  name_en: string;
+  symbol: string;
+  unit: string;
+  region: string;
+  available: boolean;
+  price?: number;
+  previous_close?: number;
+  change_percent?: number;
+  as_of?: string;
+  source?: string;
+  source_url?: string;
+  sparkline?: number[];
+  direction: 'up' | 'down' | 'flat' | 'unavailable';
+  explanation: string;
+  evidence: string[];
+  confidence: number;
+  order_flow_known?: boolean;
+}
+
+export interface WorldBriefing {
+  generated_at: string;
+  as_of_timezone: string;
+  evidence_mode: WorldEvidenceMode;
+  headline: string;
+  mission: string;
+  events: WorldEvent[];
+  markets: WorldMarket[];
+  lesson: {
+    concept: string;
+    question: string;
+    simple: string;
+    deep: string;
+    check_question: string;
+  };
+  upcoming: Array<{
+    title: string;
+    scheduled_at: string;
+    importance: number;
+    source: string;
+  }>;
+  macro_context: {
+    mode: MacroDataMode;
+    methodology_version: string;
+    states: Array<{
+      key: string;
+      score: number | null;
+      label: string;
+      confidence: number;
+    }>;
+  };
+  ai: {
+    provider: string;
+    model: string;
+    available: boolean;
+    grounding: string;
+  };
+  sources: {
+    news: string[];
+    markets: string[];
+    macro: string[];
+  };
+  limitations: string[];
+}
+
+export interface TutorAnswer {
+  generated_at: string;
+  answer: string;
+  provider: string;
+  model: string;
+  mode: TutorMode;
+  grounded: boolean;
+  citations: Array<{ title: string; url: string; source: string }>;
+  warning: string | null;
+  disclaimer: string;
+}
+
+export interface TutorMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 const DEFAULT_API_URL = 'http://127.0.0.1:8000';
 const SNAPSHOT_CACHE_MS = 5_000;
 
@@ -122,6 +229,32 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   try {
     response = await fetch(`${configuredApiUrl()}${path}`, {
       headers: { Accept: 'application/json' },
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    throw new MacroApiError('Macro Engine is offline', true);
+  }
+  if (!response.ok) {
+    throw new MacroApiError(`Macro Engine returned HTTP ${response.status}`, false, response.status);
+  }
+  return response.json() as Promise<T>;
+}
+
+async function postJson<T>(
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${configuredApiUrl()}${path}`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
       signal,
     });
   } catch (error) {
@@ -174,3 +307,26 @@ export function getMacroApiUrl(): string {
   return configuredApiUrl();
 }
 
+export function getWorldBriefing(
+  options: { signal?: AbortSignal; fresh?: boolean } = {},
+): Promise<WorldBriefing> {
+  const query = options.fresh ? '?fresh=true' : '';
+  return getJson<WorldBriefing>(`/v1/world/briefing${query}`, options.signal);
+}
+
+export function askWorldTutor(
+  question: string,
+  mode: TutorMode,
+  history: TutorMessage[],
+  signal?: AbortSignal,
+): Promise<TutorAnswer> {
+  return postJson<TutorAnswer>(
+    '/v1/world/ask',
+    {
+      question,
+      mode,
+      history: history.slice(-8),
+    },
+    signal,
+  );
+}
