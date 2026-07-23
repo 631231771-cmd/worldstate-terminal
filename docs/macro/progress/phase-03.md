@@ -1,6 +1,6 @@
 # Phase 3 progress
 
-Status: world-explanation pivot implemented; final commit pending on 2026-07-23.
+Status: complete on 2026-07-23.
 
 ## Product pivot
 
@@ -44,4 +44,4 @@ markets.
 
 ## Commit
 
-To be filled after the verified Phase 3 implementation commit.
+`3ca562b1264db05beb5bf94dfd819b419bee5263`
