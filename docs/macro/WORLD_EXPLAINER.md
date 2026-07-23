@@ -37,8 +37,8 @@ The implementation borrows product patterns, not proprietary code:
 
 1. Today's five most important world events
 2. Global market reaction across eleven selected assets
-3. A causal transmission map for the leading event
-4. One daily learning concept
+3. A pre-declared market hypothesis checked against observed asset directions
+4. One retrieval-practice loop with answer reveal and a transfer question
 5. An evidence-grounded AI tutor
 6. Macro state data as a supporting layer, not the homepage
 
@@ -54,6 +54,35 @@ Every explanation must separate:
 - **Unknown:** data the system cannot observe, especially private order flow.
 - **Confidence:** how much evidence supports the current interpretation.
 - **Falsifier:** the observation that would weaken or reject the explanation.
+
+The default reading sequence is deliberately shorter:
+
+```text
+surprise vs prior expectation
+        → expectation being repriced
+        → first pricing variable
+        → confirming or contradicting assets
+        → alternative explanation
+        → falsifier
+```
+
+The interface does not display every available field at once. Source facts,
+causal tests, and alternatives appear on demand; the homepage keeps only the
+core question, leading hypothesis, and current market verdict.
+
+## Learning contract
+
+Reading an explanation is not the same as learning it. Each daily lesson uses:
+
+1. a question the learner must judge before seeing the answer;
+2. a worked causal chain revealed on demand;
+3. immediate explanatory feedback;
+4. a transfer question that applies the same method to another event.
+
+The AI tutor follows the same sequence and must identify the expectation shift,
+pricing variable, supporting and weakening evidence, alternative explanation,
+and falsifier. For central-bank stories it must distinguish a pure policy shock
+from information the central bank reveals about the economy.
 
 The terminal never treats "buyers exceeded sellers" as a sufficient cause.
 Algorithms, stop losses, dealer hedging, and liquidity can explain the speed or

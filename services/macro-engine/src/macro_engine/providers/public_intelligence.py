@@ -178,6 +178,20 @@ def _importance_value(item: dict[str, object]) -> int:
     return value if isinstance(value, int) else 0
 
 
+def _priority_value(
+    item: dict[str, object],
+    now: datetime | None = None,
+) -> int:
+    """Prefer today's consequential news without hiding older major events."""
+
+    published = parse_published(str(item["published_at"]) if item.get("published_at") else None)
+    if published is None:
+        return _importance_value(item) - 48
+    age_hours = max(0, int(((now or datetime.now(UTC)) - published).total_seconds() / 3600))
+    recency_penalty = min(48, max(0, age_hours - 12))
+    return _importance_value(item) - recency_penalty
+
+
 def parse_feed(xml_text: str, feed: FeedSpec) -> list[dict[str, object]]:
     """Parse RSS/Atom into a small normalized evidence contract."""
 
@@ -341,6 +355,6 @@ class PublicIntelligenceProvider:
                 deduplicated[title_key] = item
         return sorted(
             deduplicated.values(),
-            key=lambda item: (_importance_value(item), str(item.get("published_at") or "")),
+            key=lambda item: (_priority_value(item), str(item.get("published_at") or "")),
             reverse=True,
         )[:40]

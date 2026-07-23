@@ -107,10 +107,22 @@ export interface WorldEvent {
   category: string;
   language: string;
   importance: number;
+  event_type: string;
+  core_question: string;
   why_it_matters: string;
+  expectation_shift: string;
   causal_chain: string[];
+  chain_labels: string[];
   assets: string[];
   concept: string;
+  scenario: string;
+  expected_moves: Partial<Record<string, 'up' | 'down'>>;
+  market_thesis: string;
+  confirmations: string[];
+  falsifiers: string[];
+  alternatives: string[];
+  learning_prompt: string;
+  learning_answer: string;
   confidence: number;
   analysis_type: 'evidence_based_hypothesis';
 }
@@ -131,6 +143,8 @@ export interface WorldMarket {
   source_url?: string;
   sparkline?: number[];
   direction: 'up' | 'down' | 'flat' | 'unavailable';
+  role: string;
+  question: string;
   explanation: string;
   evidence: string[];
   confidence: number;
@@ -145,12 +159,35 @@ export interface WorldBriefing {
   mission: string;
   events: WorldEvent[];
   markets: WorldMarket[];
+  lead_validation: {
+    event_id?: string;
+    scenario?: string;
+    status: string;
+    label: string;
+    summary: string;
+    supports?: number;
+    weakens?: number;
+    rows: Array<{
+      market_key: string;
+      market_name: string;
+      role: string;
+      expected: 'up' | 'down';
+      expected_label: string;
+      observed: WorldMarket['direction'];
+      observed_label: string;
+      status: 'supports' | 'weakens' | 'unclear';
+    }>;
+    timing_note?: string;
+  };
   lesson: {
     concept: string;
     question: string;
     simple: string;
     deep: string;
     check_question: string;
+    worked_example: string[];
+    retrieval_answer: string;
+    transfer_question: string;
   };
   upcoming: Array<{
     title: string;

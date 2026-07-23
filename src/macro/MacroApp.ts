@@ -61,13 +61,6 @@ function formatPrice(market: WorldMarket): string {
   });
 }
 
-function confidenceLabel(value: number): string {
-  if (value >= 0.75) return '较高';
-  if (value >= 0.55) return '中等';
-  if (value > 0) return '较低';
-  return '未知';
-}
-
 function renderSparkline(values: number[] | undefined, direction: WorldMarket['direction']): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', '0 0 140 40');
@@ -186,13 +179,12 @@ export class MacroApp {
 
     const workspace = el('div', 'world-workspace');
     const editorial = el('div', 'world-editorial-column');
-    const insightGrid = el('div', 'world-insight-grid');
-    insightGrid.append(this.renderTransmission(), this.renderLesson());
     editorial.append(
       this.renderHero(),
       this.renderEvents(),
+      this.renderValidation(),
       this.renderMarketStrip(),
-      insightGrid,
+      this.renderLesson(),
       this.renderMacroFoundation(),
     );
     workspace.append(editorial, this.renderTutor());
@@ -276,48 +268,35 @@ export class MacroApp {
       el('h1', '', briefing.headline),
       el('p', 'world-mission', briefing.mission),
     );
-    const stats = el('div', 'world-hero-stats');
-    stats.append(
-      this.heroStat(String(briefing.events.length), '关键事件'),
-      this.heroStat(
-        `${briefing.markets.filter((market) => market.available).length}/${briefing.markets.length}`,
-        '市场在线',
-      ),
-      this.heroStat(String(briefing.sources.news.length), '新闻来源'),
-    );
-    copy.appendChild(stats);
+    if (lead) {
+      const question = el('div', 'world-core-question');
+      question.append(el('span', '', '今日核心问题'), el('strong', '', lead.core_question));
+      copy.appendChild(question);
+    }
 
     const focus = el('article', 'world-focus-card');
     focus.append(
-      el('div', 'world-focus-header', '今天先理解这一条链'),
-      el('h2', '', lead?.display_title ?? '等待公开证据形成今日主线'),
+      el('div', 'world-focus-header', '先形成假设，再让价格检验'),
+      el('h2', '', lead?.scenario ?? '等待公开证据形成今日主线'),
     );
     if (lead) {
       const chain = el('ol', 'world-focus-chain');
       lead.causal_chain.slice(0, 4).forEach((step, index) => {
         const item = el('li');
-        item.append(el('span', '', String(index + 1)), el('p', '', step));
+        const content = el('div');
+        content.append(
+          el('small', '', lead.chain_labels[index] ?? `步骤 ${index + 1}`),
+          el('p', '', step),
+        );
+        item.append(el('span', '', String(index + 1)), content);
         chain.appendChild(item);
       });
-      const assets = el('div', 'world-asset-tags');
-      for (const asset of lead.assets.slice(0, 6)) assets.appendChild(el('span', '', asset));
-      focus.append(chain, assets);
+      focus.append(chain, el('p', 'world-focus-note', `待验证：${lead.expectation_shift}`));
+    } else {
+      focus.appendChild(el('p', 'world-focus-note', '新闻与价格都不足时，不强行生成因果故事。'));
     }
-    focus.appendChild(
-      el(
-        'p',
-        'world-focus-note',
-        '事实与行情由数据核对；因果链是可检验的解释，不代表我们看得到机构私有订单。',
-      ),
-    );
     hero.append(copy, focus);
     return hero;
-  }
-
-  private heroStat(value: string, label: string): HTMLElement {
-    const stat = el('div', 'world-hero-stat');
-    stat.append(el('strong', '', value), el('span', '', label));
-    return stat;
   }
 
   private renderMarketStrip(): HTMLElement {
@@ -325,9 +304,9 @@ export class MacroApp {
     section.id = 'markets';
     const heading = el('div', 'world-section-heading');
     heading.append(
-      el('div', 'world-section-index', '02 / MARKET PULSE'),
-      el('h2', '', '市场如何回应这组信息'),
-      el('p', '', '先看价格，再看解释；日线免费行情可点击来源核对。'),
+      el('div', 'world-section-index', '03 / MARKET ROLES'),
+      el('h2', '', '每个市场在回答什么问题'),
+      el('p', '', '不要孤立读涨跌；先看它在宏观链条中的角色。'),
     );
     section.appendChild(heading);
     const grid = el('div', 'world-market-grid');
@@ -339,10 +318,12 @@ export class MacroApp {
   private marketCard(market: WorldMarket): HTMLElement {
     const card = el('article', `world-market-card world-move-${market.direction}`);
     const top = el('div', 'world-market-top');
-    top.append(
+    const identity = el('div');
+    identity.append(
       el('span', 'world-market-name', market.name_zh),
-      el('span', 'world-market-symbol', market.symbol),
+      el('span', 'world-market-role', market.role),
     );
+    top.append(identity, el('span', 'world-market-symbol', market.symbol));
     const value = el('div', 'world-market-value');
     const price = el('strong', '', formatPrice(market));
     const change = el(
@@ -356,7 +337,6 @@ export class MacroApp {
     card.appendChild(explanation);
     const footer = el('div', 'world-market-footer');
     footer.append(
-      el('span', '', `解释信心 ${confidenceLabel(market.confidence)}`),
       market.source_url
         ? externalLink(market.source ?? '行情来源', market.source_url)
         : el('span', '', '来源暂不可用'),
@@ -373,9 +353,9 @@ export class MacroApp {
     title.append(
       el('div', 'world-section-index', '01 / TOP WORLD EVENTS'),
       el('h2', '', '今天全球最重要的事情'),
-      el('p', '', '按跨市场影响排序。展开后查看原始报道、传导路径与证据边界。'),
+      el('p', '', '不是把新闻变长，而是找出它改变了什么预期。'),
     );
-    heading.append(title, el('span', 'world-count', `${this.briefing!.events.length} 个主题`));
+    heading.appendChild(title);
     section.appendChild(heading);
     const list = el('div', 'world-event-list');
     if (!this.briefing!.events.length) {
@@ -393,9 +373,8 @@ export class MacroApp {
     const content = el('div', 'world-event-title-block');
     const meta = el('div', 'world-event-meta');
     meta.append(
-      el('span', 'world-category', event.category.replace('_', ' ')),
+      el('span', 'world-category', event.source),
       el('span', '', formatDate(event.published_at)),
-      el('span', '', `影响 ${event.importance}/100`),
     );
     content.append(
       meta,
@@ -406,58 +385,99 @@ export class MacroApp {
     details.appendChild(summary);
 
     const body = el('div', 'world-event-body');
-    const why = el('div', 'world-event-why');
-    why.append(
-      el('span', 'world-mini-label', '原始报道'),
-      externalLink(event.title, event.url, 'world-original-headline'),
-      el('span', 'world-mini-label', '为什么重要'),
-      el('p', '', event.why_it_matters),
+    const shift = el('div', 'world-expectation-shift');
+    shift.append(
+      el('span', 'world-mini-label', '市场可能在重新定价'),
+      el('strong', '', event.expectation_shift),
     );
     const chain = el('ol', 'world-causal-chain');
-    for (const step of event.causal_chain) chain.appendChild(el('li', '', step));
-    const assets = el('div', 'world-asset-tags');
-    for (const asset of event.assets) assets.appendChild(el('span', '', asset));
-    const evidence = el('div', 'world-event-evidence');
-    evidence.append(
-      el('span', '', `因果解释：假设 · 信心 ${confidenceLabel(event.confidence)}`),
-      externalLink(`${event.source} · 查看原文`, event.url),
+    event.causal_chain.forEach((step, index) => {
+      const item = el('li');
+      item.append(
+        el('span', '', event.chain_labels[index] ?? String(index + 1)),
+        el('p', '', step),
+      );
+      chain.appendChild(item);
+    });
+    const tests = el('div', 'world-test-grid');
+    const support = el('article', 'world-test-support');
+    support.appendChild(el('span', 'world-mini-label', '什么会支持'));
+    const supportList = el('ul');
+    event.confirmations.slice(0, 2).forEach((item) => supportList.appendChild(el('li', '', item)));
+    support.appendChild(supportList);
+    const weaken = el('article', 'world-test-weaken');
+    weaken.appendChild(el('span', 'world-mini-label', '什么会推翻'));
+    const weakenList = el('ul');
+    event.falsifiers.slice(0, 2).forEach((item) => weakenList.appendChild(el('li', '', item)));
+    weaken.appendChild(weakenList);
+    const alternative = el('article', 'world-test-alternative');
+    alternative.appendChild(el('span', 'world-mini-label', '替代解释'));
+    const alternativeList = el('ul');
+    event.alternatives.slice(0, 2).forEach((item) => alternativeList.appendChild(el('li', '', item)));
+    alternative.appendChild(alternativeList);
+    tests.append(support, weaken, alternative);
+    const source = el('div', 'world-event-source');
+    source.append(
+      el('span', 'world-mini-label', '已知事实'),
+      externalLink(event.title, event.url, 'world-original-headline'),
     );
     body.append(
-      why,
-      el('div', 'world-mini-label', '可能的传导链'),
+      source,
+      shift,
+      el('div', 'world-mini-label', '理解链'),
       chain,
-      el('div', 'world-mini-label', '可能受影响的资产'),
-      assets,
-      evidence,
+      tests,
     );
     details.appendChild(body);
     return details;
   }
 
-  private renderTransmission(): HTMLElement {
-    const event = this.briefing!.events[0];
-    const section = el('section', 'world-section world-transmission');
+  private renderValidation(): HTMLElement {
+    const validation = this.briefing!.lead_validation;
+    const section = el('section', 'world-section world-validation');
     const heading = el('div', 'world-section-heading');
-    heading.append(el('div', 'world-section-index', '03 / TRANSMISSION'), el('h2', '', '一件事如何穿过市场'));
-    section.appendChild(heading);
-    if (!event) {
-      section.appendChild(el('p', 'world-empty', '等待高影响事件后生成传导图。'));
-      return section;
-    }
-    const map = el('div', 'world-transmission-map');
-    event.causal_chain.forEach((step, index) => {
-      const node = el('div', 'world-transmission-node');
-      node.append(el('span', '', String(index + 1)), el('strong', '', step));
-      map.appendChild(node);
-      if (index < event.causal_chain.length - 1) map.appendChild(el('span', 'world-arrow', '→'));
-    });
-    section.appendChild(map);
-    const note = el(
-      'p',
-      'world-method-note',
-      '第一段波动可能由关键词算法、止损和期权对冲放大；行情能否持续，要看利率、美元和其他资产是否继续确认。',
+    heading.append(
+      el('div', 'world-section-index', '02 / HYPOTHESIS CHECK'),
+      el('h2', '', '市场在确认这条主线吗？'),
+      el('p', '', '把事前方向与实际价格并排，避免看完涨跌再编故事。'),
     );
-    section.appendChild(note);
+    section.appendChild(heading);
+    const verdict = el('div', `world-validation-verdict is-${validation.status}`);
+    verdict.append(
+      el('span', '', validation.label),
+      el('strong', '', validation.scenario ?? '方向待确认'),
+      el('p', '', validation.summary),
+    );
+    section.appendChild(verdict);
+    if (validation.rows.length) {
+      const table = el('div', 'world-validation-table');
+      const head = el('div', 'world-validation-row world-validation-head');
+      head.append(
+        el('span', '', '定价变量'),
+        el('span', '', '假设方向'),
+        el('span', '', '实际方向'),
+        el('span', '', '判断'),
+      );
+      table.appendChild(head);
+      for (const row of validation.rows) {
+        const line = el('div', 'world-validation-row');
+        const identity = el('span', 'world-validation-market');
+        identity.append(el('strong', '', row.market_name), el('small', '', row.role));
+        const statusText =
+          row.status === 'supports' ? '支持' : row.status === 'weakens' ? '削弱' : '待确认';
+        line.append(
+          identity,
+          el('span', '', row.expected_label),
+          el('span', '', row.observed_label),
+          el('span', `world-validation-status is-${row.status}`, statusText),
+        );
+        table.appendChild(line);
+      }
+      section.appendChild(table);
+    }
+    if (validation.timing_note) {
+      section.appendChild(el('p', 'world-method-note', validation.timing_note));
+    }
     return section;
   }
 
@@ -466,26 +486,39 @@ export class MacroApp {
     const section = el('section', 'world-section world-lesson');
     section.id = 'learn';
     const heading = el('div', 'world-section-heading');
-    heading.append(el('div', 'world-section-index', '04 / DAILY LEARNING'), el('h2', '', `今日学习：${lesson.concept}`));
-    const body = el('div', 'world-lesson-grid');
-    const simple = el('article');
-    simple.append(el('span', 'world-mini-label', '先这样理解'), el('h3', '', lesson.question), el('p', '', lesson.simple));
-    const deep = el('article');
-    deep.append(el('span', 'world-mini-label', '再深一层'), el('p', '', lesson.deep));
-    const check = el('article', 'world-lesson-check');
-    check.append(el('span', 'world-mini-label', '检验自己'), el('p', '', lesson.check_question));
-    body.append(simple, deep, check);
+    heading.append(
+      el('div', 'world-section-index', '04 / RETRIEVAL PRACTICE'),
+      el('h2', '', `今天真正学会：${lesson.concept}`),
+      el('p', '', '先自己判断，再看反馈。'),
+    );
+    const body = el('div', 'world-learning-loop');
+    const question = el('article', 'world-learning-question');
+    question.append(
+      el('span', 'world-mini-label', '01 · 先回答'),
+      el('h3', '', lesson.question),
+    );
+    const reveal = el('details', 'world-answer-reveal');
+    const revealSummary = el('summary', '', '查看思路');
+    const worked = el('ol', 'world-learning-chain');
+    lesson.worked_example.forEach((step) => worked.appendChild(el('li', '', step)));
+    reveal.append(revealSummary, worked, el('p', '', lesson.retrieval_answer));
+    const transfer = el('article', 'world-learning-transfer');
+    transfer.append(
+      el('span', 'world-mini-label', '02 · 换个情境'),
+      el('p', '', lesson.transfer_question),
+    );
+    body.append(question, reveal, transfer);
     section.append(heading, body);
     return section;
   }
 
   private renderMacroFoundation(): HTMLElement {
     const context = this.briefing!.macro_context;
-    const section = el('section', 'world-section world-foundation');
-    const heading = el('div', 'world-section-heading world-heading-row');
+    const section = el('details', 'world-section world-foundation');
+    const summary = el('summary', 'world-foundation-summary');
     const title = el('div');
-    title.append(el('div', 'world-kicker', 'MACRO FOUNDATION'), el('h2', '', '支撑解释的宏观底座'));
-    heading.append(title, el('span', 'world-count', context.mode));
+    title.append(el('div', 'world-kicker', 'MACRO FOUNDATION'), el('h2', '', '查看长期宏观底座'));
+    summary.append(title, el('span', 'world-count', context.mode));
     const states = el('div', 'world-state-strip');
     for (const state of context.states) {
       const card = el('div', 'world-state-chip');
@@ -495,7 +528,7 @@ export class MacroApp {
       );
       states.appendChild(card);
     }
-    section.append(heading, states);
+    section.append(summary, states);
     return section;
   }
 
@@ -513,7 +546,7 @@ export class MacroApp {
     header.append(identity, provider);
     aside.appendChild(header);
     aside.appendChild(
-      el('p', 'world-tutor-intro', '回答使用本页同一组新闻与市场证据；没有AI Key时仍可进行基础因果教学。'),
+      el('p', 'world-tutor-intro', '问一个具体问题，我会按“预期差 → 变量 → 证据 → 反证”回答。'),
     );
 
     const modes = el('div', 'world-tutor-modes');
@@ -537,7 +570,7 @@ export class MacroApp {
     if (!this.tutorEntries.length) {
       const welcome = el('div', 'world-tutor-welcome');
       welcome.append(
-        el('strong', '', '你可以从这些问题开始'),
+        el('strong', '', '从一个具体的“为什么”开始'),
         this.suggestionButton('今天最重要的事情为什么会影响市场？'),
         this.suggestionButton('黄金今天为什么涨跌？'),
         this.suggestionButton('算法交易在新闻发布后扮演什么角色？'),
@@ -565,7 +598,7 @@ export class MacroApp {
       if (question) void this.askTutor(question);
     });
     aside.appendChild(form);
-    aside.appendChild(el('p', 'world-disclaimer', 'AI可能犯错。关键结论请点击来源核对；内容不构成投资建议。'));
+    aside.appendChild(el('p', 'world-disclaimer', '关键结论可回到原始来源核对。'));
     queueMicrotask(() => {
       messages.scrollTop = messages.scrollHeight;
     });
@@ -622,11 +655,7 @@ export class MacroApp {
 
   private renderFooter(): HTMLElement {
     const footer = el('footer', 'world-footer');
-    const sources = this.briefing!.sources.news.join(' · ') || '新闻源暂不可用';
-    footer.append(
-      el('span', '', `公开来源：${sources}`),
-      el('span', '', '数字由代码计算 · 叙事由证据约束 · 未知明确标注'),
-    );
+    footer.append(el('span', '', '日线价格 · 来源可核对 · 因果解释可被反证'));
     return footer;
   }
 

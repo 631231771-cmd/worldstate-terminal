@@ -16,6 +16,7 @@ from macro_engine.providers.public_intelligence import (
     MARKETS,
     FeedSpec,
     PublicIntelligenceProvider,
+    _priority_value,
     article_importance,
     clean_text,
     google_news_url,
@@ -39,6 +40,7 @@ from macro_engine.services.world_briefing import (
     compose_world_briefing,
     daily_lesson,
     event_playbook,
+    lead_validation,
     market_explanation,
 )
 
@@ -155,6 +157,14 @@ def test_public_intelligence_helpers_cover_rss_and_yahoo() -> None:
     assert parse_published("not-a-date") is None
     assert article_importance("Federal Reserve inflation decision", "Federal Reserve") == 96
     assert article_importance("Ordinary market update", "Fixture") == 42
+    ranking_now = datetime(2026, 7, 23, 8, tzinfo=UTC)
+    assert _priority_value(
+        {"importance": 60, "published_at": "2026-07-23T07:00:00Z"},
+        ranking_now,
+    ) > _priority_value(
+        {"importance": 78, "published_at": "2026-07-21T12:00:00Z"},
+        ranking_now,
+    )
 
     feed = FeedSpec("Fixture", "https://example.com/rss", "markets")
     xml = """
@@ -236,24 +246,30 @@ async def test_public_provider_handles_success_failure_and_dedup(monkeypatch: An
 
 def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> None:
     cases = [
-        ("Federal Reserve cuts interest rates", "central_bank", "预期差与实际利率"),
-        ("OPEC discusses oil supply", "energy", "能源冲击如何传导到通胀"),
-        ("China PBOC announces policy", "china", "中国政策的跨市场传导"),
-        ("Bank of Japan changes yen policy", "asia", "汇率、出口与套息交易"),
-        ("War sanctions expand", "geopolitics", "风险溢价与避险资产"),
+        ("Federal Reserve cuts interest rates", "central_bank", "预期差、实际利率与央行信息效应"),
+        ("OPEC discusses oil supply", "energy", "需求冲击与供应冲击"),
+        ("China PBOC announces policy", "china", "政策脉冲、信用脉冲与增长"),
+        ("Bank of Japan changes yen policy", "asia", "利差、汇率与套息交易"),
+        ("War sanctions expand", "geopolitics", "风险溢价与真实经济渠道"),
         ("Technology summit opens", "world", "信息、预期与市场确认"),
     ]
     for title, category, concept in cases:
         assert event_playbook(title, category)["concept"] == concept
 
-    stories = [
+    stories = [news_item("Federal Reserve enforcement action", "central_bank", importance=101)]
+    stories.extend(
         news_item(title, category, importance=100 - index)
         for index, (title, category, _concept) in enumerate(cases)
-    ]
+    )
     events = compose_events(stories)
     assert len(events) == 5
     assert events[0]["rank"] == 1
     assert events[0]["analysis_type"] == "evidence_based_hypothesis"
+    assert events[0]["expectation_shift"]
+    assert events[0]["falsifiers"]
+    assert events[0]["learning_answer"]
+    assert len({event["event_type"] for event in events}) == len(events)
+    assert all("enforcement" not in str(event["title"]).lower() for event in events)
 
     markets = market_rows()
     explanations = {str(row["key"]): market_explanation(row, markets) for row in markets}
@@ -265,6 +281,8 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     assert explanations["oil"]["confidence"] == 0.6
     assert explanations["bitcoin"]["confidence"] == 0.52
     assert explanations["nikkei"]["confidence"] == 0.5
+    assert explanations["gold"]["role"] == "实际利率 / 避险"
+    assert explanations["gold"]["question"]
 
     no_data = {**markets[0], "available": False}
     assert market_explanation(no_data, markets)["direction"] == "unavailable"
@@ -272,7 +290,7 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
         {**row, "change_percent": 0.4 if row["key"] in {"gold", "dollar", "us10y"} else 0.0}
         for row in markets
     ]
-    assert "并未同时确认" in str(market_explanation(unconfirmed[0], unconfirmed)["explanation"])
+    assert "没有同时确认" in str(market_explanation(unconfirmed[0], unconfirmed)["explanation"])
     gold_down = [
         {**row, "change_percent": -0.4 if row["key"] == "gold" else 0.0} for row in markets
     ]
@@ -280,11 +298,18 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
 
     assert daily_lesson([])["concept"] == "信息、预期与价格"
     assert daily_lesson(events)["concept"] == events[0]["concept"]
+    assert daily_lesson(events)["retrieval_answer"]
+
+    validation = lead_validation(events, list(explanations.values()))
+    assert validation["status"] == "supports"
+    assert validation["supports"] == 4
+    assert all(row["status"] == "supports" for row in validation["rows"])
 
     cfg = settings(tmp_path)
     live = compose_world_briefing(markets, stories, macro_snapshot("LIVE"), cfg)
     assert live["evidence_mode"] == "LIVE"
     assert live["macro_context"]["states"][0]["key"] == "growth"  # type: ignore[index]
+    assert live["lead_validation"]["rows"]  # type: ignore[index]
     partial = compose_world_briefing(
         [{**row, "available": False} for row in markets],
         stories,
@@ -332,6 +357,7 @@ def test_ai_prompt_parsers_and_fallback_modes(tmp_path: Path) -> None:
     assert sources[0]["title"]
     assert evidence_sources({"events": "bad"}) == []
     assert build_evidence_pack(briefing)["markets"]
+    assert build_evidence_pack(briefing)["lead_validation"]
     prompt = tutor_prompt(
         "为什么黄金上涨？",
         "deep",
@@ -353,12 +379,13 @@ def test_ai_prompt_parsers_and_fallback_modes(tmp_path: Path) -> None:
     assert _chat_output_text({"choices": []}) is None
 
     beginner = deterministic_answer("黄金为什么涨？", "beginner", briefing)
-    assert "【事实】" in beginner
+    assert "理解链" in beginner
+    assert "证据对照" in beginner
     assert "黄金" in beginner
     deep = deterministic_answer("今天发生了什么", "deep", briefing)
-    assert "深一层" in deep
+    assert "再深一层" in deep
     socratic = deterministic_answer("今天发生了什么", "socratic", briefing)
-    assert "思考题" in socratic
+    assert "轮到你" in socratic
     empty = deterministic_answer("发生了什么", "beginner", {"events": [], "markets": []})
     assert "证据源不足" in empty
 
