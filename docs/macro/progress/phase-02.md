@@ -1,6 +1,6 @@
 # Phase 2 progress
 
-Status: implementation complete; final commit pending on 2026-07-23.
+Status: complete on 2026-07-23.
 
 ## Delivered
 
@@ -57,4 +57,6 @@ checks.
 
 ## Commit
 
-To be filled after the verified Phase 2 commit.
+Implementation commit:
+`d144c96a6afcf674e854e80feefbfa66cdbf8549`
+(`feat(macro): deliver local-first World State Terminal MVP`).

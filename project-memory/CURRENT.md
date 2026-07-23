@@ -1,18 +1,19 @@
 ---
 project: World State Terminal
-status: phase-2-implemented-final-verification
+status: phase-2-complete
 updated: 2026-07-23
 branch: feature/world-state-terminal
 phase_1_formal_commit: a458e54d06b32992001693804b49f5f59a1f4019
-resume_from: phase-2-final-verification-and-commit
+phase_2_formal_commit: d144c96a6afcf674e854e80feefbfa66cdbf8549
+resume_from: phase-3-terminal-hardening-and-research-workflows
 ---
 
 # Current continuation point
 
 > [!important] Resume here
-> Phase 2 local-first MVP is implemented. Run final full build/security checks,
-> update the Phase 2 progress commit SHA, commit once, and confirm a clean
-> worktree. Do not redo Phase 2 implementation.
+> Phase 2 local-first MVP is complete at
+> `d144c96a6afcf674e854e80feefbfa66cdbf8549`. Start the next session from
+> Phase 3 planning; do not redo Phase 2 implementation.
 
 ## Delivered state
 
@@ -58,13 +59,14 @@ resume_from: phase-2-final-verification-and-commit
 - canonical full wrapper reached the known Windows `rm` limitation; equivalent
   full TypeScript/Vite/PWA build passed (2,364 modules).
 
-## Remaining before handoff
+## Handoff state
 
-1. Run secret, environment, database, log, generated-file, and Git status scans.
-2. Re-run focused final checks if any cleanup changes code.
-3. Commit Phase 2 with a clear message.
-4. Put the commit SHA in `docs/macro/progress/phase-02.md` and this file using a
-   follow-up memory commit only if necessary.
+- Phase 2 implementation is formally committed.
+- Secret, environment, database, log, generated-file, and Git cleanliness
+  checks passed.
+- The launcher-managed services are stopped and ports 8000/4173 are released.
+- Continue from Phase 3 planning after reviewing
+  `00-checkpoints/2026-07-23-phase-2-complete.md`.
 
 ## Honest limitations
 
