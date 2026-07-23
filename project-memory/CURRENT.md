@@ -4,7 +4,7 @@ status: phase-1-complete
 updated: 2026-07-23
 branch: feature/world-state-terminal
 phase_1_checkpoint: 7d70d3d2ee8d4476a5c310a62274b6952ccc7865
-phase_1_formal_commit: resolve-from-git-log
+phase_1_formal_commit: a458e54d06b32992001693804b49f5f59a1f4019
 resume_from: phase-2-fred-alfred-and-state-engine
 ---
 
@@ -22,8 +22,8 @@ resume_from: phase-2-fred-alfred-and-state-engine
 - Upstream baseline: `7fe22e47dc90ee2693d0071323561e5bbffe5c42`
 - Phase 0 commit: `8059b7aaa0fe8c2ef24774a5998c0695d391abeb`
 - Phase 1 WIP checkpoint: `7d70d3d2ee8d4476a5c310a62274b6952ccc7865`
-- Formal Phase 1 commit: find the latest `feat(macro-engine): complete phase 1
-  service foundation` entry in Git history.
+- Formal Phase 1 commit:
+  `a458e54d06b32992001693804b49f5f59a1f4019`.
 - Git remote is named `upstream` and points to `koala73/worldmonitor`.
 
 ## Completed
@@ -96,6 +96,7 @@ resume_from: phase-2-fred-alfred-and-state-engine
 ## Canonical links
 
 - [[00-checkpoints/2026-07-22-phase-1-wip]]
+- [[00-checkpoints/2026-07-23-phase-1-complete]]
 - [Phase 0 progress](../docs/macro/progress/phase-00.md)
 - [Phase 1 progress](../docs/macro/progress/phase-01.md)
 - [Implementation plan](../docs/macro/plan/IMPLEMENTATION_PLAN.md)

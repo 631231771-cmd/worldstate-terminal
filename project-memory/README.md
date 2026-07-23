@@ -12,7 +12,7 @@ linked rather than duplicated here.
 ## Reading order
 
 1. [[CURRENT]]
-2. [[00-checkpoints/2026-07-22-phase-1-wip]]
+2. [[00-checkpoints/2026-07-23-phase-1-complete]]
 3. [Implementation plan](../docs/macro/plan/IMPLEMENTATION_PLAN.md)
 4. [Architecture](../docs/macro/ARCHITECTURE.md)
 5. [Decision log](../docs/macro/DECISIONS.md)
