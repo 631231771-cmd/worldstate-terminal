@@ -30,6 +30,7 @@ from macro_engine.db.base import Base
 
 JSON_DOCUMENT = JSON().with_variant(JSONB(), "postgresql")
 DECIMAL_VALUE = Numeric(precision=30, scale=12)
+IDENTITY_INTEGER = BigInteger().with_variant(Integer(), "sqlite")
 
 
 class TimestampMixin:
@@ -49,7 +50,7 @@ class TimestampMixin:
 class Provider(TimestampMixin, Base):
     __tablename__ = "providers"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(IDENTITY_INTEGER, primary_key=True, autoincrement=True)
     key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     base_url: Mapped[str] = mapped_column(String(2048), nullable=False)
@@ -67,7 +68,7 @@ class EconomicEntity(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(IDENTITY_INTEGER, primary_key=True, autoincrement=True)
     iso2: Mapped[str | None] = mapped_column(String(2), unique=True)
     iso3: Mapped[str | None] = mapped_column(String(3), unique=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -133,7 +134,7 @@ class Observation(Base):
         Index("ix_observations_latest", "series_id", "period_start", "vintage_date"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(IDENTITY_INTEGER, primary_key=True, autoincrement=True)
     series_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("series.id"), nullable=False)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)

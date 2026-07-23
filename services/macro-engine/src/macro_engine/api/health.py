@@ -34,32 +34,30 @@ async def probe_database(request: Request, timeout_seconds: float) -> ComponentH
 
 
 def provider_summaries(settings: Settings) -> list[ProviderHealthSummary]:
-    """Report configuration state without contacting providers in Phase 1."""
+    """Report provider configuration without disclosing credentials."""
 
-    fred_status = (
-        ProviderStatus.DEGRADED if settings.fred_api_key else ProviderStatus.NOT_CONFIGURED
-    )
+    fred_status = ProviderStatus.OK if settings.fred_api_key else ProviderStatus.NOT_CONFIGURED
     fred_message = (
-        "adapter implementation is scheduled for Phase 2"
+        "configured; live availability is verified during synchronization"
         if settings.fred_api_key
-        else "FRED_API_KEY is not configured"
+        else "FRED_API_KEY is not configured; explicit Demo mode is available"
     )
     return [
         ProviderHealthSummary(key="fred_alfred", status=fred_status, message=fred_message),
         ProviderHealthSummary(
             key="openbb",
             status=ProviderStatus.UNSUPPORTED,
-            message="optional adapter is not enabled in Phase 1",
+            message="optional adapter is not enabled",
         ),
         ProviderHealthSummary(
             key="world_bank",
             status=ProviderStatus.UNSUPPORTED,
-            message="adapter implementation is scheduled for Phase 4",
+            message="adapter is not enabled",
         ),
         ProviderHealthSummary(
             key="bis",
             status=ProviderStatus.UNSUPPORTED,
-            message="adapter implementation is scheduled for Phase 4",
+            message="adapter is not enabled",
         ),
     ]
 
@@ -71,10 +69,9 @@ async def health(request: Request) -> HealthResponse:
     settings: Settings = request.app.state.settings
     database = await probe_database(request, settings.health_timeout_seconds)
     providers = provider_summaries(settings)
-    warnings = [
-        "state methodology is unavailable until Phase 2",
-        "provider adapters are unavailable or not configured",
-    ]
+    warnings = []
+    if not settings.fred_api_key:
+        warnings.append("FRED is not configured; synchronization uses explicit Demo fixtures")
     status = ServiceStatus.OK if database.status is ServiceStatus.OK else ServiceStatus.DEGRADED
     return HealthResponse(
         version=__version__,
@@ -85,5 +82,6 @@ async def health(request: Request) -> HealthResponse:
         writes_enabled=settings.writes_available,
         default_locale=settings.default_locale,
         default_timezone=settings.default_timezone,
+        methodology_version="wst-state-v1",
         warnings=warnings,
     )

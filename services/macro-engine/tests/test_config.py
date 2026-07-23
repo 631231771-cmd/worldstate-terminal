@@ -12,6 +12,7 @@ def test_defaults_match_product_contract() -> None:
     assert settings.default_timezone == "Asia/Taipei"
     assert settings.strict_point_in_time is True
     assert settings.writes_available is False
+    assert settings.database_url.startswith("sqlite+aiosqlite:///")
     assert default_catalog_root().name == "macro"
 
 

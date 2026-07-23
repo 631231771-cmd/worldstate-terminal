@@ -1,8 +1,10 @@
 """Automation-safe Macro Engine command line interface."""
 
 import argparse
+import asyncio
 import json
 from collections.abc import Sequence
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -20,7 +22,13 @@ EXIT_UNSUPPORTED = 3
 def emit(status: str, command: str, **details: Any) -> None:
     """Write one structured JSON summary to stdout."""
 
-    print(json.dumps({"status": status, "command": command, **details}, sort_keys=True))
+    print(
+        json.dumps(
+            {"status": status, "command": command, **details},
+            default=str,
+            sort_keys=True,
+        )
+    )
 
 
 def unsupported(command: str, phase: str) -> NoReturn:
@@ -50,12 +58,21 @@ def build_parser() -> argparse.ArgumentParser:
     sync_group.add_argument("--all", action="store_true")
     sync_group.add_argument("--provider")
     sync_group.add_argument("--series")
+    sync.add_argument(
+        "--recent-days",
+        type=int,
+        default=None,
+        help="limit observation retrieval to the most recent number of days",
+    )
 
     backfill = subparsers.add_parser("backfill", help="backfill historical observations")
     backfill.add_argument("--from", dest="from_date", required=True)
 
     rebuild = subparsers.add_parser("rebuild-state", help="rebuild deterministic state snapshots")
     rebuild.add_argument("--from", dest="from_date", required=True)
+
+    history = subparsers.add_parser("sync-history", help="synchronize revision history")
+    history.add_argument("--series")
 
     subparsers.add_parser("data-health", help="summarize local data health")
 
@@ -88,28 +105,146 @@ def run(argv: Sequence[str] | None = None) -> int:
         return EXIT_OK
 
     if args.command == "catalog" and args.catalog_command == "validate":
-        result = validate_catalog(settings.catalog_root)
-        emit(result.status, "catalog validate", **result.model_dump(exclude={"status"}))
-        return EXIT_OK if result.status == "valid" else EXIT_ERROR
+        catalog_result = validate_catalog(settings.catalog_root)
+        emit(
+            catalog_result.status,
+            "catalog validate",
+            **catalog_result.model_dump(exclude={"status"}),
+        )
+        return EXIT_OK if catalog_result.status == "valid" else EXIT_ERROR
 
     if args.command == "data-health":
-        emit(
-            "unavailable",
-            "data-health",
-            database="not_checked",
-            providers={
-                "fred_alfred": "not_configured" if not settings.fred_api_key else "unsupported"
-            },
-            message="no observations exist in the Phase 1 skeleton",
-        )
+        from macro_engine.db.session import create_engine
+        from macro_engine.services.terminal import data_health
+
+        engine = create_engine(settings.database_url)
+
+        async def inspect_health() -> dict[str, Any]:
+            try:
+                return await data_health(engine, settings)
+            finally:
+                await engine.dispose()
+
+        health_result = asyncio.run(inspect_health())
+        emit("ok", "data-health", **health_result)
         return EXIT_OK
 
     if args.command == "sync":
-        unsupported("sync", "Phase 2")
+        from macro_engine.db.session import create_engine
+        from macro_engine.services.terminal import synchronize
+
+        engine = create_engine(settings.database_url)
+        start = (
+            date.today() - timedelta(days=args.recent_days)
+            if args.recent_days is not None
+            else None
+        )
+        selected = [args.series] if args.series else None
+
+        async def run_sync() -> Any:
+            try:
+                return await synchronize(
+                    engine,
+                    settings,
+                    canonical_keys=selected,
+                    start=start,
+                )
+            finally:
+                await engine.dispose()
+
+        sync_result = asyncio.run(run_sync())
+        emit(
+            "ok",
+            "sync",
+            mode=sync_result.mode,
+            inserted=sync_result.inserted,
+            updated=sync_result.updated,
+            skipped=sync_result.skipped,
+            warnings=sync_result.warnings,
+        )
+        return EXIT_OK
     if args.command == "backfill":
-        unsupported("backfill", "Phase 2")
+        from macro_engine.db.session import create_engine
+        from macro_engine.services.terminal import synchronize
+
+        engine = create_engine(settings.database_url)
+
+        async def run_backfill() -> Any:
+            try:
+                return await synchronize(
+                    engine,
+                    settings,
+                    start=date.fromisoformat(args.from_date),
+                )
+            finally:
+                await engine.dispose()
+
+        backfill_result = asyncio.run(run_backfill())
+        emit(
+            "ok",
+            "backfill",
+            mode=backfill_result.mode,
+            inserted=backfill_result.inserted,
+            updated=backfill_result.updated,
+            skipped=backfill_result.skipped,
+            warnings=backfill_result.warnings,
+        )
+        return EXIT_OK
     if args.command == "rebuild-state":
-        unsupported("rebuild-state", "Phase 2")
+        from macro_engine.db.session import create_engine
+        from macro_engine.services.terminal import build_snapshot
+
+        engine = create_engine(settings.database_url)
+
+        async def rebuild() -> dict[str, Any]:
+            try:
+                return await build_snapshot(
+                    engine,
+                    settings,
+                    as_of=datetime.combine(
+                        date.fromisoformat(args.from_date),
+                        datetime.min.time(),
+                        tzinfo=UTC,
+                    ),
+                )
+            finally:
+                await engine.dispose()
+
+        state_result = asyncio.run(rebuild())
+        emit(
+            "ok",
+            "rebuild-state",
+            methodology=state_result["methodology_version"],
+            states=len(state_result["states"]),
+        )
+        return EXIT_OK
+    if args.command == "sync-history":
+        from macro_engine.db.session import create_engine
+        from macro_engine.services.terminal import synchronize
+
+        engine = create_engine(settings.database_url)
+
+        async def run_history() -> Any:
+            try:
+                return await synchronize(
+                    engine,
+                    settings,
+                    canonical_keys=[args.series] if args.series else None,
+                )
+            finally:
+                await engine.dispose()
+
+        history_result = asyncio.run(run_history())
+        emit(
+            "ok",
+            "sync-history",
+            mode=history_result.mode,
+            inserted=history_result.inserted,
+            updated=history_result.updated,
+            skipped=history_result.skipped,
+            warnings=history_result.warnings,
+        )
+        return EXIT_OK
     if args.command == "export-series":
         unsupported("export-series", "Phase 2")
     if args.command == "generate-brief":

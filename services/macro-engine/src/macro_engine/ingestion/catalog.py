@@ -136,5 +136,5 @@ def validate_catalog(catalog_root: Path) -> CatalogValidationResult:
         status="valid",
         files=len(list((catalog_root / "catalogs").glob("*.yaml"))),
         series=len(series),
-        warnings=["live provider metadata validation is unavailable in Phase 1"],
+        warnings=["live provider metadata is checked during synchronization"],
     )

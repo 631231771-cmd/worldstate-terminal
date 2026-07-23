@@ -1910,6 +1910,7 @@ name = "world-state-macro-engine"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiosqlite" },
     { name = "alembic" },
     { name = "apscheduler" },
     { name = "asyncpg" },
@@ -1947,6 +1948,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.20,<0.21" },
     { name = "alembic", specifier = ">=1.14,<2" },
     { name = "apscheduler", specifier = ">=3.11,<4" },
     { name = "asyncpg", specifier = ">=0.30,<1" },

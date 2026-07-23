@@ -1,147 +1,436 @@
 version: 1
 series:
-  - canonical_key: US.GROWTH.INDUSTRIAL_PRODUCTION
+  - &monthly
+    canonical_key: US.GROWTH.REAL_GDP
     provider: fred_alfred
-    native_id: INDPRO
+    native_id: GDPC1
     entity: US
-    title: Industrial Production
-    frequency: monthly
-    unit: index
+    title: Real Gross Domestic Product
+    frequency: quarterly
+    unit: billions_of_chained_2017_dollars
     transform: yoy
     orientation: 1
     state_dimensions: [growth]
+    weight: 1.2
+    freshness_half_life_days: 100
+    minimum_history: 24
+    availability: &availability {method: provider_realtime_start, precision: day}
+    tags: [growth, output]
+    source_url: https://fred.stlouisfed.org/series/GDPC1
+  - <<: *monthly
+    canonical_key: US.GROWTH.INDUSTRIAL_PRODUCTION
+    native_id: INDPRO
+    title: Industrial Production
+    frequency: monthly
+    unit: index
     weight: 1.0
     freshness_half_life_days: 45
     minimum_history: 60
-    availability:
-      method: provider_realtime_start
-      precision: day
     tags: [growth, production]
     source_url: https://fred.stlouisfed.org/series/INDPRO
-  - canonical_key: US.INFLATION.CPI_HEADLINE
-    provider: fred_alfred
+  - <<: *monthly
+    canonical_key: US.GROWTH.NONFARM_PAYROLLS
+    native_id: PAYEMS
+    title: All Employees, Total Nonfarm
+    frequency: monthly
+    unit: thousands_of_persons
+    weight: 1.1
+    tags: [growth, labor]
+    source_url: https://fred.stlouisfed.org/series/PAYEMS
+  - <<: *monthly
+    canonical_key: US.GROWTH.UNEMPLOYMENT_RATE
+    native_id: UNRATE
+    title: Unemployment Rate
+    frequency: monthly
+    unit: percent
+    transform: level
+    orientation: -1
+    weight: 1.0
+    tags: [growth, labor]
+    source_url: https://fred.stlouisfed.org/series/UNRATE
+  - <<: *monthly
+    canonical_key: US.GROWTH.INITIAL_CLAIMS
+    native_id: ICSA
+    title: Initial Claims
+    frequency: weekly
+    unit: number
+    transform: yoy
+    orientation: -1
+    weight: 0.8
+    freshness_half_life_days: 14
+    minimum_history: 104
+    tags: [growth, labor, leading]
+    source_url: https://fred.stlouisfed.org/series/ICSA
+  - <<: *monthly
+    canonical_key: US.GROWTH.RETAIL_SALES
+    native_id: RSAFS
+    title: Advance Retail Sales
+    frequency: monthly
+    unit: millions_of_dollars
+    weight: 0.8
+    tags: [growth, consumption]
+    source_url: https://fred.stlouisfed.org/series/RSAFS
+
+  - <<: *monthly
+    canonical_key: US.INFLATION.CPI_HEADLINE
     native_id: CPIAUCSL
-    entity: US
-    title: Consumer Price Index for All Urban Consumers
+    title: Consumer Price Index
     frequency: monthly
     unit: index
-    transform: yoy
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 1.1
+    tags: [inflation, consumer_prices]
+    source_url: https://fred.stlouisfed.org/series/CPIAUCSL
+  - <<: *monthly
+    canonical_key: US.INFLATION.CPI_CORE
+    native_id: CPILFESL
+    title: Core Consumer Price Index
+    frequency: monthly
+    unit: index
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 1.2
+    tags: [inflation, core]
+    source_url: https://fred.stlouisfed.org/series/CPILFESL
+  - <<: *monthly
+    canonical_key: US.INFLATION.PCE_HEADLINE
+    native_id: PCEPI
+    title: Personal Consumption Expenditures Price Index
+    frequency: monthly
+    unit: index
     orientation: 1
     state_dimensions: [inflation]
     weight: 1.0
-    freshness_half_life_days: 45
-    minimum_history: 60
-    availability:
-      method: provider_realtime_start
-      precision: day
     tags: [inflation, consumer_prices]
-    source_url: https://fred.stlouisfed.org/series/CPIAUCSL
-  - canonical_key: US.POLICY.FED_FUNDS_EFFECTIVE
-    provider: fred_alfred
+    source_url: https://fred.stlouisfed.org/series/PCEPI
+  - <<: *monthly
+    canonical_key: US.INFLATION.PCE_CORE
+    native_id: PCEPILFE
+    title: Core PCE Price Index
+    frequency: monthly
+    unit: index
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 1.2
+    tags: [inflation, core]
+    source_url: https://fred.stlouisfed.org/series/PCEPILFE
+  - <<: *monthly
+    canonical_key: US.INFLATION.BREAKEVEN_5Y
+    native_id: T5YIE
+    title: 5-Year Breakeven Inflation Rate
+    frequency: daily
+    unit: percent
+    transform: level
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 0.7
+    freshness_half_life_days: 7
+    minimum_history: 252
+    tags: [inflation, expectations]
+    source_url: https://fred.stlouisfed.org/series/T5YIE
+  - <<: *monthly
+    canonical_key: US.INFLATION.BREAKEVEN_10Y
+    native_id: T10YIE
+    title: 10-Year Breakeven Inflation Rate
+    frequency: daily
+    unit: percent
+    transform: level
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 0.6
+    freshness_half_life_days: 7
+    minimum_history: 252
+    tags: [inflation, expectations]
+    source_url: https://fred.stlouisfed.org/series/T10YIE
+
+  - &daily_rate
+    <<: *monthly
+    canonical_key: US.POLICY.FED_FUNDS_EFFECTIVE
     native_id: DFF
-    entity: US
     title: Effective Federal Funds Rate
     frequency: daily
     unit: percent
     transform: level
     orientation: 1
     state_dimensions: [policy_tightness]
-    weight: 1.0
+    weight: 1.1
     freshness_half_life_days: 7
     minimum_history: 252
-    availability:
-      method: provider_realtime_start
-      precision: day
     tags: [policy, rates]
     source_url: https://fred.stlouisfed.org/series/DFF
-  - canonical_key: US.LIQUIDITY.FED_BALANCE_SHEET
-    provider: fred_alfred
-    native_id: WALCL
-    entity: US
-    title: Federal Reserve Total Assets
-    frequency: weekly
-    unit: millions_of_us_dollars
-    transform: percent_change
-    orientation: 1
-    state_dimensions: [liquidity]
+  - <<: *daily_rate
+    canonical_key: US.POLICY.INTEREST_ON_RESERVES
+    native_id: IORB
+    title: Interest Rate on Reserve Balances
+    weight: 0.7
+    source_url: https://fred.stlouisfed.org/series/IORB
+  - <<: *daily_rate
+    canonical_key: US.POLICY.SOFR
+    native_id: SOFR
+    title: Secured Overnight Financing Rate
+    weight: 0.8
+    source_url: https://fred.stlouisfed.org/series/SOFR
+  - <<: *daily_rate
+    canonical_key: US.POLICY.TREASURY_2Y
+    native_id: DGS2
+    title: 2-Year Treasury Constant Maturity Rate
     weight: 1.0
-    freshness_half_life_days: 21
-    minimum_history: 156
-    availability:
-      method: provider_realtime_start
-      precision: day
-    tags: [liquidity, central_bank_balance_sheet]
-    source_url: https://fred.stlouisfed.org/series/WALCL
-  - canonical_key: US.CREDIT.HIGH_YIELD_SPREAD
-    provider: fred_alfred
-    native_id: BAMLH0A0HYM2
-    entity: US
-    title: US High Yield Option-Adjusted Spread
+    source_url: https://fred.stlouisfed.org/series/DGS2
+  - <<: *daily_rate
+    canonical_key: US.POLICY.TREASURY_10Y
+    native_id: DGS10
+    title: 10-Year Treasury Constant Maturity Rate
+    weight: 0.6
+    source_url: https://fred.stlouisfed.org/series/DGS10
+  - <<: *daily_rate
+    canonical_key: US.POLICY.TREASURY_30Y
+    native_id: DGS30
+    title: 30-Year Treasury Constant Maturity Rate
+    weight: 0.4
+    source_url: https://fred.stlouisfed.org/series/DGS30
+  - <<: *daily_rate
+    canonical_key: US.POLICY.REAL_YIELD_5Y
+    native_id: DFII5
+    title: 5-Year Inflation-Indexed Treasury Rate
+    weight: 0.8
+    source_url: https://fred.stlouisfed.org/series/DFII5
+  - <<: *daily_rate
+    canonical_key: US.POLICY.REAL_YIELD_10Y
+    native_id: DFII10
+    title: 10-Year Inflation-Indexed Treasury Rate
+    weight: 0.8
+    source_url: https://fred.stlouisfed.org/series/DFII10
+
+  - <<: *monthly
+    canonical_key: US.GROWTH.YIELD_CURVE_10Y2Y
+    native_id: T10Y2Y
+    title: 10-Year Minus 2-Year Treasury Spread
     frequency: daily
     unit: percent
     transform: level
-    orientation: -1
-    state_dimensions: [credit, risk]
-    weight: 1.0
+    orientation: 1
+    state_dimensions: [growth]
+    weight: 0.6
     freshness_half_life_days: 7
     minimum_history: 252
-    availability:
-      method: provider_realtime_start
-      precision: day
-    tags: [credit, spread, risk]
-    source_url: https://fred.stlouisfed.org/series/BAMLH0A0HYM2
-  - canonical_key: US.RISK.VIX
-    provider: fred_alfred
-    native_id: VIXCLS
-    entity: US
-    title: CBOE Volatility Index
+    tags: [growth, yield_curve, leading]
+    source_url: https://fred.stlouisfed.org/series/T10Y2Y
+  - <<: *monthly
+    canonical_key: US.GROWTH.YIELD_CURVE_10Y3M
+    native_id: T10Y3M
+    title: 10-Year Minus 3-Month Treasury Spread
     frequency: daily
+    unit: percent
+    transform: level
+    orientation: 1
+    state_dimensions: [growth]
+    weight: 0.6
+    freshness_half_life_days: 7
+    minimum_history: 252
+    tags: [growth, yield_curve, leading]
+    source_url: https://fred.stlouisfed.org/series/T10Y3M
+
+  - <<: *monthly
+    canonical_key: US.LIQUIDITY.FED_BALANCE_SHEET
+    native_id: WALCL
+    title: Federal Reserve Total Assets
+    frequency: weekly
+    unit: millions_of_dollars
+    transform: percent_change
+    orientation: 1
+    state_dimensions: [liquidity]
+    weight: 1.2
+    freshness_half_life_days: 21
+    minimum_history: 104
+    tags: [liquidity, central_bank]
+    source_url: https://fred.stlouisfed.org/series/WALCL
+  - <<: *monthly
+    canonical_key: US.LIQUIDITY.TREASURY_GENERAL_ACCOUNT
+    native_id: WTREGEN
+    title: U.S. Treasury General Account
+    frequency: weekly
+    unit: millions_of_dollars
+    transform: percent_change
+    orientation: -1
+    state_dimensions: [liquidity]
+    weight: 0.8
+    freshness_half_life_days: 21
+    minimum_history: 104
+    tags: [liquidity, treasury]
+    source_url: https://fred.stlouisfed.org/series/WTREGEN
+  - <<: *monthly
+    canonical_key: US.LIQUIDITY.REVERSE_REPO
+    native_id: RRPONTSYD
+    title: Overnight Reverse Repurchase Agreements
+    frequency: daily
+    unit: billions_of_dollars
+    transform: percent_change
+    orientation: -1
+    state_dimensions: [liquidity]
+    weight: 0.8
+    freshness_half_life_days: 7
+    minimum_history: 252
+    tags: [liquidity, reverse_repo]
+    source_url: https://fred.stlouisfed.org/series/RRPONTSYD
+  - <<: *monthly
+    canonical_key: US.LIQUIDITY.M2
+    native_id: M2SL
+    title: M2 Money Stock
+    frequency: monthly
+    unit: billions_of_dollars
+    transform: yoy
+    orientation: 1
+    state_dimensions: [liquidity]
+    weight: 0.8
+    tags: [liquidity, money]
+    source_url: https://fred.stlouisfed.org/series/M2SL
+
+  - &credit
+    <<: *daily_rate
+    canonical_key: US.CREDIT.HIGH_YIELD_SPREAD
+    native_id: BAMLH0A0HYM2
+    title: US High Yield Option-Adjusted Spread
+    orientation: -1
+    state_dimensions: [credit]
+    weight: 1.2
+    tags: [credit, spread]
+    source_url: https://fred.stlouisfed.org/series/BAMLH0A0HYM2
+  - <<: *credit
+    canonical_key: US.CREDIT.INVESTMENT_GRADE_SPREAD
+    native_id: BAMLC0A0CM
+    title: US Corporate Option-Adjusted Spread
+    weight: 1.0
+    source_url: https://fred.stlouisfed.org/series/BAMLC0A0CM
+  - <<: *credit
+    canonical_key: US.CREDIT.NATIONAL_FINANCIAL_CONDITIONS
+    native_id: NFCI
+    title: National Financial Conditions Index
+    frequency: weekly
+    unit: index
+    orientation: -1
+    state_dimensions: [credit]
+    weight: 1.0
+    freshness_half_life_days: 14
+    minimum_history: 104
+    source_url: https://fred.stlouisfed.org/series/NFCI
+
+  - <<: *daily_rate
+    canonical_key: US.RISK.ST_LOUIS_FINANCIAL_STRESS
+    native_id: STLFSI4
+    title: St. Louis Fed Financial Stress Index
+    frequency: weekly
+    unit: index
+    orientation: 1
+    state_dimensions: [risk]
+    weight: 1.1
+    freshness_half_life_days: 14
+    minimum_history: 104
+    tags: [risk, financial_stress]
+    source_url: https://fred.stlouisfed.org/series/STLFSI4
+  - <<: *daily_rate
+    canonical_key: US.RISK.VIX
+    native_id: VIXCLS
+    title: CBOE Volatility Index
     unit: index
     transform: rolling_percentile
     orientation: 1
     state_dimensions: [risk]
-    weight: 1.0
-    freshness_half_life_days: 7
-    minimum_history: 252
-    availability:
-      method: provider_realtime_start
-      precision: day
+    weight: 1.1
     tags: [risk, volatility]
     source_url: https://fred.stlouisfed.org/series/VIXCLS
-  - canonical_key: US.EXTERNAL.BROAD_DOLLAR
-    provider: fred_alfred
+  - <<: *daily_rate
+    canonical_key: US.RISK.ADJUSTED_FINANCIAL_CONDITIONS
+    native_id: ANFCI
+    title: Adjusted National Financial Conditions Index
+    unit: index
+    orientation: 1
+    state_dimensions: [risk]
+    weight: 0.8
+    tags: [risk, financial_conditions]
+    source_url: https://fred.stlouisfed.org/series/ANFCI
+
+  - <<: *monthly
+    canonical_key: US.EXTERNAL.BROAD_DOLLAR
     native_id: DTWEXBGS
-    entity: US
-    title: Nominal Broad US Dollar Index
+    title: Nominal Broad U.S. Dollar Index
     frequency: daily
     unit: index
     transform: percent_change
     orientation: 1
-    state_dimensions: [external, risk]
-    weight: 0.5
+    state_dimensions: [external]
+    weight: 0.7
     freshness_half_life_days: 7
     minimum_history: 252
-    availability:
-      method: provider_realtime_start
-      precision: day
     tags: [external, currency]
     source_url: https://fred.stlouisfed.org/series/DTWEXBGS
-  - canonical_key: US.FISCAL.FEDERAL_DEBT_GDP
-    provider: fred_alfred
+  - <<: *monthly
+    canonical_key: US.EXTERNAL.TRADE_BALANCE
+    native_id: BOPGSTB
+    title: "Trade Balance: Goods and Services"
+    frequency: monthly
+    unit: millions_of_dollars
+    transform: level
+    orientation: 1
+    state_dimensions: [external]
+    weight: 0.7
+    tags: [external, trade]
+    source_url: https://fred.stlouisfed.org/series/BOPGSTB
+
+  - <<: *monthly
+    canonical_key: US.FISCAL.FEDERAL_DEBT_GDP
     native_id: GFDEGDQ188S
-    entity: US
     title: Federal Debt Held by the Public as Percent of GDP
     frequency: quarterly
     unit: percent_of_gdp
     transform: difference
     orientation: 1
     state_dimensions: [fiscal]
-    weight: 0.5
+    weight: 0.8
     freshness_half_life_days: 120
-    minimum_history: 40
-    availability:
-      method: provider_realtime_start
-      precision: day
+    minimum_history: 24
     tags: [fiscal, debt]
     source_url: https://fred.stlouisfed.org/series/GFDEGDQ188S
 
+  - <<: *monthly
+    canonical_key: US.GROWTH.SP500
+    native_id: SP500
+    title: S&P 500
+    frequency: daily
+    unit: index
+    transform: percent_change
+    orientation: 1
+    state_dimensions: [growth]
+    weight: 0.4
+    freshness_half_life_days: 7
+    minimum_history: 252
+    tags: [growth, markets]
+    source_url: https://fred.stlouisfed.org/series/SP500
+  - <<: *monthly
+    canonical_key: US.INFLATION.WTI_CRUDE
+    native_id: DCOILWTICO
+    title: Crude Oil Prices, West Texas Intermediate
+    frequency: daily
+    unit: dollars_per_barrel
+    transform: yoy
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 0.4
+    freshness_half_life_days: 7
+    minimum_history: 252
+    tags: [inflation, energy]
+    source_url: https://fred.stlouisfed.org/series/DCOILWTICO
+  - <<: *monthly
+    canonical_key: US.INFLATION.BRENT_CRUDE
+    native_id: DCOILBRENTEU
+    title: Crude Oil Prices, Brent
+    frequency: daily
+    unit: dollars_per_barrel
+    transform: yoy
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 0.4
+    freshness_half_life_days: 7
+    minimum_history: 252
+    tags: [inflation, energy]
+    source_url: https://fred.stlouisfed.org/series/DCOILBRENTEU

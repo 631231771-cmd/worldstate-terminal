@@ -150,4 +150,22 @@ export const VARIANT_META: { full: VariantMeta; [k: string]: VariantMeta } = {
       'Country energy exposure drill-down',
     ],
   },
+  macro: {
+    title: 'World State Terminal - Explainable Macro State',
+    description: 'Local-first macroeconomic state terminal with point-in-time data, revisions, and explainable signals.',
+    keywords: 'macroeconomic dashboard, FRED, ALFRED, economic state, inflation, growth, liquidity, credit, policy, risk',
+    url: 'http://127.0.0.1:4173/',
+    siteName: 'World State Terminal',
+    shortName: 'WorldState',
+    subject: 'Explainable Macroeconomic State Monitoring',
+    classification: 'Macroeconomic Research Dashboard',
+    categories: ['finance', 'productivity'],
+    features: [
+      'Eight explainable macro states',
+      'Point-in-time FRED and ALFRED observations',
+      'Revision-aware series explorer',
+      'Growth and inflation regime map',
+      'Explicit Live, Stale, Demo, and Empty data modes',
+    ],
+  },
 };

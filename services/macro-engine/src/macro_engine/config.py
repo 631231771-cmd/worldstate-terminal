@@ -12,6 +12,21 @@ def default_catalog_root() -> Path:
     return Path(__file__).resolve().parents[4] / "data" / "macro"
 
 
+def default_runtime_root() -> Path:
+    """Return the repository-local runtime directory used by desktop mode."""
+
+    return Path(__file__).resolve().parents[4] / ".runtime"
+
+
+def default_database_url() -> str:
+    """Return a portable async SQLite URL for zero-configuration desktop use."""
+
+    runtime_root = default_runtime_root()
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    database_path = (runtime_root / "worldstate.db").resolve()
+    return f"sqlite+aiosqlite:///{database_path.as_posix()}"
+
+
 class Settings(BaseSettings):
     """Validated settings sourced from explicit Macro Engine environment keys."""
 
@@ -20,10 +35,11 @@ class Settings(BaseSettings):
         extra="ignore",
         case_sensitive=False,
         validate_default=True,
+        populate_by_name=True,
     )
 
     database_url: str = Field(
-        default="postgresql+asyncpg://macro:macro@127.0.0.1:5432/macro",
+        default_factory=default_database_url,
         validation_alias="MACRO_DATABASE_URL",
     )
     engine_url: HttpUrl = Field(
@@ -50,6 +66,12 @@ class Settings(BaseSettings):
         ge=0.1,
         le=30.0,
         validation_alias="MACRO_HEALTH_TIMEOUT_SECONDS",
+    )
+    stale_after_hours: int = Field(
+        default=72,
+        ge=1,
+        le=8760,
+        validation_alias="MACRO_STALE_AFTER_HOURS",
     )
 
     fred_api_key: SecretStr | None = Field(

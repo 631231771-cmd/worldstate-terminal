@@ -1,66 +1,74 @@
 # Macro Engine API
 
-Status: Phase 1 skeleton.
+Status: Phase 2 local-first MVP.
 
-The service is versioned under `/v1`. Phase 1 exposes health, OpenAPI
-documentation, and Prometheus metrics. Data, state, calendar, thesis, and brief
-routes are intentionally unavailable until their delivery phases.
+The browser talks only to the Macro Engine `/v1` API. Provider credentials never
+cross this boundary. The frontend client is centralized in
+`src/services/macro-client.ts`; its URL comes from `VITE_MACRO_ENGINE_URL`, an
+explicit local override, or `http://127.0.0.1:8000`.
 
-## HTTP endpoints
+## Read endpoints
 
 ### `GET /v1/health`
 
-Returns HTTP 200 with explicit component and provider states. A degraded
-component is represented in the payload rather than hidden behind fabricated
-data.
+Returns database reachability, provider configuration, locale, timezone, service
+version, methodology version, and safe warnings. Database errors are collapsed
+without returning connection strings.
 
-Important fields:
+### `GET /v1/snapshot`
 
-- `status`: `ok`, `degraded`, or `unavailable`;
-- `database`: bounded PostgreSQL probe result;
-- `providers`: per-provider status such as `not_configured` or `unsupported`;
-- `default_locale` and `default_timezone`;
-- `generated_at`.
+Returns the complete terminal home payload:
 
-Clients may send `X-Request-ID`; the service bounds it to 128 characters and
-returns it in the response. Otherwise the service creates an ID.
+- explicit `LIVE`, `STALE`, `DEMO`, or `EMPTY` mode;
+- eight state scores with label, confidence, trend, drivers, missing series,
+  staleness, experimental status, and as-of date;
+- top release, revision, extreme-state, and stale-data changes;
+- growth/inflation regime point and six-point trajectory;
+- release calendar and system health.
 
-### `GET /metrics`
+A state with insufficient evidence has a `null` score and
+`insufficient_data` label. It is never replaced with zero.
 
-Prometheus ASGI endpoint. It must not contain credentials, connection strings,
-provider response bodies, or thesis content.
+### `GET /v1/series`
 
-### `GET /docs`
+Lists the local catalog with canonical key, provider ID, frequency, unit,
+default transform, source URL, and live/demo source mode.
 
-FastAPI OpenAPI UI for the running service. Redoc is disabled.
+### `GET /v1/series/{canonical_key}`
 
-## Error shape
+Returns the point-in-time latest vintage for each observation period. Query
+parameters:
 
-Domain errors use:
+- `transform`: `level`, `difference`, `percent_change`, `yoy`, `qoq`,
+  `annualized_3m`, `annualized_6m`, `moving_average`,
+  `rolling_percentile`, or `rolling_zscore`;
+- `as_of`: optional ISO timestamp. Observations unavailable at that time are
+  excluded before transforms run.
 
-```json
-{
-  "code": "stable_machine_code",
-  "message": "safe operator-facing summary",
-  "generated_at": "2026-07-23T00:00:00+00:00"
-}
-```
+The response includes raw/transformed values, rolling percentile, vintage date,
+source metadata, and revision count.
 
-Unexpected driver/provider details must be collapsed to safe structured
-summaries before reaching an HTTP response.
+### `GET /metrics` and `GET /docs`
+
+Prometheus ASGI endpoint and FastAPI OpenAPI UI.
 
 ## CLI contract
 
-The automation-safe entry point is `macro-engine`. Phase 1 implements:
+Implemented commands:
 
 - `serve`;
 - `migrate`;
 - `catalog validate`;
+- `sync --all`, `sync --series <canonical-key-or-FRED-id>`, and
+  `sync --recent-days <days>`;
+- `backfill --from <date>`;
+- `sync-history [--series ...]`;
+- `rebuild-state --from <date>`;
 - `data-health`.
 
-The planned commands `sync`, `backfill`, `rebuild-state`, `export-series`, and
-`generate-brief` exist for discoverability but exit with code 3 and a structured
-`available_in` field. They do not pretend to run.
+Invalid catalog series and individual provider failures are warnings. They do
+not terminate synchronization or prevent the application from starting.
+`export-series` and `generate-brief` remain future surfaces.
 
-Exit codes are 0 for success, 1 for an operational/validation error, and 3 for a
-known unsupported phase.
+Exit codes are 0 for success, 1 for an operational/validation error, 2 for CLI
+usage, and 3 for a declared unsupported command.

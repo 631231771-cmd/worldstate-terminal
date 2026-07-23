@@ -11,6 +11,7 @@ requires-python = ">=3.12,<3.13"
 license = { text = "License decision pending legal review." }
 authors = [{ name = "World State Terminal contributors" }]
 dependencies = [
+  "aiosqlite>=0.20,<0.21",
   "alembic>=1.14,<2",
   "apscheduler>=3.11,<4",
   "asyncpg>=0.30,<1",

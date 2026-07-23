@@ -1,105 +1,86 @@
 ---
 project: World State Terminal
-status: phase-1-complete
+status: phase-2-implemented-final-verification
 updated: 2026-07-23
 branch: feature/world-state-terminal
-phase_1_checkpoint: 7d70d3d2ee8d4476a5c310a62274b6952ccc7865
 phase_1_formal_commit: a458e54d06b32992001693804b49f5f59a1f4019
-resume_from: phase-2-fred-alfred-and-state-engine
+resume_from: phase-2-final-verification-and-commit
 ---
 
 # Current continuation point
 
 > [!important] Resume here
-> Phases 0 and 1 are complete. Begin Phase 2 with official FRED/ALFRED
-> ingestion, point-in-time persistence, deterministic transforms, state
-> computation, and the expanded catalog. Do not start Phase 3 frontend work.
+> Phase 2 local-first MVP is implemented. Run final full build/security checks,
+> update the Phase 2 progress commit SHA, commit once, and confirm a clean
+> worktree. Do not redo Phase 2 implementation.
 
-## Repository state
+## Delivered state
 
-- Repository: `F:\Code\world\worldstate-terminal`
-- Branch: `feature/world-state-terminal`
-- Upstream baseline: `7fe22e47dc90ee2693d0071323561e5bbffe5c42`
-- Phase 0 commit: `8059b7aaa0fe8c2ef24774a5998c0695d391abeb`
-- Phase 1 WIP checkpoint: `7d70d3d2ee8d4476a5c310a62274b6952ccc7865`
-- Formal Phase 1 commit:
-  `a458e54d06b32992001693804b49f5f59a1f4019`.
-- Git remote is named `upstream` and points to `koala73/worldmonitor`.
+- `WorldState.bat` is the only user-facing launcher.
+- Commands: `start`, `stop`, `restart`, `status`, `sync`, `doctor`, `logs`.
+- Desktop default database: ignored `.runtime/worldstate.db` using SQLite.
+- Optional server database: PostgreSQL via `MACRO_DATABASE_URL`.
+- Local config: `.runtime/worldstate.env`; FRED key remains backend-only.
+- Data modes: `LIVE`, `STALE`, `DEMO`, `EMPTY`.
+- 38 FRED/ALFRED catalog series and revision-aware, idempotent synchronization.
+- Deterministic Demo fixtures: 10,132 observations with revisions.
+- Eight explainable macro states and `wst-state-v1` methodology.
+- Top Changes, release calendar, regime trajectory, series explorer, and system
+  status APIs.
+- Dedicated `macro` frontend variant with Chinese default, English toggle, and
+  Asia/Taipei date formatting.
 
-## Completed
+## Key files
 
-- Cloned and pinned the upstream World Monitor baseline.
-- Created `feature/world-state-terminal`.
-- Ran and recorded the upstream baseline checks.
-- Completed and committed Phase 0 documentation under `docs/macro/`.
-- Installed `uv 0.11.31` and uv-managed Python 3.12.13 locally.
-- Added the Phase 1 Macro Engine skeleton under `services/macro-engine/`.
-- Added typed configuration, structured redacting logs, provider protocol,
-  catalog validation, health API, metrics endpoint, and CLI command surface.
-- Added SQLAlchemy models and Alembic migration for all 16 planned entities.
-- Added initial macro catalogs without fabricated observations.
-- Added Dockerfile, Compose stack, CI workflow, environment example, Make
-  targets, and initial unit tests.
-- Locked Python dependencies and confirmed OpenBB is excluded from the default
-  environment.
-- Passed Ruff, strict mypy, 25 tests at 96.76% coverage, CLI/catalog/Alembic
-  validation, Python package build, root type/lint checks, 250 sidecar tests, and
-  the full frontend production build.
-- Added Phase 1 API, operations, security, limitations, dependency, and progress
-  documentation.
+- Launcher: `WorldState.bat`, `scripts/worldstate.ps1`
+- Engine core:
+  `services/macro-engine/src/macro_engine/services/terminal.py`
+- FRED adapter:
+  `services/macro-engine/src/macro_engine/providers/fred_alfred.py`
+- Transforms:
+  `services/macro-engine/src/macro_engine/transforms/core.py`
+- API: `services/macro-engine/src/macro_engine/api/terminal.py`
+- Catalog: `data/macro/catalogs/us.yaml`
+- Frontend: `src/macro/`, `src/services/macro-client.ts`
+- Methodology: `docs/macro/METHODOLOGY.md`
+- Operations: `docs/macro/OPERATIONS.md`
+- Progress: `docs/macro/progress/phase-02.md`
 
-## Exact next actions
+## Verified
 
-1. Confirm the formal Phase 1 commit and a clean worktree.
-2. Read the Phase 2 section of `docs/macro/plan/IMPLEMENTATION_PLAN.md`.
-3. Design the FRED/ALFRED provider around realtime/vintage semantics before
-   implementing network calls.
-4. Add idempotent repositories and sync-run accounting against PostgreSQL.
-5. Implement point-in-time filters and deterministic transforms with property
-   tests before state aggregation.
-6. Expand the U.S. catalog to at least 35 live-validated series.
-7. Finish Phase 2 with focused tests, production build, progress record, and
-   a separate phase commit.
+- launcher lifecycle: start/status/stop pass; owned ports closed;
+- SQLite migration and 38-series Demo initialization pass;
+- PostgreSQL migration offline compile pass;
+- Ruff and strict mypy pass;
+- 27 Macro Engine tests pass at 88.50% coverage;
+- frontend typecheck pass;
+- macro production build pass (2,364 modules).
+- canonical full wrapper reached the known Windows `rm` limitation; equivalent
+  full TypeScript/Vite/PWA build passed (2,364 modules).
 
-## Phase 2 first design questions
+## Remaining before handoff
 
-- Exact ALFRED realtime-window paging and availability timestamp policy.
-- Observation uniqueness and revision replacement semantics.
-- Retry, rate-limit, concurrency, and last-known-good behavior.
-- Transform warm-up/minimum-history rules and strict missing-data behavior.
-- State component versioning, source hashes, confidence, and reproducibility.
+1. Run secret, environment, database, log, generated-file, and Git status scans.
+2. Re-run focused final checks if any cleanup changes code.
+3. Commit Phase 2 with a clear message.
+4. Put the commit SHA in `docs/macro/progress/phase-02.md` and this file using a
+   follow-up memory commit only if necessary.
 
-## Known baseline constraints
+## Honest limitations
 
-- Root `typecheck`, `typecheck:all`, lint, sidecar tests, and finance build pass.
-- `test:data` already fails upstream for generated-artifact drift, Windows path
-  assumptions, missing `dist`, locale size, and other unrelated contracts.
-- `build:full` uses POSIX `rm` and fails on Windows; the equivalent direct full
-  Vite build passes.
-- Standard Playwright startup uses POSIX environment syntax on Windows, and the
-  Chromium download timed out, so browser smoke testing is still unavailable.
-- Buf lint has pre-existing protobuf naming/import/package findings.
-- Never use fabricated macro data. Missing providers must remain explicit.
-- Docker is not installed locally; use the Linux CI job for live PostgreSQL and
-  container verification.
+- no user FRED key was available, so live provider operation remains to be
+  validated by the operator;
+- no local Docker, so live PostgreSQL/container checks remain CI-owned;
+- ALFRED requests currently use one 100,000-row page;
+- `rebuild-state` computes but does not materialize a historical snapshot range;
+- Fiscal and External are experimental;
+- Windows one-click mode serves the frontend with local Vite;
+- in-app browser visual automation was unavailable in this session.
 
 ## Guardrails
 
-- Preserve upstream behavior and isolate new macro functionality.
-- Never log or commit provider keys, tokens, database credentials, or AI keys.
-- Writes require both `MACRO_ENABLE_WRITES=true` and a configured write token.
-- Use SQLite only for isolated tests; PostgreSQL and Alembic are authoritative.
-- Run heavy verification commands serially on this machine.
-- Do not amend the WIP checkpoint merely to hide intermediate history; finish
-  every future phase with a separate verified phase commit.
-
-## Canonical links
-
-- [[00-checkpoints/2026-07-22-phase-1-wip]]
-- [[00-checkpoints/2026-07-23-phase-1-complete]]
-- [Phase 0 progress](../docs/macro/progress/phase-00.md)
-- [Phase 1 progress](../docs/macro/progress/phase-01.md)
-- [Implementation plan](../docs/macro/plan/IMPLEMENTATION_PLAN.md)
-- [Known limitations](../docs/macro/KNOWN_LIMITATIONS.md)
-- [Customization ledger](../docs/macro/CUSTOMIZATIONS.md)
-- [Upstream record](../docs/macro/UPSTREAM.md)
+- Never place FRED keys in Vite variables, browser storage, Git, or logs.
+- Never mix Demo rows into a series after its first successful live sync.
+- Never replace missing macro observations or state scores with zero.
+- Preserve point-in-time filtering before every transform.
+- `WorldState stop` must manage only verified PIDs owned by this checkout.

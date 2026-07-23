@@ -9,7 +9,7 @@ def test_repository_catalog_is_structurally_valid() -> None:
 
     assert result.status == "valid"
     assert result.files == 4
-    assert result.series == 8
+    assert result.series == 38
     assert result.errors == []
     assert result.warnings
 

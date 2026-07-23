@@ -16,14 +16,16 @@ down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-JSON_OBJECT = sa.text("'{}'::jsonb")
-JSON_ARRAY = sa.text("'[]'::jsonb")
+JSON_DOCUMENT = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
+IDENTITY_INTEGER = sa.BigInteger().with_variant(sa.Integer(), "sqlite")
+JSON_OBJECT = sa.text("'{}'")
+JSON_ARRAY = sa.text("'[]'")
 
 
 def upgrade() -> None:
     op.create_table(
         "providers",
-        sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
+        sa.Column("id", IDENTITY_INTEGER, sa.Identity(), primary_key=True),
         sa.Column("key", sa.String(64), nullable=False, unique=True),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("base_url", sa.String(2048), nullable=False),
@@ -39,7 +41,7 @@ def upgrade() -> None:
     )
     op.create_table(
         "economic_entities",
-        sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
+        sa.Column("id", IDENTITY_INTEGER, sa.Identity(), primary_key=True),
         sa.Column("iso2", sa.String(2), unique=True),
         sa.Column("iso3", sa.String(3), unique=True),
         sa.Column("name", sa.String(255), nullable=False),
@@ -49,7 +51,7 @@ def upgrade() -> None:
         sa.Column("timezone", sa.String(64)),
         sa.Column("latitude", sa.Float()),
         sa.Column("longitude", sa.Float()),
-        sa.Column("metadata_json", postgresql.JSONB(), nullable=False, server_default=JSON_OBJECT),
+        sa.Column("metadata_json", JSON_DOCUMENT, nullable=False, server_default=JSON_OBJECT),
         sa.CheckConstraint(
             "entity_type IN ('country','economic_area','global','region')",
             name="ck_economic_entities_type",
@@ -76,7 +78,7 @@ def upgrade() -> None:
         sa.Column("availability_precision", sa.String(32), nullable=False),
         sa.Column("default_transform", sa.String(64), nullable=False),
         sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
-        sa.Column("metadata_json", postgresql.JSONB(), nullable=False, server_default=JSON_OBJECT),
+        sa.Column("metadata_json", JSON_DOCUMENT, nullable=False, server_default=JSON_OBJECT),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
@@ -88,7 +90,7 @@ def upgrade() -> None:
     op.create_index("ix_series_entity_active", "series", ["entity_id", "active"])
     op.create_table(
         "observations",
-        sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
+        sa.Column("id", IDENTITY_INTEGER, sa.Identity(), primary_key=True),
         sa.Column("series_id", sa.Uuid(), sa.ForeignKey("series.id"), nullable=False),
         sa.Column("period_start", sa.Date(), nullable=False),
         sa.Column("period_end", sa.Date(), nullable=False),
@@ -103,7 +105,7 @@ def upgrade() -> None:
         sa.Column("fetched_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("is_preliminary", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("is_revised", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("quality_flags", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY),
+        sa.Column("quality_flags", JSON_DOCUMENT, nullable=False, server_default=JSON_ARRAY),
         sa.Column("source_hash", sa.String(64), nullable=False),
         sa.UniqueConstraint(
             "series_id",
@@ -140,7 +142,7 @@ def upgrade() -> None:
         sa.Column("status", sa.String(32), nullable=False),
         sa.Column("importance", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("source_url", sa.String(2048), nullable=False),
-        sa.Column("metadata_json", postgresql.JSONB(), nullable=False, server_default=JSON_OBJECT),
+        sa.Column("metadata_json", JSON_DOCUMENT, nullable=False, server_default=JSON_OBJECT),
         sa.UniqueConstraint(
             "provider_id", "native_id", "scheduled_at", name="uq_release_native_time"
         ),
@@ -166,15 +168,13 @@ def upgrade() -> None:
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("finished_at", sa.DateTime(timezone=True)),
         sa.Column("status", sa.String(32), nullable=False),
-        sa.Column(
-            "requested_series", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY
-        ),
+        sa.Column("requested_series", JSON_DOCUMENT, nullable=False, server_default=JSON_ARRAY),
         sa.Column("inserted_rows", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("updated_rows", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("skipped_rows", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("warnings", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY),
-        sa.Column("errors", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY),
-        sa.Column("metadata_json", postgresql.JSONB(), nullable=False, server_default=JSON_OBJECT),
+        sa.Column("warnings", JSON_DOCUMENT, nullable=False, server_default=JSON_ARRAY),
+        sa.Column("errors", JSON_DOCUMENT, nullable=False, server_default=JSON_ARRAY),
+        sa.Column("metadata_json", JSON_DOCUMENT, nullable=False, server_default=JSON_OBJECT),
     )
     op.create_index("ix_sync_runs_provider_started", "sync_runs", ["provider", "started_at"])
     op.create_table(
@@ -183,7 +183,7 @@ def upgrade() -> None:
         sa.Column("title", sa.String(255), nullable=False),
         sa.Column("meaning_of_positive", sa.Text(), nullable=False),
         sa.Column("methodology_version", sa.String(64), nullable=False),
-        sa.Column("config_json", postgresql.JSONB(), nullable=False, server_default=JSON_OBJECT),
+        sa.Column("config_json", JSON_DOCUMENT, nullable=False, server_default=JSON_OBJECT),
     )
     op.create_table(
         "state_components",
@@ -210,12 +210,12 @@ def upgrade() -> None:
         sa.Column("methodology_version", sa.String(64), primary_key=True),
         sa.Column("score", sa.Float(), nullable=False),
         sa.Column("confidence", sa.Float(), nullable=False),
-        sa.Column("momentum", postgresql.JSONB(), nullable=False, server_default=JSON_OBJECT),
+        sa.Column("momentum", JSON_DOCUMENT, nullable=False, server_default=JSON_OBJECT),
         sa.Column("coverage", sa.Float(), nullable=False),
         sa.Column("agreement", sa.Float(), nullable=False),
         sa.Column("freshness", sa.Float(), nullable=False),
         sa.Column("label", sa.String(64), nullable=False),
-        sa.Column("components_json", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY),
+        sa.Column("components_json", JSON_DOCUMENT, nullable=False, server_default=JSON_ARRAY),
         sa.Column("source_snapshot_hash", sa.String(64), nullable=False),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
@@ -233,8 +233,8 @@ def upgrade() -> None:
         sa.Column("title", sa.String(255), nullable=False),
         sa.Column("category", sa.String(64), nullable=False),
         sa.Column("description", sa.Text(), nullable=False),
-        sa.Column("linked_series", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY),
-        sa.Column("metadata_json", postgresql.JSONB(), nullable=False, server_default=JSON_OBJECT),
+        sa.Column("linked_series", JSON_DOCUMENT, nullable=False, server_default=JSON_ARRAY),
+        sa.Column("metadata_json", JSON_DOCUMENT, nullable=False, server_default=JSON_OBJECT),
     )
     op.create_table(
         "causal_edges",
@@ -244,10 +244,10 @@ def upgrade() -> None:
         sa.Column("sign", sa.Integer(), nullable=False),
         sa.Column("lag_min_days", sa.Integer(), nullable=False),
         sa.Column("lag_max_days", sa.Integer(), nullable=False),
-        sa.Column("conditions", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY),
+        sa.Column("conditions", JSON_DOCUMENT, nullable=False, server_default=JSON_ARRAY),
         sa.Column("confidence", sa.String(32), nullable=False),
-        sa.Column("evidence", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY),
-        sa.Column("counterexamples", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY),
+        sa.Column("evidence", JSON_DOCUMENT, nullable=False, server_default=JSON_ARRAY),
+        sa.Column("counterexamples", JSON_DOCUMENT, nullable=False, server_default=JSON_ARRAY),
         sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
     )
     op.create_table(
@@ -306,7 +306,7 @@ def upgrade() -> None:
         sa.Column("weight", sa.Float(), nullable=False),
         sa.Column("observed_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("note", sa.Text()),
-        sa.Column("metadata_json", postgresql.JSONB(), nullable=False, server_default=JSON_OBJECT),
+        sa.Column("metadata_json", JSON_DOCUMENT, nullable=False, server_default=JSON_OBJECT),
         sa.CheckConstraint(
             "stance IN ('support','contradict','neutral')",
             name="ck_thesis_evidence_stance",
@@ -320,8 +320,8 @@ def upgrade() -> None:
         ),
         sa.Column("captured_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("confidence", sa.Float(), nullable=False),
-        sa.Column("evidence_state", postgresql.JSONB(), nullable=False, server_default=JSON_ARRAY),
-        sa.Column("world_state", postgresql.JSONB(), nullable=False, server_default=JSON_OBJECT),
+        sa.Column("evidence_state", JSON_DOCUMENT, nullable=False, server_default=JSON_ARRAY),
+        sa.Column("world_state", JSON_DOCUMENT, nullable=False, server_default=JSON_OBJECT),
         sa.Column("source_snapshot_hash", sa.String(64), nullable=False),
     )
     op.create_index(

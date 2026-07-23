@@ -8,7 +8,6 @@ import { registerClsReporting } from '@/bootstrap/cls-report';
 import { registerInpReporting } from '@/bootstrap/inp-report';
 import { registerLcpReporting } from '@/bootstrap/lcp-report';
 import { initVercelAnalytics } from '@/bootstrap/secondary-startup';
-import { App } from './App';
 import { installUtmInterceptor } from './utils/utm';
 
 if (SITE_VARIANT === 'happy') {
@@ -449,9 +448,10 @@ if (urlParams.get('settings') === '1') {
 } else {
   installUtmInterceptor();
   markLcpDebug('wm:boot:app-construct');
-  const app = new App('app');
-  app
-    .init()
+  const appPromise = SITE_VARIANT === 'macro'
+    ? import('./macro/MacroApp').then(({ MacroApp }) => new MacroApp('app').init())
+    : import('./App').then(({ App }) => new App('app').init());
+  appPromise
     .then(() => {
       clearChunkReloadGuard(chunkReloadStorageKey);
     })

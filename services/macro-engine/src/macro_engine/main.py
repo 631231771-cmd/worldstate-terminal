@@ -7,11 +7,13 @@ from uuid import uuid4
 
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import make_asgi_app
 
 from macro_engine import __version__
 from macro_engine.api.health import router as health_router
+from macro_engine.api.terminal import router as terminal_router
 from macro_engine.config import Settings
 from macro_engine.db.session import create_engine
 from macro_engine.domain.errors import MacroEngineError
@@ -37,6 +39,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         docs_url="/docs",
         redoc_url=None,
         lifespan=lifespan,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://127.0.0.1:4173",
+            "http://localhost:4173",
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+        ],
+        allow_methods=["GET", "OPTIONS"],
+        allow_headers=["*"],
     )
 
     @app.middleware("http")
@@ -65,6 +78,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     app.include_router(health_router)
+    app.include_router(terminal_router)
     app.mount("/metrics", make_asgi_app())
     return app
 

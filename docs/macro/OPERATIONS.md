@@ -1,89 +1,109 @@
-# Macro Engine operations
+# Macro Terminal operations
 
-Status: Phase 1 skeleton.
+Status: Phase 2 local-first MVP.
 
-## Prerequisites
+## Windows one-click workflow
 
-- Python 3.12 managed by `uv`;
-- PostgreSQL 16 for production and integration checks;
-- Docker Compose for the unified local stack.
+From the repository root, double-click `WorldState.bat`. It:
 
-The default Python environment does not install OpenBB. Add the `openbb` extra
-only when a provider implementation requires it.
+1. checks Python, Node.js, npm, and installs `uv` if needed;
+2. installs locked Python and frontend dependencies when missing;
+3. creates `.runtime/worldstate.env`;
+4. migrates `.runtime/worldstate.db`;
+5. starts Macro Engine and the `macro` frontend variant;
+6. starts a non-blocking recent-data synchronization;
+7. waits for both services and opens the Chinese terminal.
 
-## Local setup
+Runtime files stay under `.runtime/`:
 
-From `services/macro-engine`:
+- `worldstate.env`: local configuration and optional FRED key;
+- `worldstate.db`: SQLite database;
+- `*.pid`: managed process IDs;
+- `logs/`: separate engine, frontend, and synchronization logs.
+
+The stop command validates both the saved PID and command line before stopping a
+process tree. It does not search for or terminate unrelated Python/Node
+processes.
+
+## Commands
 
 ```powershell
+WorldState.bat start
+WorldState.bat stop
+WorldState.bat restart
+WorldState.bat status
+WorldState.bat doctor
+WorldState.bat logs
+WorldState.bat sync
+WorldState.bat sync --series CPIAUCSL
+```
+
+`start` is the default when no command is supplied.
+
+## Configure FRED/ALFRED
+
+1. Start once so `.runtime/worldstate.env` exists.
+2. Add the key after `FRED_API_KEY=`.
+3. Run `WorldState.bat sync`.
+4. Refresh the terminal. Successful real observations change the mode to
+   `LIVE`.
+
+The key is loaded into the Macro Engine process only. It is never added to a
+Vite variable, browser storage, response, or log.
+
+Without a key, synchronization loads deterministic fixtures and the UI displays
+`DEMO` prominently. If a configured provider later fails while real local data
+exists, the app keeps the last-known-good observations and reports `STALE`.
+
+## Direct developer workflow
+
+```powershell
+cd services/macro-engine
 python -m uv sync --locked --group dev
-python -m uv run macro-engine catalog validate
-python -m uv run macro-engine serve
+.venv\Scripts\macro-engine.exe migrate
+.venv\Scripts\macro-engine.exe sync --all
+.venv\Scripts\macro-engine.exe serve
 ```
 
-The service starts without a FRED key. Health then reports the provider as
-`not_configured`.
-
-## Database
-
-Set `MACRO_DATABASE_URL` to a PostgreSQL async URL, then run:
+In another terminal:
 
 ```powershell
-python -m uv run macro-engine migrate
+npm run dev:macro -- --host 127.0.0.1 --port 4173
 ```
 
-Production schema changes use Alembic only. Application startup must not call
-SQLAlchemy `create_all`.
+## PostgreSQL and containers
 
-## Unified stack
-
-From the repository root:
+SQLite is the desktop default. Set `MACRO_DATABASE_URL` to a
+`postgresql+asyncpg://...` URL to use PostgreSQL. Both engines use the same
+SQLAlchemy models and Alembic revision.
 
 ```text
 docker compose -f docker-compose.macro.yml up --build
 ```
 
-The stack starts PostgreSQL, applies migrations, validates the catalog, then
-starts Macro Engine and World Monitor. PostgreSQL data lives in the named
-`macro-postgres-data` volume. Macro Engine is exposed on loopback by default.
-
-## Configuration
-
-Copy `.env.macro.example` to a local untracked environment file. Keep provider
-keys, database passwords, AI keys, and write tokens out of Git and browser
-bundles.
-
-Important controls:
-
-- `MACRO_STRICT_POINT_IN_TIME=true`;
-- `MACRO_ENABLE_WRITES=false`;
-- `MACRO_WRITE_TOKEN` unset until writes are explicitly required;
-- `MACRO_DEFAULT_LOCALE=zh-CN`;
-- `MACRO_DEFAULT_TIMEZONE=Asia/Taipei`.
-
 ## Verification
 
 ```powershell
-python -m uv run ruff format --check .
-python -m uv run ruff check .
-python -m uv run mypy src tests
-python -m uv run pytest
+cd services/macro-engine
 python -m uv lock --check
+.venv\Scripts\ruff.exe check src tests
+.venv\Scripts\mypy.exe src
+.venv\Scripts\pytest.exe
+cd ..\..
+npm run typecheck
+npm run build:macro
 ```
-
-## Backup, restore, and upgrade
-
-Phase 1 contains only schema and no production observations. PostgreSQL-native
-backup/restore runbooks, compatibility windows, and data migration rehearsals
-are Phase 7 deliverables. Until then, do not treat a container volume as a
-backup.
 
 ## Troubleshooting
 
-| Symptom | Check |
+| Symptom | Action |
 | --- | --- |
-| health is degraded | database reachability and `MACRO_DATABASE_URL` |
-| provider is `not_configured` | expected without the provider credential |
-| catalog is invalid | run `macro-engine catalog validate` and inspect errors |
-| command exits 3 | command is a declared future-phase surface |
-| container cannot become healthy | migrations, catalog mount, then `/v1/health` |
+| page says engine offline | `WorldState.bat status`, then `WorldState.bat logs` |
+| mode remains `DEMO` | check `FRED_API_KEY` and run `WorldState.bat sync` |
+| mode is `STALE` | provider failed or last live sync exceeded 72 hours |
+| one series fails | inspect sync warnings; remaining series continue |
+| port already in use | stop the owning application; WorldState never kills an unowned process |
+| migration error | back up `.runtime/worldstate.db`, then inspect engine logs |
+
+SQLite backup is a copy of `worldstate.db` made while WorldState is stopped.
+PostgreSQL deployments should use native database backup tooling.

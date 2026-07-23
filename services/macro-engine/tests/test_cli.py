@@ -20,22 +20,32 @@ def test_catalog_validate_command(
     assert cli.run(["catalog", "validate"]) == cli.EXIT_OK
     output = output_json(capsys)
     assert output["status"] == "valid"
-    assert output["series"] == 8
+    assert output["series"] == 38
 
 
-def test_data_health_is_honestly_unavailable(capsys: pytest.CaptureFixture[str]) -> None:
+def test_data_health_is_structured(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def fake_health(_engine: object, _settings: object) -> dict[str, object]:
+        return {
+            "mode": "EMPTY",
+            "database": "sqlite",
+            "observations": 0,
+            "series": 0,
+        }
+
+    monkeypatch.setattr("macro_engine.services.terminal.data_health", fake_health)
     assert cli.run(["data-health"]) == cli.EXIT_OK
     output = output_json(capsys)
-    assert output["status"] == "unavailable"
-    assert output["database"] == "not_checked"
+    assert output["status"] == "ok"
+    assert output["database"] == "sqlite"
+    assert output["mode"] == "EMPTY"
 
 
 @pytest.mark.parametrize(
     ("arguments", "phase"),
     [
-        (["sync", "--all"], "Phase 2"),
-        (["backfill", "--from", "1990-01-01"], "Phase 2"),
-        (["rebuild-state", "--from", "2000-01-01"], "Phase 2"),
         (["export-series", "US.GROWTH.TEST"], "Phase 2"),
         (["generate-brief"], "Phase 6"),
     ],
@@ -96,6 +106,7 @@ def test_every_command_has_help() -> None:
         "sync",
         "backfill",
         "rebuild-state",
+        "sync-history",
         "data-health",
         "export-series",
         "generate-brief",
