@@ -12,13 +12,15 @@ cross-asset evidence, competing explanations, and what to watch.
 
 [WebMCP](https://github.com/lvy010/webmcp) is an API proposal rather than a
 package to install. World State Terminal feature-detects
-`navigator.modelContext` and, when the browser supports it, exposes five
+`navigator.modelContext` and, when the browser supports it, exposes seven
 structured page tools:
 
 - `worldstate-get-daily-brief`
 - `worldstate-explain-market`
 - `worldstate-get-viewpoints`
 - `worldstate-get-research-calls`
+- `worldstate-get-calendar`
+- `worldstate-get-market-system`
 - `worldstate-show-section`
 
 The tools read the same evidence visible to the user. The last tool scrolls the

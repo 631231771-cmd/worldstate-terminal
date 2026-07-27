@@ -37,7 +37,19 @@ export function registerWorldStateTools(briefing: WorldBriefing): boolean {
   }
 
   const marketKeys = briefing.markets.map((market) => market.key);
-  const sections = ['today', 'chain', 'deep', 'perspectives', 'events', 'markets', 'course'];
+  const sections = [
+    'today',
+    'desk',
+    'chain',
+    'deep',
+    'calendar',
+    'markets',
+    'correlations',
+    'topics',
+    'perspectives',
+    'pipeline',
+    'course',
+  ];
   const tools: WebMcpTool[] = [
     {
       name: 'worldstate-get-daily-brief',
@@ -111,6 +123,42 @@ export function registerWorldStateTools(briefing: WorldBriefing): boolean {
       }),
     },
     {
+      name: 'worldstate-get-calendar',
+      description:
+        'Read upcoming official macro releases and central-bank meetings, including source provenance, impact, event questions, two directional scenarios, and first confirmation assets.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          impact: {
+            type: 'string',
+            enum: ['all', 'high', 'medium'],
+          },
+        },
+        additionalProperties: false,
+      },
+      execute: ({ impact }) => ({
+        generated_at: briefing.generated_at,
+        status: briefing.calendar.status,
+        method: briefing.calendar.method,
+        events:
+          impact && impact !== 'all'
+            ? briefing.calendar.events.filter((event) => event.impact === impact)
+            : briefing.calendar.events,
+      }),
+    },
+    {
+      name: 'worldstate-get-market-system',
+      description:
+        'Read the cross-asset market-implied regimes, breadth, confirmations, divergences, multi-horizon returns, and rolling relationships. Correlation is explicitly not treated as causation.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      execute: () => ({
+        generated_at: briefing.generated_at,
+        market_system: briefing.market_system,
+        topics: briefing.topics,
+        limitations: briefing.limitations,
+      }),
+    },
+    {
       name: 'worldstate-show-section',
       description:
         'Bring a visible World State Terminal section into view so the user and agent can inspect the same evidence together.',
@@ -121,7 +169,7 @@ export function registerWorldStateTools(briefing: WorldBriefing): boolean {
             type: 'string',
             enum: sections,
             description:
-              'One of today, chain, deep, perspectives, events, markets, or course.',
+              'One of today, desk, chain, deep, calendar, markets, correlations, topics, perspectives, pipeline, or course.',
           },
         },
         required: ['section'],
@@ -135,11 +183,15 @@ export function registerWorldStateTools(briefing: WorldBriefing): boolean {
         if (!target) {
           const viewBySection: Record<string, string> = {
             today: 'overview',
+            desk: 'overview',
             chain: 'events',
             deep: 'events',
-            events: 'events',
+            calendar: 'calendar',
             markets: 'markets',
+            correlations: 'markets',
+            topics: 'themes',
             perspectives: 'signals',
+            pipeline: 'signals',
             course: 'library',
           };
           const url = new URL(window.location.href);

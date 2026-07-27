@@ -346,14 +346,46 @@ def parse_yahoo_quote(payload: dict[str, Any], spec: MarketSpec) -> dict[str, ob
         as_of = datetime.fromtimestamp(timestamps[-1], tz=UTC)
     indicators = result.get("indicators")
     closes: list[float] = []
+    history: list[dict[str, object]] = []
     if isinstance(indicators, dict):
         quote_rows = indicators.get("quote")
         if isinstance(quote_rows, list) and quote_rows and isinstance(quote_rows[0], dict):
             raw_closes = quote_rows[0].get("close")
             if isinstance(raw_closes, list):
-                closes = [float(value) for value in raw_closes if isinstance(value, (int, float))][
-                    -20:
+                valid_history = [
+                    {
+                        "date": datetime.fromtimestamp(raw_timestamp, tz=UTC).date().isoformat(),
+                        "close": float(raw_close),
+                    }
+                    for raw_timestamp, raw_close in zip(
+                        timestamps if isinstance(timestamps, list) else [],
+                        raw_closes,
+                        strict=False,
+                    )
+                    if isinstance(raw_timestamp, (int, float))
+                    and isinstance(raw_close, (int, float))
+                ][-30:]
+                history = valid_history
+                closes = [
+                    float(value)
+                    for row in valid_history
+                    if isinstance((value := row.get("close")), (int, float))
                 ]
+                if isinstance(price, (int, float)) and (
+                    not closes or abs(closes[-1] - float(price)) > 1e-9
+                ):
+                    history.append(
+                        {
+                            "date": as_of.date().isoformat(),
+                            "close": float(price),
+                        }
+                    )
+                    history = history[-30:]
+                    closes = [
+                        float(value)
+                        for row in history
+                        if isinstance((value := row.get("close")), (int, float))
+                    ]
     # Yahoo's chartPreviousClose is the close before the requested *range*, not
     # necessarily the prior session. Prefer the explicit prior close, then the
     # penultimate daily observation, so a one-month chart cannot become a fake
@@ -378,6 +410,7 @@ def parse_yahoo_quote(payload: dict[str, Any], spec: MarketSpec) -> dict[str, ob
         "source": "Yahoo Finance",
         "source_url": f"https://finance.yahoo.com/quote/{quote_plus(spec.symbol)}",
         "sparkline": closes,
+        "history": history,
         "available": True,
     }
 

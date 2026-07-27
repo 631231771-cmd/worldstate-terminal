@@ -49,9 +49,13 @@ from macro_engine.services.ai_tutor import (
 from macro_engine.services.world_briefing import (
     build_world_briefing,
     complete_macro_chain,
+    compose_country_map,
     compose_deep_brief,
+    compose_event_archetypes,
     compose_events,
+    compose_market_system,
     compose_perspectives,
+    compose_topic_map,
     compose_world_briefing,
     daily_lesson,
     event_playbook,
@@ -310,10 +314,13 @@ def test_agent_reach_parser_and_local_config_are_bounded(tmp_path: Path) -> None
     assert rows[0]["views"] == 52174
     assert parse_twitter_cli_payload({}, account) == []
     assert parse_twitter_cli_payload({"ok": True, "data": "bad"}, account) == []
-    assert parse_twitter_cli_payload(
-        {"ok": True, "data": [{"id": "", "text": ""}]},
-        account,
-    ) == []
+    assert (
+        parse_twitter_cli_payload(
+            {"ok": True, "data": [{"id": "", "text": ""}]},
+            account,
+        )
+        == []
+    )
 
     config = tmp_path / "config.yaml"
     config.write_text(
@@ -549,7 +556,7 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
         for index, (title, category, _concept) in enumerate(cases)
     )
     events = compose_events(stories)
-    assert len(events) == 5
+    assert len(events) == 6
     assert events[0]["rank"] == 1
     assert events[0]["analysis_type"] == "evidence_based_hypothesis"
     assert events[0]["expectation_shift"]
@@ -570,6 +577,7 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     assert explanations["nikkei"]["confidence"] == 0.5
     assert explanations["gold"]["role"] == "实际利率 / 避险"
     assert explanations["gold"]["question"]
+    assert explanations["gold"]["horizons"]["one_day"] == 1.2
 
     no_data = {**markets[0], "available": False}
     assert market_explanation(no_data, markets)["direction"] == "unavailable"
@@ -599,10 +607,53 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
             "source_class": "social",
         },
     ]
-    perspectives = compose_perspectives(raw_perspectives)
-    assert perspectives[0]["lens"] == "财政与债券供给"
+    perspectives = compose_perspectives(raw_perspectives, events)
+    assert {row["lens"] for row in perspectives} == {"财政与债券供给", "流动性与信用"}
     assert perspectives[0]["test_with"]
     assert "反证" not in str(perspectives[0]["caveat"])
+    assert perspectives[0]["relevance_score"] >= 0
+    governance_events = compose_events(
+        [news_item("Central bank governor steps down", "markets", importance=100)]
+    )
+    governance_views = compose_perspectives(
+        [
+            {
+                **news_item("More tariff pass-through is in the pipeline"),
+                "summary": "Trade policy is raising prices for importers.",
+                "source_class": "institutional",
+            },
+            {
+                **news_item("Central bank independence and policy credibility"),
+                "summary": "A governor transition may change the reaction function.",
+                "source_class": "researcher",
+            },
+        ],
+        governance_events,
+    )
+    assert governance_views[0]["relevance_score"] >= 30
+    assert governance_views[-1]["relevance_score"] < 30
+    market_history = []
+    for row_index, row in enumerate(markets):
+        history = [
+            {
+                "date": f"2026-06-{day:02d}",
+                "close": 90.0 + day + row_index * 0.1,
+            }
+            for day in range(1, 29)
+        ]
+        market_history.append({**row, "history": history})
+    market_system = compose_market_system(
+        [market_explanation(row, market_history) for row in market_history]
+    )
+    assert len(market_system["regimes"]) == 4  # type: ignore[arg-type]
+    assert market_system["patterns"]  # type: ignore[index]
+    assert market_system["correlations"][0]["observations"] >= 20  # type: ignore[index]
+    topics = compose_topic_map(events, perspectives, list(explanations.values()))
+    countries = compose_country_map(events, list(explanations.values()))
+    archetypes = compose_event_archetypes(events)
+    assert len(topics) == 8
+    assert countries[0]["attention"] >= 0
+    assert any(row["active"] for row in archetypes)
     validation = lead_validation(events, list(explanations.values()))
     deep_brief = compose_deep_brief(
         events,
@@ -649,7 +700,13 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     assert len(live["perspectives"]) == 2  # type: ignore[arg-type]
     assert live["integrations"]["x"]["configured"] is False  # type: ignore[index]
     assert live["integrations"]["clawfeed"]["mode"] == "built_in_editorial"  # type: ignore[index]
-    assert len(live["integrations"]["webmcp"]["tools"]) == 5  # type: ignore[index]
+    assert len(live["integrations"]["webmcp"]["tools"]) == 7  # type: ignore[index]
+    assert live["calendar"]["events"]  # type: ignore[index]
+    assert live["market_system"]["regimes"]  # type: ignore[index]
+    assert live["topics"]  # type: ignore[index]
+    assert live["countries"]  # type: ignore[index]
+    assert live["event_archetypes"]  # type: ignore[index]
+    assert live["research_pipeline"]  # type: ignore[index]
     partial = compose_world_briefing(
         [{**row, "available": False} for row in markets],
         stories,

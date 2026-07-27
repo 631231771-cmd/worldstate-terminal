@@ -35,6 +35,12 @@ DEFAULT_X_RESEARCH_ACCOUNTS: tuple[XResearchAccount, ...] = (
     XResearchAccount("federalreserve", "美联储", "official", "美国货币政策与数据"),
     XResearchAccount("ecb", "欧洲央行", "official", "欧洲利率、通胀与金融条件"),
     XResearchAccount("IMFNews", "国际货币基金组织", "institutional", "全球增长与政策框架"),
+    XResearchAccount("USTreasury", "美国财政部", "official", "财政、国债供给与制裁"),
+    XResearchAccount("EIAgov", "美国能源信息署", "official", "能源供需与库存"),
+    XResearchAccount("BIS_org", "国际清算银行", "institutional", "全球金融条件与银行体系"),
+    XResearchAccount("OECD", "OECD", "institutional", "全球增长与领先指标"),
+    XResearchAccount("bankofengland", "英格兰银行", "official", "英国货币政策与金融稳定"),
+    XResearchAccount("Bank_of_Japan_e", "日本银行", "official", "日本货币政策与日元"),
     XResearchAccount("LizAnnSonders", "Liz Ann Sonders", "researcher", "经济数据与市场内部结构"),
     XResearchAccount("elerianm", "Mohamed El-Erian", "practitioner", "宏观政策与市场定价"),
     XResearchAccount("TheStalwart", "Joe Weisenthal", "practitioner", "市场叙事与实时线索"),
@@ -173,8 +179,7 @@ def parse_twitter_cli_payload(
                 "engagement": engagement,
                 "views": (
                     int(metrics.get("views") or 0)
-                    if isinstance(metrics, dict)
-                    and isinstance(metrics.get("views"), (int, float))
+                    if isinstance(metrics, dict) and isinstance(metrics.get("views"), (int, float))
                     else 0
                 ),
             }
@@ -216,10 +221,10 @@ class AgentReachXProvider:
         config_path: Path | None = None,
         executable_path: Path | None = None,
         accounts: tuple[XResearchAccount, ...] = DEFAULT_X_RESEARCH_ACCOUNTS,
-        max_posts_per_account: int = 4,
+        max_posts_per_account: int = 3,
         timeout_seconds: float = 14.0,
         cache_seconds: float = 20 * 60,
-        concurrency: int = 2,
+        concurrency: int = 3,
     ) -> None:
         self.enabled = enabled
         self.config_path = config_path or _default_config_path()
@@ -319,7 +324,7 @@ class AgentReachXProvider:
                 duration_ms=duration_ms,
                 reason="invalid_response",
             )
-        rows = parse_twitter_cli_payload(payload, account)
+        rows = parse_twitter_cli_payload(payload, account)[: self.max_posts_per_account]
         latest_at = rows[0].get("published_at") if rows else None
         return rows, _safe_call_result(
             account,
@@ -369,8 +374,9 @@ class AgentReachXProvider:
                 and cache_age < self.cache_seconds
             ):
                 cached_status = {**_CACHE_STATUS}
+                cached_cache = _CACHE_STATUS.get("cache")
                 cached_status["cache"] = {
-                    **dict(_CACHE_STATUS.get("cache") or {}),
+                    **(cached_cache if isinstance(cached_cache, dict) else {}),
                     "hit": True,
                     "age_seconds": int(cache_age),
                 }

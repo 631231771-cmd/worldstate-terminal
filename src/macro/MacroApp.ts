@@ -14,18 +14,27 @@ import { registerWorldStateTools } from './webmcp';
 import './macro-terminal.css';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-type WorldView = 'overview' | 'events' | 'markets' | 'signals' | 'library';
+type WorldView =
+  | 'overview'
+  | 'events'
+  | 'calendar'
+  | 'markets'
+  | 'themes'
+  | 'signals'
+  | 'library';
 
 const WORLD_VIEWS: ReadonlyArray<{
   key: WorldView;
   label: string;
   shortLabel: string;
 }> = [
-  { key: 'overview', label: '今日总览', shortLabel: '总览' },
-  { key: 'events', label: '事件研究', shortLabel: '事件' },
-  { key: 'markets', label: '市场实验室', shortLabel: '市场' },
-  { key: 'signals', label: '观点与调用', shortLabel: '观点' },
-  { key: 'library', label: '学习与来源', shortLabel: '学习' },
+  { key: 'overview', label: '今日桌面', shortLabel: '今日' },
+  { key: 'events', label: '事件雷达', shortLabel: '事件' },
+  { key: 'calendar', label: '宏观日历', shortLabel: '日历' },
+  { key: 'markets', label: '资产地图', shortLabel: '市场' },
+  { key: 'themes', label: '国家与主题', shortLabel: '主题' },
+  { key: 'signals', label: '观点与证据', shortLabel: '证据' },
+  { key: 'library', label: '学习与复盘', shortLabel: '学习' },
 ];
 
 interface TutorEntry extends TutorMessage {
@@ -73,6 +82,12 @@ function formatPrice(market: WorldMarket): string {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
+}
+
+function formatMove(value: number | null | undefined, fallback = '待更新'): string {
+  if (value === null || value === undefined) return fallback;
+  const normalized = Math.abs(value) < 0.005 ? 0 : value;
+  return `${normalized > 0 ? '+' : ''}${normalized.toFixed(2)}%`;
 }
 
 function renderSparkline(values: number[] | undefined, direction: WorldMarket['direction']): SVGSVGElement {
@@ -260,7 +275,7 @@ export class MacroApp {
 
   private navigate(
     view: WorldView,
-    selection: { event?: string; market?: string } = {},
+    selection: { event?: string; market?: string; release?: string; topic?: string } = {},
   ): void {
     const url = new URL(window.location.href);
     url.searchParams.set('view', view);
@@ -268,6 +283,10 @@ export class MacroApp {
     else if (view !== 'events') url.searchParams.delete('event');
     if (selection.market) url.searchParams.set('market', selection.market);
     else if (view !== 'markets') url.searchParams.delete('market');
+    if (selection.release) url.searchParams.set('release', selection.release);
+    else if (view !== 'calendar') url.searchParams.delete('release');
+    if (selection.topic) url.searchParams.set('topic', selection.topic);
+    else if (view !== 'themes') url.searchParams.delete('topic');
     history.pushState({ view }, '', url);
     this.currentView = view;
     this.render();
@@ -278,45 +297,60 @@ export class MacroApp {
     const page = el('div', `world-view world-view-${this.currentView}`);
     if (this.currentView === 'events') {
       page.append(this.renderViewHeading(
-        'EVENT RESEARCH DESK',
-        '事件研究',
-        '从事实、预期差、传导机制到跨资产验证，把一条新闻真正研究清楚。',
+        'EVENT RADAR',
+        '事件雷达与完整传导',
+        '从事实、预期差、传导机制到跨资产验证，把一条新闻真正理解清楚。',
       ), this.renderEventResearch());
       return page;
     }
     if (this.currentView === 'markets') {
       page.append(this.renderViewHeading(
-        'CROSS-ASSET LAB',
-        '市场实验室',
-        '先理解每个价格在宏观系统中的角色，再讨论今天的涨跌。',
+        'CROSS-ASSET MAP',
+        '资产地图与跨市场验证',
+        '同时看方向、期限、广度、相关性与背离，再讨论今天的涨跌为什么重要。',
       ), this.renderMarketResearch());
+      return page;
+    }
+    if (this.currentView === 'calendar') {
+      page.append(this.renderViewHeading(
+        'OFFICIAL MACRO CALENDAR',
+        '宏观日历与事件预案',
+        '不只告诉你“几点公布”：提前写出预期差、两种情景、第一定价变量和需要等待的跨资产确认。',
+      ), this.renderCalendarWorkspace());
+      return page;
+    }
+    if (this.currentView === 'themes') {
+      page.append(this.renderViewHeading(
+        'COUNTRY & THEME MAP',
+        '国家、区域与宏观主题',
+        '把每天分散的新闻重新组织到利率、通胀、增长、流动性、能源、贸易和亚洲周期中。',
+      ), this.renderThemeWorkspace());
       return page;
     }
     if (this.currentView === 'signals') {
       page.append(this.renderViewHeading(
-        'VIEWPOINT & SOURCE OPS',
-        '观点与调用',
-        '看到观点，也看到它从哪里来、调用是否成功、应该怎样验证。',
-      ), this.renderIntegrationConsole(), this.renderPerspectives(), this.renderSourceWorkbench());
+        'VIEWPOINT & EVIDENCE',
+        '观点、证据与调用透明度',
+        '看到观点，也看到它与今日主线是否相关、从哪里来、调用是否成功、应该怎样验证。',
+      ), this.renderPipeline(), this.renderIntegrationConsole(), this.renderPerspectives(), this.renderSourceWorkbench());
       return page;
     }
     if (this.currentView === 'library') {
       page.append(this.renderViewHeading(
-        'LEARNING LIBRARY',
-        '学习与来源',
-        '按问题补概念、看原始资料，并保留长期宏观底座。',
-      ), this.renderLesson(), this.renderCurriculum(), this.renderMacroFoundation(), this.renderMethodLibrary());
+        'LEARNING & REVIEW',
+        '学习、事件模板与复盘',
+        '把今天的事件放进可重复使用的宏观模板，再按问题补概念、看原始资料。',
+      ), this.renderLesson(), this.renderEventArchetypes(), this.renderCurriculum(), this.renderMacroFoundation(), this.renderMethodLibrary());
       return page;
     }
     page.append(
       this.renderHero(),
-      this.renderResearchNavigator(),
-      this.renderMacroChain(),
-      this.renderDeepBrief(),
-      this.renderValidation(),
-      this.renderEvents(3),
-      this.renderMarketStrip(6),
-      this.renderPerspectivePreview(),
+      this.renderCommandDesk(),
+      this.renderRegimeBoard(),
+      this.renderCrossAssetPatterns(),
+      this.renderEvents(5),
+      this.renderTopicMap(true),
+      this.renderPipeline(true),
     );
     return page;
   }
@@ -337,9 +371,7 @@ export class MacroApp {
     for (const market of this.briefing!.markets) {
       const item = el('div', `world-ticker-item world-move-${market.direction}`);
       const change =
-        market.change_percent === undefined
-          ? '待更新'
-          : `${market.change_percent >= 0 ? '+' : ''}${market.change_percent.toFixed(2)}%`;
+        formatMove(market.change_percent);
       item.append(
         el('span', 'world-ticker-name', market.name_zh),
         el('strong', '', formatPrice(market)),
@@ -392,70 +424,375 @@ export class MacroApp {
     return hero;
   }
 
-  private renderResearchNavigator(): HTMLElement {
+  private renderCommandDesk(): HTMLElement {
     const briefing = this.briefing!;
-    const agentReach = briefing.integrations.agent_reach_x;
-    const cards: Array<{
-      view: Exclude<WorldView, 'overview'>;
-      index: string;
-      title: string;
-      summary: string;
-      metric: string;
-    }> = [
-      {
-        view: 'events',
-        index: '01',
-        title: '事件研究',
-        summary: '完整查看事实、预期差、八阶段传导链、反方解释与反证。',
-        metric: `${briefing.events.length} 个高影响事件`,
-      },
-      {
-        view: 'markets',
-        index: '02',
-        title: '市场实验室',
-        summary: '逐一理解黄金、利率、美元、股指、原油与加密资产的宏观角色。',
-        metric: `${briefing.markets.filter((market) => market.available).length}/${briefing.markets.length} 个市场在线`,
-      },
-      {
-        view: 'signals',
-        index: '03',
-        title: '观点与调用',
-        summary: '把机构、研究者和 X 观点变成可验证假设，并查看每次采集是否成功。',
-        metric: agentReach.connected
-          ? `${agentReach.calls_succeeded}/${agentReach.calls_attempted} 路 X 调用成功`
-          : 'X 调用等待连接',
-      },
-      {
-        view: 'library',
-        index: '04',
-        title: '学习与来源',
-        summary: '需要补概念时再进入课程、原始框架和长期宏观数据底座。',
-        metric: `${briefing.sources.news.length + briefing.sources.perspectives.length} 个来源族`,
-      },
-    ];
-    const section = el('section', 'world-research-navigator');
+    const lead = briefing.events[0];
+    const nextRelease = briefing.desk.next_high_impact;
+    const section = el('section', 'world-command-desk');
+    section.id = 'desk';
+
+    const metrics = el('div', 'world-desk-metrics');
+    [
+      ['事件雷达', `${briefing.desk.event_count} 条`],
+      ['市场覆盖', briefing.desk.market_coverage],
+      ['证据来源', `${briefing.desk.source_count} 组`],
+      ['活跃主题', `${briefing.desk.active_topics.length} 个`],
+    ].forEach(([label, value]) => {
+      const item = el('div');
+      item.append(el('span', '', label), el('strong', '', value));
+      metrics.appendChild(item);
+    });
+
+    const leadCard = el('article', 'world-desk-lead');
+    leadCard.append(
+      el('span', 'world-mini-label', 'TODAY / 主线判断'),
+      el('h2', '', briefing.desk.question),
+      el('p', '', lead?.why_it_matters ?? '当前没有足够证据形成主线，等待下一项可核对信息。'),
+    );
+    if (lead) {
+      const actions = el('div', 'world-card-actions');
+      const research = el('button', 'world-primary-button', '打开完整传导链');
+      research.type = 'button';
+      research.addEventListener('click', () => this.navigate('events', { event: lead.id }));
+      const ask = el('button', 'world-secondary-button', '让 AI 用初学者方式解释');
+      ask.type = 'button';
+      ask.addEventListener('click', () => void this.askTutor(`请用初学者能听懂的方式解释：${lead.core_question}`));
+      actions.append(research, ask);
+      leadCard.appendChild(actions);
+    }
+
+    const releaseCard = el('article', 'world-desk-release');
+    releaseCard.append(el('span', 'world-mini-label', 'NEXT / 下一项高影响日程'));
+    if (nextRelease) {
+      releaseCard.append(
+        el('time', '', formatDate(nextRelease.scheduled_at)),
+        el('h3', '', nextRelease.title),
+        el('p', '', nextRelease.question),
+      );
+      const button = el('button', 'world-text-button', '打开事件预案 →');
+      button.type = 'button';
+      button.addEventListener('click', () => this.navigate('calendar', { release: nextRelease.id }));
+      releaseCard.appendChild(button);
+    } else {
+      releaseCard.append(el('h3', '', '官方日程等待更新'), el('p', '', '不会用未经核对的日期填充日历。'));
+    }
+    section.append(metrics, leadCard, releaseCard);
+    return section;
+  }
+
+  private renderRegimeBoard(): HTMLElement {
+    const system = this.briefing!.market_system;
+    const section = el('section', 'world-section world-regime-board');
+    section.id = 'regimes';
+    const heading = el('div', 'world-section-heading world-heading-row');
+    const title = el('div');
+    title.append(
+      el('div', 'world-section-index', 'MARKET-IMPLIED REGIME'),
+      el('h2', '', '市场现在共同在定价什么'),
+      el('p', '', '这是由跨资产方向推断的“市场状态”，不是对经济数据的预测。'),
+    );
+    const breadth = el(
+      'div',
+      'world-breadth',
+      `${system.breadth.up} 涨 · ${system.breadth.down} 跌 · ${system.breadth.flat} 平`,
+    );
+    heading.append(title, breadth);
+    section.appendChild(heading);
+    const grid = el('div', 'world-regime-grid');
+    system.regimes.forEach((regime) => {
+      const card = el('article', `world-regime-card is-${regime.score > 24 ? 'positive' : regime.score < -24 ? 'negative' : 'neutral'}`);
+      const top = el('div', 'world-regime-top');
+      top.append(el('h3', '', regime.title), el('strong', '', regime.label));
+      const meter = el('div', 'world-regime-meter');
+      const fill = el('span');
+      fill.style.setProperty('--regime-score', `${Math.abs(regime.score)}%`);
+      meter.appendChild(fill);
+      card.append(top, meter, el('p', '', regime.summary));
+      const meta = el('div', 'world-regime-meta');
+      meta.append(
+        el('span', '', `${regime.score >= 0 ? '+' : ''}${regime.score.toFixed(0)}`),
+        el('span', '', `证据置信 ${Math.round(regime.confidence * 100)}%`),
+      );
+      card.appendChild(meta);
+      grid.appendChild(card);
+    });
+    section.appendChild(grid);
+    return section;
+  }
+
+  private renderCrossAssetPatterns(): HTMLElement {
+    const patterns = this.briefing!.market_system.patterns;
+    const section = el('section', 'world-section world-patterns');
     const heading = el('div', 'world-section-heading');
     heading.append(
-      el('div', 'world-section-index', 'RESEARCH WORKSPACE'),
-      el('h2', '', '不止一层首页：选择你要深入的研究桌面'),
-      el('p', '', '总览负责抓住主线；事件、市场、观点和学习分别进入独立工作区。'),
+      el('div', 'world-section-index', 'CROSS-ASSET CONFIRMATION'),
+      el('h2', '', '最值得注意的跨资产共振与背离'),
+      el('p', '', '只有多个独立市场共同反应，一条宏观解释才会得到更高权重。'),
     );
-    const grid = el('div', 'world-research-nav-grid');
-    cards.forEach((item) => {
-      const card = el('article', 'world-research-nav-card');
+    section.appendChild(heading);
+    const grid = el('div', 'world-pattern-grid');
+    if (!patterns.length) {
+      grid.appendChild(el('p', 'world-empty', '当前市场没有形成足够清晰的跨资产组合信号。'));
+    }
+    patterns.forEach((pattern) => {
+      const card = el('article', `world-pattern-card is-${pattern.state}`);
       card.append(
-        el('span', 'world-research-nav-index', item.index),
-        el('h3', '', item.title),
-        el('p', '', item.summary),
-        el('strong', 'world-research-nav-metric', item.metric),
+        el('span', 'world-pattern-state', pattern.state.toUpperCase()),
+        el('h3', '', pattern.title),
+        el('p', '', pattern.explanation),
+        el('small', '', `${pattern.markets.join(' · ')} · 置信 ${Math.round(pattern.confidence * 100)}%`),
       );
-      const button = el('button', 'world-text-button', `进入${item.title} →`);
+      grid.appendChild(card);
+    });
+    section.appendChild(grid);
+    return section;
+  }
+
+  private renderCalendarWorkspace(): HTMLElement {
+    const briefing = this.briefing!;
+    const releases = briefing.calendar.events;
+    const requested = new URL(window.location.href).searchParams.get('release');
+    const selected = releases.find((release) => release.id === requested) ?? releases[0];
+    const section = el('section', 'world-calendar-workspace');
+    section.id = 'calendar';
+    const status = el('div', 'world-calendar-status');
+    status.append(
+      el('strong', '', `${briefing.calendar.status.sources_succeeded}/${briefing.calendar.status.sources_attempted || briefing.calendar.status.sources_succeeded} 个官方日程源可用`),
+      el('span', '', `${releases.length} 项未来日程`),
+      el('span', '', briefing.calendar.method),
+    );
+    section.appendChild(status);
+
+    const layout = el('div', 'world-calendar-layout');
+    const list = el('div', 'world-calendar-list');
+    let previousDay = '';
+    releases.forEach((release) => {
+      const day = formatDate(release.scheduled_at, false);
+      if (day !== previousDay) {
+        list.appendChild(el('div', 'world-calendar-day', day));
+        previousDay = day;
+      }
+      const button = el('button', `world-calendar-row${release.id === selected?.id ? ' is-active' : ''}`);
       button.type = 'button';
-      button.addEventListener('click', () => this.navigate(item.view));
+      button.append(
+        el('time', '', formatDate(release.scheduled_at).split(' ').slice(-1)[0] ?? ''),
+        el('span', `world-country-code is-${release.country.toLowerCase()}`, release.country),
+        el('strong', '', release.title),
+        el('span', `world-impact is-${release.impact}`, release.impact === 'high' ? '高影响' : '中影响'),
+      );
+      button.addEventListener('click', () => this.navigate('calendar', { release: release.id }));
+      list.appendChild(button);
+    });
+    if (!releases.length) list.appendChild(el('p', 'world-empty', '官方日历当前不可用，没有用猜测日期填充。'));
+
+    const detail = el('article', 'world-calendar-detail');
+    if (selected) {
+      detail.append(
+        el('span', 'world-mini-label', `${selected.country} / ${selected.kind.toUpperCase()} / ${selected.impact.toUpperCase()}`),
+        el('time', 'world-calendar-time', formatDate(selected.scheduled_at)),
+        el('h2', '', selected.title),
+        el('p', 'world-calendar-question', selected.question),
+      );
+      const scenarios = el('div', 'world-calendar-scenarios');
+      const hotter = el('div', 'is-hotter');
+      hotter.append(el('span', '', '如果偏强 / 偏鹰'), el('p', '', selected.scenario_hotter));
+      const softer = el('div', 'is-softer');
+      softer.append(el('span', '', '如果偏弱 / 偏鸽'), el('p', '', selected.scenario_softer));
+      scenarios.append(hotter, softer);
+      const watch = el('div', 'world-calendar-watch');
+      watch.appendChild(el('span', '', '第一批确认资产'));
+      selected.watch_assets.forEach((key) => {
+        const market = briefing.markets.find((row) => row.key === key);
+        watch.appendChild(el('strong', '', market?.name_zh ?? key));
+      });
+      const source = selected.source_url
+        ? externalLink(`${selected.source} ↗`, selected.source_url, 'world-source-link')
+        : el('span', 'world-source-link', selected.source);
+      const provenance = el('div', 'world-calendar-provenance');
+      provenance.append(
+        source,
+        el('span', '', selected.retrieval === 'live_official' ? '官方日程实时读取' : '已标注的官方年度日程回退'),
+      );
+      const ask = el('button', 'world-primary-button', '让 AI 帮我做事件前预演');
+      ask.type = 'button';
+      ask.addEventListener('click', () => void this.askTutor(`请为 ${selected.title} 做一个事件前预演，说明两种结果如何影响跨资产。`));
+      detail.append(scenarios, watch, provenance, ask);
+    } else {
+      detail.appendChild(el('p', 'world-empty', '选择一项日程查看预期差与跨资产预案。'));
+    }
+    layout.append(list, detail);
+    section.appendChild(layout);
+    return section;
+  }
+
+  private renderTopicMap(compact = false): HTMLElement {
+    const topics = this.briefing!.topics;
+    const section = el('section', `world-section world-topic-map${compact ? ' is-compact' : ''}`);
+    section.id = 'topics';
+    const heading = el('div', 'world-section-heading world-heading-row');
+    const title = el('div');
+    title.append(
+      el('div', 'world-section-index', 'MACRO TOPIC MAP'),
+      el('h2', '', '今天的新闻属于哪一条长期宏观线索'),
+      el('p', '', '主题强度综合事件重要性、外部观点数量和相关资产波动，不把热度当成事实。'),
+    );
+    heading.appendChild(title);
+    if (compact) {
+      const button = el('button', 'world-text-button', '打开完整主题地图 →');
+      button.type = 'button';
+      button.addEventListener('click', () => this.navigate('themes'));
+      heading.appendChild(button);
+    }
+    section.appendChild(heading);
+    const grid = el('div', 'world-topic-grid');
+    topics.slice(0, compact ? 6 : topics.length).forEach((topic) => {
+      const card = el('article', `world-topic-card is-${topic.state}`);
+      const top = el('div');
+      top.append(el('span', '', topic.label), el('strong', '', `${Math.round(topic.strength)}`));
+      card.append(
+        top,
+        el('h3', '', topic.title),
+        el('p', '', topic.question),
+        el('small', '', `${topic.event_count} 个事件 · ${topic.perspective_count} 条观点`),
+      );
+      const meter = el('div', 'world-topic-meter');
+      const fill = el('span');
+      fill.style.width = `${Math.max(4, topic.strength)}%`;
+      meter.appendChild(fill);
+      card.appendChild(meter);
+      const button = el('button', 'world-text-button', '查看证据');
+      button.type = 'button';
+      button.addEventListener('click', () => this.navigate('themes', { topic: topic.key }));
       card.appendChild(button);
       grid.appendChild(card);
     });
-    section.append(heading, grid);
+    section.appendChild(grid);
+    return section;
+  }
+
+  private renderThemeWorkspace(): HTMLElement {
+    const briefing = this.briefing!;
+    const requested = new URL(window.location.href).searchParams.get('topic');
+    const topic = briefing.topics.find((row) => row.key === requested) ?? briefing.topics[0];
+    const wrapper = el('div', 'world-theme-workspace');
+    wrapper.appendChild(this.renderTopicMap(false));
+    if (topic) {
+      const focus = el('section', 'world-theme-focus');
+      focus.append(
+        el('span', 'world-mini-label', `${topic.label} / 强度 ${Math.round(topic.strength)}`),
+        el('h2', '', topic.title),
+        el('p', 'world-theme-question', topic.question),
+        el('p', '', topic.why_now),
+      );
+      const evidence = el('div', 'world-theme-evidence');
+      topic.market_moves.forEach((move) => {
+        const market = briefing.markets.find((row) => row.key === move.key);
+        const value = move.change_percent;
+        const row = el('div');
+        row.append(
+          el('span', '', market?.name_zh ?? move.key),
+          el('strong', `world-move-${value === null ? 'unavailable' : value > 0 ? 'up' : value < 0 ? 'down' : 'flat'}`, formatMove(value)),
+        );
+        evidence.appendChild(row);
+      });
+      const ask = el('button', 'world-secondary-button', '让 AI 串起这条主题链');
+      ask.type = 'button';
+      ask.addEventListener('click', () => void this.askTutor(`请把今天的“${topic.title}”主题串成完整传导链，并指出证据和反证。`));
+      focus.append(evidence, ask);
+      wrapper.appendChild(focus);
+    }
+
+    const countries = el('section', 'world-section world-country-map');
+    countries.appendChild(this.renderViewHeading(
+      'REGIONAL ATTENTION',
+      '哪些国家和区域需要优先理解',
+      '关注度来自新闻与相关市场波动，不代表风险评级，也不比较国家好坏。',
+    ));
+    const grid = el('div', 'world-country-grid');
+    briefing.countries.forEach((country) => {
+      const card = el('article', 'world-country-card');
+      card.append(
+        el('span', 'world-country-flag', country.flag),
+        el('div', 'world-country-score', String(Math.round(country.attention))),
+        el('h3', '', country.name),
+        el('p', '', country.question),
+        el('small', '', country.lead),
+      );
+      const bar = el('div', 'world-country-meter');
+      const fill = el('span');
+      fill.style.width = `${Math.max(3, country.attention)}%`;
+      bar.appendChild(fill);
+      card.appendChild(bar);
+      grid.appendChild(card);
+    });
+    countries.appendChild(grid);
+    wrapper.appendChild(countries);
+    return wrapper;
+  }
+
+  private renderPipeline(compact = false): HTMLElement {
+    const modules = this.briefing!.research_pipeline;
+    const section = el('section', `world-section world-pipeline${compact ? ' is-compact' : ''}`);
+    section.id = 'pipeline';
+    const heading = el('div', 'world-section-heading world-heading-row');
+    const title = el('div');
+    title.append(
+      el('div', 'world-section-index', 'RESEARCH PIPELINE'),
+      el('h2', '', '这份解释背后实际调用了什么'),
+      el('p', '', '把行情、新闻、观点、X、官方日历、宏观底座与 AI 分开显示，避免“有内容”冒充“有证据”。'),
+    );
+    heading.appendChild(title);
+    if (compact) {
+      const button = el('button', 'world-text-button', '查看全部调用 →');
+      button.type = 'button';
+      button.addEventListener('click', () => this.navigate('signals'));
+      heading.appendChild(button);
+    }
+    section.appendChild(heading);
+    const grid = el('div', 'world-pipeline-grid');
+    modules.slice(0, compact ? 7 : modules.length).forEach((module) => {
+      const card = el('article', `world-pipeline-card is-${module.state}`);
+      card.append(
+        el('span', 'world-pipeline-state', module.state),
+        el('h3', '', module.title),
+        el('strong', '', `${module.succeeded}/${module.attempted || module.succeeded} · ${module.items} 项`),
+        el('p', '', module.detail),
+      );
+      grid.appendChild(card);
+    });
+    section.appendChild(grid);
+    return section;
+  }
+
+  private renderEventArchetypes(): HTMLElement {
+    const section = el('section', 'world-section world-archetypes');
+    section.id = 'archetypes';
+    const heading = el('div', 'world-section-heading');
+    heading.append(
+      el('div', 'world-section-index', 'EVENT PLAYBOOKS'),
+      el('h2', '', '六类事件，反复练习同一套判断方法'),
+      el('p', '', '用事件模板积累可迁移的直觉：触发器、先行市场、完整路径和失败条件。'),
+    );
+    section.appendChild(heading);
+    const grid = el('div', 'world-archetype-grid');
+    this.briefing!.event_archetypes.forEach((item) => {
+      const card = el('article', `world-archetype-card${item.active ? ' is-active' : ''}`);
+      card.append(
+        el('span', '', item.active ? '今日出现' : '复盘模板'),
+        el('h3', '', item.title),
+        el('p', '', item.trigger),
+        el('strong', '', item.path),
+        el('small', '', `反证：${item.failure}`),
+      );
+      if (item.related_event_id) {
+        const button = el('button', 'world-text-button', '打开今天的对应事件 →');
+        button.type = 'button';
+        button.addEventListener('click', () => this.navigate('events', { event: item.related_event_id ?? undefined }));
+        card.appendChild(button);
+      }
+      grid.appendChild(card);
+    });
+    section.appendChild(grid);
     return section;
   }
 
@@ -548,9 +885,7 @@ export class MacroApp {
         el(
           'strong',
           '',
-          market.change_percent === undefined
-            ? '待更新'
-            : `${market.change_percent >= 0 ? '+' : ''}${market.change_percent.toFixed(2)}%`,
+          formatMove(market.change_percent),
         ),
       );
       button.addEventListener('click', () => this.navigate('markets', { market: market.key }));
@@ -572,9 +907,7 @@ export class MacroApp {
       el(
         'span',
         '',
-        selected.change_percent === undefined
-          ? '数据待更新'
-          : `${selected.change_percent >= 0 ? '+' : ''}${selected.change_percent.toFixed(2)}%`,
+        formatMove(selected.change_percent, '数据待更新'),
       ),
       renderSparkline(selected.sparkline, selected.direction),
     );
@@ -604,8 +937,74 @@ export class MacroApp {
         'world-market-source-link',
       ));
     }
-    container.append(focus, this.renderMarketStrip());
+    container.append(
+      focus,
+      this.renderMarketHorizons(),
+      this.renderCorrelations(),
+      this.renderRegimeBoard(),
+      this.renderMarketStrip(),
+    );
     return container;
+  }
+
+  private renderMarketHorizons(): HTMLElement {
+    const rows = this.briefing!.market_system.horizons;
+    const section = el('section', 'world-section world-horizon-table');
+    const heading = el('div', 'world-section-heading');
+    heading.append(
+      el('div', 'world-section-index', 'MULTI-HORIZON TAPE'),
+      el('h2', '', '不要让一天的涨跌覆盖更长的趋势'),
+      el('p', '', '并排比较 1、5、20 个交易日，识别单日噪声、趋势延续与方向反转。'),
+    );
+    section.appendChild(heading);
+    const table = el('div', 'world-horizon-grid');
+    const head = el('div', 'world-horizon-row is-head');
+    head.append(el('span', '', '资产'), el('span', '', '1日'), el('span', '', '5日'), el('span', '', '20日'));
+    table.appendChild(head);
+    const renderMove = (value: number | null): HTMLElement => el(
+      'span',
+      `world-move-${value === null ? 'unavailable' : value > 0 ? 'up' : value < 0 ? 'down' : 'flat'}`,
+      formatMove(value, '—'),
+    );
+    rows.forEach((row) => {
+      const line = el('div', 'world-horizon-row');
+      line.append(
+        el('strong', '', row.name),
+        renderMove(row.one_day),
+        renderMove(row.five_day),
+        renderMove(row.twenty_day),
+      );
+      table.appendChild(line);
+    });
+    section.appendChild(table);
+    return section;
+  }
+
+  private renderCorrelations(): HTMLElement {
+    const system = this.briefing!.market_system;
+    const section = el('section', 'world-section world-correlations');
+    section.id = 'correlations';
+    const heading = el('div', 'world-section-heading');
+    heading.append(
+      el('div', 'world-section-index', 'ROLLING RELATIONSHIPS'),
+      el('h2', '', '最近二十个共同交易日，资产怎样联动'),
+      el('p', '', system.method),
+    );
+    section.appendChild(heading);
+    const grid = el('div', 'world-correlation-grid');
+    system.correlations.forEach((row) => {
+      const value = row.correlation;
+      const card = el('article', `world-correlation-card is-${value === null ? 'unknown' : value > 0.35 ? 'positive' : value < -0.35 ? 'negative' : 'weak'}`);
+      card.append(
+        el('span', '', row.label),
+        el('strong', '', value === null ? '样本不足' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}`),
+        el('p', '', row.interpretation),
+        el('small', '', `${row.observations} 个共同观测`),
+      );
+      grid.appendChild(card);
+    });
+    section.appendChild(grid);
+    return section;
   }
 
   private renderMacroChain(): HTMLElement {
@@ -777,15 +1176,6 @@ export class MacroApp {
     return section;
   }
 
-  private renderPerspectivePreview(): HTMLElement {
-    const section = this.renderPerspectives(4, true);
-    const button = el('button', 'world-primary-button', '查看全部观点与调用记录');
-    button.type = 'button';
-    button.addEventListener('click', () => this.navigate('signals'));
-    section.appendChild(button);
-    return section;
-  }
-
   private renderIntegrationConsole(): HTMLElement {
     const integrations = this.briefing!.integrations;
     const agentReach = integrations.agent_reach_x;
@@ -901,11 +1291,19 @@ export class MacroApp {
         el('p', 'world-empty', '公开观点源本次没有返回内容；事实简报和宏观课程仍可正常使用。'),
       );
     }
-    for (const view of briefing.perspectives.slice(0, limit)) {
+    const visiblePerspectives = limit === undefined
+      ? briefing.perspectives
+      : briefing.perspectives.slice(0, limit);
+    for (const view of visiblePerspectives) {
       const card = el('article', `world-perspective-card is-${view.source_class}`);
       const meta = el('div', 'world-perspective-meta');
       meta.append(
         el('span', 'world-perspective-class', view.source_class_label),
+        el(
+          'span',
+          `world-relevance-badge is-${view.relevance_score >= 66 ? 'direct' : view.relevance_score >= 30 ? 'mechanism' : 'background'}`,
+          `${view.relevance_label} · ${view.relevance_score}`,
+        ),
         el('span', '', `${view.source} · ${formatDate(view.published_at, false)}`),
       );
       card.append(
@@ -936,6 +1334,7 @@ export class MacroApp {
       card.append(
         mechanism,
         tests,
+        el('p', 'world-perspective-relevance', view.relevance_reason),
         el('p', 'world-perspective-caveat', `限制：${view.caveat}`),
         externalLink('阅读原文 ↗', view.url, 'world-perspective-link'),
       );
@@ -1037,7 +1436,7 @@ export class MacroApp {
     const change = el(
       'span',
       '',
-      market.change_percent === undefined ? '数据待更新' : `${market.change_percent >= 0 ? '+' : ''}${market.change_percent.toFixed(2)}%`,
+      formatMove(market.change_percent, '数据待更新'),
     );
     value.append(price, change);
     card.append(top, value, renderSparkline(market.sparkline, market.direction));
@@ -1378,13 +1777,48 @@ export class MacroApp {
 
     const messages = el('div', 'world-tutor-messages');
     if (!this.tutorEntries.length) {
+      const suggestions: Record<WorldView, string[]> = {
+        overview: [
+          '今天最重要的事情为什么会影响市场？',
+          '市场现在共同在定价什么？',
+          '今天最容易被误读的信号是什么？',
+        ],
+        events: [
+          '把主事件的完整传导链讲清楚。',
+          '哪种替代解释最可能推翻当前主线？',
+          '算法交易在消息发布后扮演什么角色？',
+        ],
+        calendar: [
+          '下一项高影响数据可能怎样影响黄金和美债？',
+          '怎样做一次央行会议前的情景预演？',
+          '公布后为什么不能只看第一分钟价格？',
+        ],
+        markets: [
+          '黄金今天为什么涨跌？',
+          '哪些资产正在相互确认，哪些正在背离？',
+          '1日、5日和20日表现应该怎样一起看？',
+        ],
+        themes: [
+          '今天最强的宏观主题是怎样形成的？',
+          '中国、美国与亚洲市场之间有什么传导？',
+          '把能源主题从供应一直讲到央行政策。',
+        ],
+        signals: [
+          '哪些外部观点与今日主线直接相关？',
+          '怎样判断一个 X 观点值不值得继续验证？',
+          '今天的证据链还缺哪一环？',
+        ],
+        library: [
+          '我应该用哪一种事件模板理解今天？',
+          '怎样区分相关性、领先关系和因果冲击？',
+          '给我一条从入门到深入的学习路径。',
+        ],
+      };
       const welcome = el('div', 'world-tutor-welcome');
-      welcome.append(
-        el('strong', '', '从一个具体的“为什么”开始'),
-        this.suggestionButton('今天最重要的事情为什么会影响市场？'),
-        this.suggestionButton('黄金今天为什么涨跌？'),
-        this.suggestionButton('算法交易在新闻发布后扮演什么角色？'),
-      );
+      welcome.append(el('strong', '', '从当前工作区继续追问'));
+      suggestions[this.currentView].forEach((question) => {
+        welcome.appendChild(this.suggestionButton(question));
+      });
       messages.appendChild(welcome);
     }
     for (const entry of this.tutorEntries) messages.appendChild(this.renderTutorEntry(entry));

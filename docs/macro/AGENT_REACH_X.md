@@ -15,18 +15,24 @@ World State Terminal 可以使用用户已经配置好的 Agent Reach Twitter Co
 
 ## 默认研究池
 
-默认按六个来源分别调用，每个来源最多四条：
+默认按十二个来源分别调用，每个来源最多三条：
 
 | 来源 | 分类 | 研究角色 |
 |---|---|---|
 | Federal Reserve | official | 美国货币政策与数据 |
 | ECB | official | 欧洲利率、通胀与金融条件 |
 | IMF News | institutional | 全球增长与政策框架 |
+| U.S. Treasury | official | 财政、国债供给与制裁 |
+| U.S. EIA | official | 能源供需与库存 |
+| BIS | institutional | 全球金融条件与银行体系 |
+| OECD | institutional | 全球增长与领先指标 |
+| Bank of England | official | 英国货币政策与金融稳定 |
+| Bank of Japan | official | 日本货币政策与日元 |
 | Liz Ann Sonders | researcher | 经济数据与市场内部结构 |
 | Mohamed El-Erian | practitioner | 宏观政策与市场定价 |
 | Joe Weisenthal | practitioner | 市场叙事与实时线索 |
 
-调用最多两路并发，默认复用二十分钟缓存。某个账号失败不会阻断其他账号，也不会
+调用最多三路并发，默认复用二十分钟缓存。某个账号失败不会阻断其他账号，也不会
 阻断新闻、行情、宏观数据或 AI 导师。
 
 ## 本地配置
@@ -35,7 +41,7 @@ World State Terminal 可以使用用户已经配置好的 Agent Reach Twitter Co
 
 ```text
 MACRO_AGENT_REACH_X_ENABLED=true
-MACRO_AGENT_REACH_X_POSTS_PER_ACCOUNT=4
+MACRO_AGENT_REACH_X_POSTS_PER_ACCOUNT=3
 MACRO_AGENT_REACH_X_CACHE_SECONDS=1200
 ```
 
@@ -52,13 +58,14 @@ MACRO_AGENT_REACH_X_TIMEOUT_SECONDS=14
 
 ## 页面中的可观测性
 
-“观点与调用”工作区显示：
+“观点与证据”工作区显示：
 
 - 已配置、已连接和可执行文件状态；
 - 本轮计划调用、成功调用和公开条目数；
 - 新调用或缓存命中；
 - 每个账号的研究角色、成功状态、耗时与最新内容时间；
 - 官方 X API、ClawFeed 和 WebMCP 的独立状态。
+- 每条观点与今日主事件的相关分数、相关原因和对应事件。
 
 这样可以区分“没有观点”“来源调用失败”和“仍在使用缓存”，而不是把所有情况
 都显示成一个模糊的在线标识。

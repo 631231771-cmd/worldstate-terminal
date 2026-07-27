@@ -102,7 +102,7 @@ class Settings(BaseSettings):
         validation_alias="MACRO_TWITTER_CLI_PATH",
     )
     agent_reach_x_posts_per_account: int = Field(
-        default=4,
+        default=3,
         ge=1,
         le=10,
         validation_alias="MACRO_AGENT_REACH_X_POSTS_PER_ACCOUNT",

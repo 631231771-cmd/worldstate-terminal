@@ -142,6 +142,12 @@ export interface WorldMarket {
   source?: string;
   source_url?: string;
   sparkline?: number[];
+  history?: Array<{ date: string; close: number }>;
+  horizons?: {
+    one_day: number | null;
+    five_day: number | null;
+    twenty_day: number | null;
+  };
   direction: 'up' | 'down' | 'flat' | 'unavailable';
   role: string;
   question: string;
@@ -170,6 +176,143 @@ export interface WorldPerspective {
   research_role?: string | null;
   engagement?: number | null;
   views?: number | null;
+  relevance_score: number;
+  relevance_label: '直接相关' | '机制相关' | '背景观察' | string;
+  relevance_reason: string;
+  related_event_ids: string[];
+}
+
+export interface WorldCalendarEvent {
+  id: string;
+  title: string;
+  scheduled_at: string;
+  country: string;
+  kind: 'policy' | 'inflation' | 'labor' | 'growth' | 'trade' | 'income' | 'macro' | string;
+  impact: 'high' | 'medium' | string;
+  source: string;
+  source_url: string;
+  retrieval: 'live_official' | 'bundled_official_schedule' | 'local_macro_snapshot' | string;
+  time_precision: 'minute' | 'date' | string;
+  question: string;
+  scenario_hotter: string;
+  scenario_softer: string;
+  watch_assets: string[];
+}
+
+export interface WorldCalendarStatus {
+  state: string;
+  connected: boolean;
+  sources_attempted: number;
+  sources_succeeded: number;
+  items: number;
+  horizon_days: number | null;
+  checked_at: string;
+  cache: {
+    hit: boolean;
+    ttl_seconds: number;
+    fetched_at: string | null;
+    age_seconds?: number;
+  };
+  calls: Array<{
+    source: string;
+    status: string;
+    items: number;
+    duration_ms: number;
+    reason?: string;
+  }>;
+}
+
+export interface WorldMarketSystem {
+  breadth: {
+    up: number;
+    down: number;
+    flat: number;
+    available: number;
+  };
+  regimes: Array<{
+    key: string;
+    title: string;
+    score: number;
+    label: string;
+    summary: string;
+    evidence: string[];
+    confidence: number;
+    method: string;
+  }>;
+  patterns: Array<{
+    title: string;
+    state: string;
+    explanation: string;
+    markets: string[];
+    confidence: number;
+  }>;
+  correlations: Array<{
+    left: string;
+    right: string;
+    label: string;
+    correlation: number | null;
+    observations: number;
+    interpretation: string;
+  }>;
+  horizons: Array<{
+    key: string;
+    name: string;
+    one_day: number | null;
+    five_day: number | null;
+    twenty_day: number | null;
+  }>;
+  method: string;
+}
+
+export interface WorldTopic {
+  key: string;
+  title: string;
+  question: string;
+  strength: number;
+  state: 'dominant' | 'active' | 'monitor' | 'quiet' | string;
+  label: string;
+  event_ids: string[];
+  event_count: number;
+  perspective_ids: string[];
+  perspective_count: number;
+  market_keys: string[];
+  market_moves: Array<{ key: string; change_percent: number | null }>;
+  why_now: string;
+}
+
+export interface WorldCountry {
+  code: string;
+  name: string;
+  flag: string;
+  question: string;
+  attention: number;
+  event_count: number;
+  event_ids: string[];
+  market_keys: string[];
+  market_moves: Array<{ key: string; change_percent: number | null }>;
+  lead: string;
+}
+
+export interface WorldEventArchetype {
+  key: string;
+  title: string;
+  trigger: string;
+  first_markets: string[];
+  path: string;
+  failure: string;
+  event_types: string[];
+  active: boolean;
+  related_event_id: string | null;
+}
+
+export interface WorldPipelineModule {
+  key: string;
+  title: string;
+  state: string;
+  attempted: number;
+  succeeded: number;
+  items: number;
+  detail: string;
 }
 
 export interface WorldDeepBrief {
@@ -233,6 +376,25 @@ export interface WorldBriefing {
   mission: string;
   events: WorldEvent[];
   markets: WorldMarket[];
+  market_system: WorldMarketSystem;
+  calendar: {
+    events: WorldCalendarEvent[];
+    status: WorldCalendarStatus;
+    method: string;
+  };
+  topics: WorldTopic[];
+  countries: WorldCountry[];
+  event_archetypes: WorldEventArchetype[];
+  desk: {
+    event_count: number;
+    market_coverage: string;
+    source_count: number;
+    next_high_impact: WorldCalendarEvent | null;
+    active_topics: string[];
+    top_country: WorldCountry | null;
+    question: string;
+  };
+  research_pipeline: WorldPipelineModule[];
   macro_chain: {
     title: string;
     scenario: string;
@@ -282,12 +444,7 @@ export interface WorldBriefing {
     retrieval_answer: string;
     transfer_question: string;
   };
-  upcoming: Array<{
-    title: string;
-    scheduled_at: string;
-    importance: number;
-    source: string;
-  }>;
+  upcoming: WorldCalendarEvent[];
   macro_context: {
     mode: MacroDataMode;
     methodology_version: string;
@@ -356,6 +513,7 @@ export interface WorldBriefing {
         reason?: string;
       }>;
     };
+    official_calendar: WorldCalendarStatus;
     clawfeed: {
       configured: boolean;
       connected: boolean;

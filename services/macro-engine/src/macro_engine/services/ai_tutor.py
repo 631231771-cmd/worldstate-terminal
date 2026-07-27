@@ -39,12 +39,17 @@ def evidence_sources(briefing: dict[str, object]) -> list[dict[str, str]]:
 
     events = briefing.get("events")
     perspectives = briefing.get("perspectives")
+    calendar = briefing.get("calendar")
     sources: list[dict[str, str]] = []
     candidates: list[object] = []
     if isinstance(events, list):
         candidates.extend(events[:7])
     if isinstance(perspectives, list):
         candidates.extend(perspectives[:5])
+    if isinstance(calendar, dict):
+        calendar_events = calendar.get("events")
+        if isinstance(calendar_events, list):
+            candidates.extend(calendar_events[:5])
     seen: set[str] = set()
     for item in candidates:
         if not isinstance(item, dict):
@@ -79,6 +84,12 @@ def build_evidence_pack(briefing: dict[str, object]) -> dict[str, object]:
         "macro_chain": briefing.get("macro_chain"),
         "deep_brief": briefing.get("deep_brief"),
         "perspectives": perspectives[:6] if isinstance(perspectives, list) else [],
+        "calendar": briefing.get("calendar"),
+        "market_system": briefing.get("market_system"),
+        "topics": briefing.get("topics"),
+        "countries": briefing.get("countries"),
+        "event_archetypes": briefing.get("event_archetypes"),
+        "research_pipeline": briefing.get("research_pipeline"),
         "macro_context": briefing.get("macro_context"),
         "lesson": lesson if isinstance(lesson, dict) else {},
         "limitations": briefing.get("limitations"),
@@ -250,6 +261,13 @@ def deterministic_answer(
         [row for row in events if isinstance(row, dict)] if isinstance(events, list) else []
     )
     lowered = question.lower()
+    calendar = briefing.get("calendar")
+    calendar_events = (
+        [row for row in calendar.get("events", []) if isinstance(row, dict)]
+        if isinstance(calendar, dict)
+        else []
+    )
+    market_system = briefing.get("market_system")
     aliases = {
         "gold": ("黄金", "gold"),
         "sp500": ("标普", "s&p", "sp500"),
@@ -274,6 +292,44 @@ def deterministic_answer(
         None,
     )
     top_event = event_rows[0] if event_rows else None
+    if any(term in lowered for term in ("日历", "公布", "会议", "下一个", "calendar")):
+        next_release = calendar_events[0] if calendar_events else None
+        if next_release is not None:
+            watch_assets = next_release.get("watch_assets")
+            watch_text = (
+                "、".join(str(item) for item in watch_assets)
+                if isinstance(watch_assets, list)
+                else "收益率、美元、黄金与股票"
+            )
+            return "\n".join(
+                (
+                    "下一项关键日程",
+                    f"{next_release.get('title')}（{next_release.get('scheduled_at')}）",
+                    "",
+                    "会改变什么",
+                    str(next_release.get("question") or "先比较公布值与市场共识。"),
+                    "",
+                    "两种情景",
+                    f"- 偏强/偏鹰：{next_release.get('scenario_hotter')}",
+                    f"- 偏弱/偏鸽：{next_release.get('scenario_softer')}",
+                    "",
+                    f"先看：{watch_text}",
+                    "不要只看第一分钟价格；至少等待第二个独立资产确认。",
+                )
+            )
+    if any(term in lowered for term in ("相关", "联动", "共振", "correlation")) and isinstance(
+        market_system, dict
+    ):
+        correlations = market_system.get("correlations")
+        rows = correlations if isinstance(correlations, list) else []
+        lines = ["最近的跨资产联动", "相关性只描述共同波动，不等于因果。", ""]
+        for row in rows[:5]:
+            if not isinstance(row, dict):
+                continue
+            value = row.get("correlation")
+            rendered = f"{float(value):+.2f}" if isinstance(value, (int, float)) else "样本不足"
+            lines.append(f"- {row.get('label')}：{rendered}；{row.get('interpretation')}")
+        return "\n".join(lines)
     lines = ["一句话"]
     if selected_market is not None:
         change = selected_market.get("change_percent")

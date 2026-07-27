@@ -59,6 +59,19 @@ The daily world briefing does not need the FRED key. Its public RSS and daily
 market evidence are keyless and report their own `LIVE`, `PARTIAL`, or `OFFLINE`
 status.
 
+## Official macro calendar
+
+The **宏观日历** workspace is keyless. It prefers first-party schedules from
+BLS, BEA, the Federal Reserve, ECB, Bank of England, and Bank of Japan. Each
+entry contains a research question, stronger/weaker scenario and the first
+assets to verify.
+
+BLS sometimes rejects automated calendar reads. In that case the engine uses
+only the explicitly dated major releases copied from the official 2026 annual
+schedule and marks the row `bundled_official_schedule`. It never silently
+substitutes an unofficial date. The calendar source ledger is visible under
+**观点与证据**.
+
 ## Connect an optional ClawFeed instance
 
 The built-in five-part deep brief is always available. If a separately running
@@ -77,7 +90,7 @@ security boundaries.
 
 If Agent Reach and `twitter-cli` are installed and Twitter Cookie credentials
 have been configured locally, the desktop launcher enables the read-only X
-research adapter automatically. Open **观点与调用** to inspect each bounded
+research adapter automatically. Open **观点与证据** to inspect each bounded
 call, its duration, item count, cache state, and safe failure status.
 
 Credentials remain in Agent Reach's per-user configuration and are passed only
