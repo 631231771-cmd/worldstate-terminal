@@ -1,6 +1,7 @@
 param(
     [ValidateSet("start", "stop", "restart", "status", "sync", "doctor", "logs")]
     [string]$Command = "start",
+    [switch]$NoBrowser,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ExtraArguments
 )
@@ -274,7 +275,9 @@ function Start-WorldState {
     }
 
     Write-WorldState "Ready: $FrontendUrl" Cyan
-    Start-Process $FrontendUrl
+    if (-not $NoBrowser) {
+        Start-Process $FrontendUrl
+    }
 }
 
 function Stop-WorldState {

@@ -36,6 +36,7 @@ from macro_engine.services.ai_tutor import (
 )
 from macro_engine.services.world_briefing import (
     build_world_briefing,
+    complete_macro_chain,
     compose_events,
     compose_world_briefing,
     daily_lesson,
@@ -304,11 +305,17 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     assert validation["status"] == "supports"
     assert validation["supports"] == 4
     assert all(row["status"] == "supports" for row in validation["rows"])
+    chain = complete_macro_chain(events, list(explanations.values()), validation)
+    assert len(chain["stages"]) == 8  # type: ignore[arg-type]
+    assert chain["current_stage"] == "pricing"
+    assert chain["stages"][0]["title"] == "事实冲击"  # type: ignore[index]
+    assert chain["stages"][-1]["title"] == "资产结果"  # type: ignore[index]
 
     cfg = settings(tmp_path)
     live = compose_world_briefing(markets, stories, macro_snapshot("LIVE"), cfg)
     assert live["evidence_mode"] == "LIVE"
     assert live["macro_context"]["states"][0]["key"] == "growth"  # type: ignore[index]
+    assert len(live["macro_chain"]["stages"]) == 8  # type: ignore[index]
     assert live["lead_validation"]["rows"]  # type: ignore[index]
     partial = compose_world_briefing(
         [{**row, "available": False} for row in markets],

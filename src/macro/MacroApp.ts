@@ -181,6 +181,7 @@ export class MacroApp {
     const editorial = el('div', 'world-editorial-column');
     editorial.append(
       this.renderHero(),
+      this.renderMacroChain(),
       this.renderEvents(),
       this.renderValidation(),
       this.renderMarketStrip(),
@@ -205,6 +206,7 @@ export class MacroApp {
     nav.setAttribute('aria-label', '页面导航');
     const navItems: Array<readonly [string, string]> = [
       ['#today', '今日简报'],
+      ['#chain', '宏观链条'],
       ['#events', '关键事件'],
       ['#markets', '市场脉冲'],
       ['#learn', '学习'],
@@ -299,12 +301,80 @@ export class MacroApp {
     return hero;
   }
 
+  private renderMacroChain(): HTMLElement {
+    const chain = this.briefing!.macro_chain;
+    const section = el('section', 'world-section world-macro-chain');
+    section.id = 'chain';
+    const heading = el('div', 'world-section-heading world-chain-heading');
+    const title = el('div');
+    title.append(
+      el('div', 'world-section-index', '01 / COMPLETE MACRO CHAIN'),
+      el('h2', '', '一件事如何传遍整个世界'),
+      el('p', '', '短期价格只是第三步。继续往后看，才能理解它会不会进入经济与下一轮政策。'),
+    );
+    const regime = el('div', 'world-chain-regime');
+    regime.append(el('span', '', '当前假设'), el('strong', '', chain.scenario));
+    heading.append(title, regime);
+    section.appendChild(heading);
+
+    const track = el('ol', 'world-chain-track');
+    for (const stage of chain.stages) {
+      const item = el(
+        'li',
+        `world-chain-stage is-${stage.state}${stage.key === chain.current_stage ? ' is-current' : ''}`,
+      );
+      const top = el('div', 'world-chain-stage-top');
+      top.append(
+        el('span', 'world-chain-number', stage.number),
+        el('span', 'world-chain-horizon', stage.horizon),
+      );
+      item.append(top, el('h3', '', stage.title), el('p', '', stage.summary));
+      const watch = el('ul', 'world-chain-watch');
+      stage.watch.slice(0, 2).forEach((entry) => watch.appendChild(el('li', '', entry)));
+      item.appendChild(watch);
+      track.appendChild(item);
+    }
+    section.appendChild(track);
+
+    const loop = el('div', 'world-chain-loop');
+    loop.append(
+      el('strong', '', '反馈回路'),
+      el('p', '', chain.feedback_loop),
+      el('span', '', chain.method),
+    );
+    section.appendChild(loop);
+
+    const references = el('details', 'world-chain-references');
+    references.appendChild(el('summary', '', '这套链条借鉴了哪些成熟框架？'));
+    const sourceList = el('div', 'world-chain-source-list');
+    sourceList.append(
+      externalLink(
+        '传导渠道 · IMF',
+        'https://www.elibrary.imf.org/view/journals/001/2023/146/article-A001-en.xml',
+      ),
+      externalLink(
+        '经济周期 · Bridgewater',
+        'https://www.bridgewater.com/how-the-economic-machine-works',
+      ),
+      externalLink(
+        '信用与领先指标 · The Macro Compass',
+        'https://themacrocompass.substack.com/p/inflation-what-next',
+      ),
+    );
+    references.append(
+      sourceList,
+      el('p', '', '机构框架用于解释机制；市场作者用于提出假设。二者都必须回到数据和价格验证。'),
+    );
+    section.appendChild(references);
+    return section;
+  }
+
   private renderMarketStrip(): HTMLElement {
     const section = el('section', 'world-market-section');
     section.id = 'markets';
     const heading = el('div', 'world-section-heading');
     heading.append(
-      el('div', 'world-section-index', '03 / MARKET ROLES'),
+      el('div', 'world-section-index', '04 / MARKET ROLES'),
       el('h2', '', '每个市场在回答什么问题'),
       el('p', '', '不要孤立读涨跌；先看它在宏观链条中的角色。'),
     );
@@ -351,7 +421,7 @@ export class MacroApp {
     const heading = el('div', 'world-section-heading world-heading-row');
     const title = el('div');
     title.append(
-      el('div', 'world-section-index', '01 / TOP WORLD EVENTS'),
+      el('div', 'world-section-index', '02 / TOP WORLD EVENTS'),
       el('h2', '', '今天全球最重要的事情'),
       el('p', '', '不是把新闻变长，而是找出它改变了什么预期。'),
     );
@@ -437,7 +507,7 @@ export class MacroApp {
     const section = el('section', 'world-section world-validation');
     const heading = el('div', 'world-section-heading');
     heading.append(
-      el('div', 'world-section-index', '02 / HYPOTHESIS CHECK'),
+      el('div', 'world-section-index', '03 / HYPOTHESIS CHECK'),
       el('h2', '', '市场在确认这条主线吗？'),
       el('p', '', '把事前方向与实际价格并排，避免看完涨跌再编故事。'),
     );
@@ -487,7 +557,7 @@ export class MacroApp {
     section.id = 'learn';
     const heading = el('div', 'world-section-heading');
     heading.append(
-      el('div', 'world-section-index', '04 / RETRIEVAL PRACTICE'),
+      el('div', 'world-section-index', '05 / RETRIEVAL PRACTICE'),
       el('h2', '', `今天真正学会：${lesson.concept}`),
       el('p', '', '先自己判断，再看反馈。'),
     );

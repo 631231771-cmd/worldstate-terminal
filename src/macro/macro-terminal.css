@@ -1539,3 +1539,370 @@
     padding-left: 16px;
   }
 }
+
+/* Readability pass: the terminal is a learning surface, not a dense trading blotter. */
+:root[data-variant='macro'] body {
+  font-size: 16px;
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
+:root[data-variant='macro'] {
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
+.world-shell {
+  font-size: 15px;
+}
+
+.world-brand-mark,
+.world-evidence-mode,
+.world-ai-status,
+.world-count,
+.world-category,
+.world-section-index,
+.world-kicker,
+.world-mini-label,
+.world-message-role,
+.world-message-provider,
+.world-market-symbol,
+.world-market-role {
+  font-size: 11px;
+}
+
+.world-brand-copy {
+  font-size: 16px;
+}
+
+.world-nav a,
+.world-icon-button,
+.world-topbar-meta,
+.world-ticker-name,
+.world-ticker-change,
+.world-market-footer,
+.world-event-meta,
+.world-expand,
+.world-method-note,
+.world-disclaimer {
+  font-size: 12px;
+}
+
+.world-ticker-item strong,
+.world-core-question span,
+.world-focus-chain small,
+.world-validation-head,
+.world-validation-status,
+.world-state-chip span {
+  font-size: 13px;
+}
+
+.world-hero h1 {
+  font-size: clamp(40px, 4vw, 62px);
+}
+
+.world-mission,
+.world-core-question strong {
+  font-size: 17px;
+}
+
+.world-focus-header {
+  font-size: 12px;
+}
+
+.world-focus-card h2 {
+  font-size: 24px;
+}
+
+.world-focus-chain p,
+.world-focus-note,
+.world-section-heading p,
+.world-event-deck,
+.world-original-headline,
+.world-expectation-shift strong,
+.world-causal-chain p,
+.world-test-grid li,
+.world-validation-row,
+.world-validation-verdict p,
+.world-market-explanation,
+.world-learning-loop p,
+.world-learning-chain,
+.world-tutor-intro,
+.world-tutor-modes button,
+.world-tutor-welcome button,
+.world-message p,
+.world-tutor-form textarea,
+.world-primary-button {
+  font-size: 14px;
+}
+
+.world-section-heading h2 {
+  font-size: clamp(27px, 2.4vw, 34px);
+}
+
+.world-event-title-block h3 {
+  font-size: 20px;
+}
+
+.world-market-name {
+  font-size: 15px;
+}
+
+.world-market-value strong {
+  font-size: 26px;
+}
+
+.world-market-value span {
+  font-size: 13px;
+}
+
+.world-validation-verdict strong,
+.world-learning-question h3 {
+  font-size: 20px;
+}
+
+.world-tutor h2 {
+  font-size: 24px;
+}
+
+.world-macro-chain {
+  overflow: hidden;
+  border-color: rgba(114, 167, 255, 0.26);
+  background:
+    linear-gradient(145deg, rgba(35, 64, 103, 0.22), transparent 38%),
+    var(--world-surface);
+}
+
+.world-chain-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 22px;
+}
+
+.world-chain-regime {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 5px;
+  padding: 12px 15px;
+  border: 1px solid rgba(114, 167, 255, 0.34);
+  border-radius: 12px;
+  background: rgba(46, 92, 159, 0.13);
+}
+
+.world-chain-regime span {
+  color: var(--world-muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.world-chain-regime strong {
+  font-size: 15px;
+}
+
+.world-chain-track {
+  display: grid;
+  margin: 24px 0 0;
+  padding: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+  counter-reset: none;
+}
+
+.world-chain-stage {
+  position: relative;
+  min-height: 228px;
+  padding: 18px;
+  border: 1px solid var(--world-line);
+  border-radius: 14px;
+  background: rgba(8, 13, 20, 0.58);
+}
+
+.world-chain-stage:not(:nth-child(4n))::after {
+  position: absolute;
+  z-index: 2;
+  top: 34px;
+  right: -10px;
+  width: 8px;
+  height: 8px;
+  border-top: 1px solid var(--world-accent);
+  border-right: 1px solid var(--world-accent);
+  opacity: 0.7;
+  transform: rotate(45deg);
+  content: '';
+}
+
+.world-chain-stage.is-current {
+  border-color: rgba(114, 167, 255, 0.65);
+  background: linear-gradient(145deg, rgba(57, 126, 234, 0.18), rgba(8, 13, 20, 0.76));
+  box-shadow: inset 0 0 0 1px rgba(114, 167, 255, 0.08);
+}
+
+.world-chain-stage-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.world-chain-number {
+  color: var(--world-accent);
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.world-chain-horizon {
+  color: var(--world-muted);
+  font-size: 13px;
+}
+
+.world-chain-stage h3 {
+  margin: 18px 0 9px;
+  font-size: 19px;
+}
+
+.world-chain-stage > p {
+  min-height: 67px;
+  margin: 0;
+  color: #c9d3df;
+  font-size: 14px;
+  line-height: 1.62;
+}
+
+.world-chain-watch {
+  display: grid;
+  margin: 15px 0 0;
+  padding: 13px 0 0 17px;
+  gap: 5px;
+  border-top: 1px solid var(--world-line);
+  color: var(--world-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.world-chain-watch li::marker {
+  color: var(--world-accent);
+}
+
+.world-chain-loop {
+  display: grid;
+  margin-top: 12px;
+  padding: 16px 18px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid rgba(237, 189, 103, 0.22);
+  border-radius: 12px;
+  background: rgba(237, 189, 103, 0.055);
+}
+
+.world-chain-loop strong {
+  color: var(--world-gold);
+  font-size: 13px;
+}
+
+.world-chain-loop p {
+  margin: 0;
+  color: #d7dee7;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.world-chain-loop span {
+  color: var(--world-muted);
+  font-size: 12px;
+}
+
+.world-chain-references {
+  margin-top: 12px;
+  padding: 0 16px;
+  border: 1px solid var(--world-line);
+  border-radius: 10px;
+  color: var(--world-muted);
+  background: rgba(8, 13, 20, 0.38);
+}
+
+.world-chain-references summary {
+  padding: 13px 0;
+  color: #cbd5e1;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.world-chain-source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.world-chain-source-list a {
+  padding: 8px 10px;
+  border: 1px solid var(--world-line-strong);
+  border-radius: 8px;
+  color: var(--world-accent);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.world-chain-references > p {
+  margin: 12px 0 15px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+@media (max-width: 1500px) {
+  .world-chain-track {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .world-chain-stage:nth-child(2n)::after {
+    display: none;
+  }
+
+  .world-chain-loop {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+}
+
+@media (max-width: 640px) {
+  .world-chain-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .world-chain-regime {
+    width: fit-content;
+  }
+
+  .world-chain-track {
+    grid-template-columns: 1fr;
+  }
+
+  .world-chain-stage {
+    min-height: 0;
+  }
+
+  .world-chain-stage::after {
+    display: none;
+  }
+
+  .world-chain-stage > p {
+    min-height: 0;
+  }
+
+  .world-hero h1 {
+    font-size: 36px;
+  }
+
+  .world-mission,
+  .world-core-question strong {
+    font-size: 16px;
+  }
+
+  .world-validation-row {
+    font-size: 12px;
+  }
+}

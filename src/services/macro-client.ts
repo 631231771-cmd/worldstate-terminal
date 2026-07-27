@@ -159,6 +159,22 @@ export interface WorldBriefing {
   mission: string;
   events: WorldEvent[];
   markets: WorldMarket[];
+  macro_chain: {
+    title: string;
+    scenario: string;
+    current_stage: string;
+    stages: Array<{
+      key: string;
+      number: string;
+      title: string;
+      horizon: string;
+      state: string;
+      summary: string;
+      watch: string[];
+    }>;
+    feedback_loop: string;
+    method: string;
+  };
   lead_validation: {
     event_id?: string;
     scenario?: string;

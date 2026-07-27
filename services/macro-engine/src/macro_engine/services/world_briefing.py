@@ -642,6 +642,181 @@ def lead_validation(
     }
 
 
+TRANSMISSION_PATHS: dict[str, dict[str, str]] = {
+    "rates": {
+        "conditions": "收益率、美元、信用利差和股权估值共同改变融资成本与风险偏好。",
+        "economy": "更紧的金融条件会压制住房、投资和耐用品需求；更松则相反，但存在时滞。",
+        "inflation": "需求、工资和住房通胀随后调整，实际利率也会随通胀预期变化。",
+        "policy": "增长和通胀反馈进入央行反应函数，重新影响下一段利率路径。",
+    },
+    "energy": {
+        "conditions": "油价通过通胀预期、债券收益率、企业成本和居民实际收入收紧或放松条件。",
+        "economy": "供应型油价上涨通常挤压消费与非能源企业利润；需求型上涨则可能伴随增长改善。",
+        "inflation": "能源先进入总体通胀，再观察运输、商品和工资是否形成二轮传导。",
+        "policy": "央行会区分一次性价格冲击与持续通胀，财政可能通过补贴或储备释放对冲。",
+    },
+    "china_growth": {
+        "conditions": "政策先影响银行流动性、信用价格、人民币和风险偏好。",
+        "economy": "只有企业与居民愿意借、银行愿意贷，政策脉冲才会进入地产、消费和投资。",
+        "inflation": "内需与产能利用率决定价格和利润能否改善，并外溢到商品与亚洲出口。",
+        "policy": "增长、汇率和资本流动反馈决定后续货币、财政与地产政策力度。",
+    },
+    "asia_fx": {
+        "conditions": "利差与汇率改变进口成本、出口竞争力、银行利润和套息资金成本。",
+        "economy": "汇率变化经出口订单、居民购买力和资本开支进入实体经济。",
+        "inflation": "本币贬值可能推高进口通胀，升值则缓解成本但压低出口换算利润。",
+        "policy": "央行在通胀、增长和汇率稳定之间重新权衡，并影响区域资金流。",
+    },
+    "geopolitical_risk": {
+        "conditions": "只有风险进入能源、航运、制裁、信用或财政渠道，金融条件才会持续改变。",
+        "economy": "供应链中断与不确定性会压制贸易和投资，财政支出则可能形成局部对冲。",
+        "inflation": "能源、运费与供给约束可能推高成本，但需求走弱又会形成反向力量。",
+        "policy": "政府通过制裁、储备、财政和安全政策回应，央行评估增长与通胀的净影响。",
+    },
+    "trade_policy": {
+        "conditions": "关税、汇率与行业风险溢价改变企业资金成本和跨境资本配置。",
+        "economy": "企业调整供应链、库存与资本开支，贸易量和居民实际购买力随后变化。",
+        "inflation": "进口成本可能推高价格，需求受损和利润压缩又可能削弱后续通胀。",
+        "policy": "报复措施、豁免、财政补贴和货币对冲决定冲击是否放大。",
+    },
+}
+
+
+def complete_macro_chain(
+    events: list[dict[str, object]],
+    markets: list[dict[str, object]],
+    validation: dict[str, object],
+) -> dict[str, object]:
+    """Build the full shock-to-policy feedback loop for the lead event."""
+
+    event = events[0] if events else {}
+    event_type = str(event.get("event_type") or "general")
+    path = TRANSMISSION_PATHS.get(
+        event_type,
+        {
+            "conditions": "利率、美元、信用、股价和波动率共同决定金融条件是否真的变化。",
+            "economy": "融资成本与信心通过消费、住房、投资、就业和贸易进入实体经济。",
+            "inflation": "需求、工资、租金、能源与利润率共同决定通胀的方向和持续性。",
+            "policy": "增长与通胀结果反馈到货币、财政和监管政策，形成下一轮冲击。",
+        },
+    )
+    title = str(event.get("display_title") or "当前没有足够新闻证据，先学习通用传导框架")
+    expectation = str(
+        event.get("expectation_shift")
+        or "先写出市场原先预期，再判断新信息究竟改变了增长、通胀、政策还是风险溢价。"
+    )
+    market_thesis = str(
+        event.get("market_thesis") or "先观察收益率、美元、商品、信用和股票是否形成跨资产确认。"
+    )
+    original_title = str(event.get("title") or "等待可核对的事实来源")
+    confirmations = event.get("confirmations")
+    confirmation_items = (
+        [str(item) for item in confirmations[:2]]
+        if isinstance(confirmations, list)
+        else ["观察最直接定价变量", "寻找第二个独立市场确认"]
+    )
+    falsifiers = event.get("falsifiers")
+    falsifier_items = (
+        [str(item) for item in falsifiers[:2]]
+        if isinstance(falsifiers, list)
+        else ["价格没有沿假设方向变化", "替代解释能更好说明跨资产表现"]
+    )
+    available_market_names = [
+        str(row.get("name_zh")) for row in markets if row.get("available") and row.get("name_zh")
+    ][:5]
+    validation_summary = str(
+        validation.get("summary") or "把事前方向与实际价格并排，确认或降低这条叙事的置信度。"
+    )
+    scenario = str(event.get("scenario") or "方向待确认")
+    stages = [
+        {
+            "key": "shock",
+            "number": "01",
+            "title": "事实冲击",
+            "horizon": "发生时",
+            "state": "observed" if events else "waiting",
+            "summary": original_title,
+            "watch": ["事实来源、公布时间、原始措辞"],
+        },
+        {
+            "key": "expectations",
+            "number": "02",
+            "title": "预期重估",
+            "horizon": "秒至小时",
+            "state": "hypothesis",
+            "summary": expectation,
+            "watch": ["增长、通胀、政策、流动性、风险溢价"],
+        },
+        {
+            "key": "pricing",
+            "number": "03",
+            "title": "先行定价",
+            "horizon": "分钟至数日",
+            "state": "testing",
+            "summary": market_thesis,
+            "watch": confirmation_items
+            + (
+                [f"当前可核对：{'、'.join(available_market_names)}"]
+                if available_market_names
+                else []
+            ),
+        },
+        {
+            "key": "conditions",
+            "number": "04",
+            "title": "金融条件",
+            "horizon": "数日至数周",
+            "state": "to_watch",
+            "summary": path["conditions"],
+            "watch": ["实际利率、美元、信用利差、股价、贷款条件"],
+        },
+        {
+            "key": "economy",
+            "number": "05",
+            "title": "实体经济",
+            "horizon": "数周至数季",
+            "state": "to_watch",
+            "summary": path["economy"],
+            "watch": ["消费、住房、资本开支、就业、贸易"],
+        },
+        {
+            "key": "inflation",
+            "number": "06",
+            "title": "通胀与利润",
+            "horizon": "数月至数季",
+            "state": "to_watch",
+            "summary": path["inflation"],
+            "watch": ["工资、租金、能源、利润率、通胀预期"],
+        },
+        {
+            "key": "policy",
+            "number": "07",
+            "title": "政策反馈",
+            "horizon": "会议与预算周期",
+            "state": "feedback",
+            "summary": path["policy"],
+            "watch": ["央行反应函数、财政、监管、外汇政策"],
+        },
+        {
+            "key": "assets",
+            "number": "08",
+            "title": "资产结果",
+            "horizon": "持续验证",
+            "state": str(validation.get("status") or "unclear"),
+            "summary": validation_summary,
+            "watch": falsifier_items,
+        },
+    ]
+    return {
+        "title": title,
+        "scenario": scenario,
+        "current_stage": "pricing",
+        "stages": stages,
+        "feedback_loop": "政策与经济结果会改变下一轮预期，因此宏观链条是循环，不是一次性的直线。",
+        "method": "先区分事实与假设，再按时间尺度寻找确认和反证。",
+    }
+
+
 def daily_lesson(events: list[dict[str, object]]) -> dict[str, object]:
     """Create a retrieval-practice loop from the day's highest-ranked event."""
 
@@ -694,6 +869,7 @@ def compose_world_briefing(
         if events
         else "免费新闻源暂不可用；宏观数据底座仍可继续学习"
     )
+    validation = lead_validation(events, explained_markets)
     states = macro_snapshot.get("states")
     compact_states = []
     if isinstance(states, list):
@@ -715,7 +891,8 @@ def compose_world_briefing(
         "mission": "先找预期差，再沿定价变量追踪传导，最后用跨资产价格验证。",
         "events": events,
         "markets": explained_markets,
-        "lead_validation": lead_validation(events, explained_markets),
+        "macro_chain": complete_macro_chain(events, explained_markets, validation),
+        "lead_validation": validation,
         "lesson": daily_lesson(events),
         "upcoming": macro_snapshot.get("releases", []),
         "macro_context": {
