@@ -1,34 +1,48 @@
 ---
 project: World State Terminal
-status: phase-3-causal-learning-complete
-updated: 2026-07-23
+status: phase-4-desktop-and-complete-chain
+updated: 2026-07-27
 branch: feature/world-state-terminal
 phase_1_formal_commit: a458e54d06b32992001693804b49f5f59a1f4019
 phase_2_formal_commit: d144c96a6afcf674e854e80feefbfa66cdbf8549
 phase_3_formal_commit: 3ca562b1264db05beb5bf94dfd819b419bee5263
 phase_3_ui_commit: 955382c6be45bb7902d46204f763893dae6e999e
 phase_3_depth_commit: 6fb2760fc7b653b31b62597d559f6863d0a3c4b8
-resume_from: phase-4-source-expansion-and-personal-learning-memory
+phase_4_desktop_chain_commit: 1e9327e6f542a4224f3532b6452f8b4e094b2b84
+resume_from: phase-5-perspective-ingestion-and-event-windows
 ---
 
 # Current continuation point
 
 > [!important] Resume here
-> The evidence-grounded world explainer, responsive workspace, and causal
-> learning workflow are complete at
-> `6fb2760fc7b653b31b62597d559f6863d0a3c4b8`. Start the next session
-> from source expansion or personal learning memory; preserve the
-> expectation-to-validation reading path.
+> The native desktop entry, readable typography, and complete eight-stage
+> macro transmission loop are complete at
+> `1e9327e6f542a4224f3532b6452f8b4e094b2b84`. Start the next session from
+> curated perspective ingestion or intraday event windows. Preserve the
+> fact → expectation → pricing → conditions → economy → inflation/profits →
+> policy → assets loop.
 
 ## Delivered state
 
-- `WorldState.bat` is the only user-facing launcher.
+- `WorldStateApp.bat` opens the terminal as a native PySide6 desktop window.
+- A real desktop shortcut named `世界状态终端.lnk` targets the native app.
+- `WorldState.bat` remains the operations launcher.
 - Commands: `start`, `stop`, `restart`, `status`, `sync`, `doctor`, `logs`.
 - A desktop shortcut named `打开世界状态终端.bat` starts the terminal.
 - The default page is a Chinese-first daily world and market explainer.
 - The page uses one core question, a labeled causal chain, ranked event list,
   hypothesis-versus-market validation, market-role cards, retrieval practice,
   and a sticky AI tutor.
+- The lead event now expands into a complete eight-stage macro loop with
+  explicit time horizons, watch variables, a feedback loop, and falsifiers.
+- The mechanism changes by event family: rates, energy, China growth, Asian
+  rates/FX, geopolitical risk, trade policy, or a general fallback.
+- Typography was raised across navigation, event analysis, market cards,
+  validation, learning, and the AI tutor. The chain switches to two wide
+  columns when four columns would become cramped.
+- IMF, Bridgewater, and The Macro Compass are shown as distinct framework
+  sources: official mechanism, system/cycle model, and practitioner hypothesis.
+- Root scrolling was corrected so the AI tutor actually remains sticky.
 - The legacy crawler copy is forcibly hidden in Macro mode, and the shared
   absolute-positioned app shell is reset so the page scrolls normally.
 - Free public feeds supply five recency-aware, mechanism-deduplicated events
@@ -48,7 +62,8 @@ resume_from: phase-4-source-expansion-and-personal-learning-memory
 
 ## Key files
 
-- Launcher: `WorldState.bat`, `scripts/worldstate.ps1`
+- Desktop: `WorldStateApp.bat`, `scripts/worldstate_desktop.py`
+- Operations launcher: `WorldState.bat`, `scripts/worldstate.ps1`
 - Public evidence:
   `services/macro-engine/src/macro_engine/providers/public_intelligence.py`
 - World briefing:
@@ -67,11 +82,13 @@ resume_from: phase-4-source-expansion-and-personal-learning-memory
 - real keyless upstream run: 11/11 markets and 40 news items;
 - real briefing: `LIVE`, five events, and eleven available markets;
 - no-key tutor: deterministic, grounded, and five cited sources;
-- 35 Macro Engine tests at 88.39% coverage;
-- Ruff, strict mypy, TypeScript, Biome, safe-HTML, and security checks pass;
-- macro production build passes;
+- 35 Macro Engine tests pass at 91.00% coverage;
+- Ruff, Python compilation, TypeScript, and macro Vite production build pass;
+- native desktop runtime check passes and the PySide6 window remains responsive;
+- desktop shortcut exists at `C:\Users\Administrator\Desktop\世界状态终端.lnk`;
 - launcher restart/status, config migration, and HTTP readiness pass.
-- real-browser 1,920 px and 390 px layouts pass with no horizontal overflow;
+- real-browser inspection confirms eight chain stages, 16 px body text,
+  14 px explanatory text, no horizontal overflow, and a sticky tutor;
 - crawler content is hidden, page height is scrollable, and event expansion
   and answer reveal work in the browser.
 - live recency-aware briefing returns today's energy event as the lead, eleven
@@ -79,8 +96,7 @@ resume_from: phase-4-source-expansion-and-personal-learning-memory
 
 ## Handoff state
 
-- Phase 3 implementation, UI redesign, and causal-learning depth pass are
-  formally committed.
+- Phase 4 desktop and complete-chain implementation is formally committed.
 - Launcher-managed services are running on ports 8000 and 4173 for immediate
   review.
 - Continue after reviewing
@@ -94,6 +110,8 @@ resume_from: phase-4-source-expansion-and-personal-learning-memory
   flow without licensed data;
 - the deterministic tutor is bounded and less flexible than a configured model;
 - AI-generated causal explanations remain hypotheses, not investment advice;
+- the desktop app is a native local window but not yet a signed standalone
+  installer; first use still depends on Python and may install PySide6;
 
 ## Guardrails
 
