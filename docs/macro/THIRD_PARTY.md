@@ -31,10 +31,12 @@ notice bundle. Dataset terms are reviewed separately from software licenses.
 | --- | --- | --- | --- |
 | [ClawFeed](https://github.com/lvy010/clawfeed) | `38b43f0c3d5c781acbc3173a3a4a47f480cb18a5` | optional public digest adapter and editorial-model reference | MIT |
 | [WebMCP](https://github.com/lvy010/webmcp) | `971aa24aea2afd865ca8607ba79a486fc7429360` | browser page-tool proposal and interface reference | W3C Software and Document License |
+| [Agent Reach](https://github.com/Panniantong/agent-reach) | installed `v1.5.0`; upstream update checked 2026-07-27 | optional local read-only X transport | MIT |
 
-No source file from either project is vendored. World State Terminal's adapter
-and page-tool implementation are original code behind optional,
-feature-detected boundaries.
+No source file from these projects is vendored. World State Terminal's
+adapters and page-tool implementation are original code behind optional,
+feature-detected boundaries. Agent Reach and its `twitter` command remain
+separately installed user-level tools; the repository stores no X credential.
 
 `uv.lock` includes hashes for registry artifacts. `python -m uv sync --group
 dev` installed 56 packages without the OpenBB extra; `python -m uv lock

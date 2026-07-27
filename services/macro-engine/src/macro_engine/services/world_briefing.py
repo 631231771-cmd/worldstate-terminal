@@ -4,11 +4,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import re
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from macro_engine.config import Settings
+from macro_engine.providers.agent_reach_x import AgentReachXProvider
 from macro_engine.providers.clawfeed import ClawFeedProvider, clawfeed_status
 from macro_engine.providers.public_intelligence import PublicIntelligenceProvider
 from macro_engine.services.terminal import build_snapshot
@@ -50,6 +53,18 @@ def _has_any(value: str, terms: tuple[str, ...]) -> bool:
     return any(term in value for term in terms)
 
 
+def _has_risk_terms(value: str, terms: tuple[str, ...]) -> bool:
+    """Match risk words without treating names such as Warjiyo as the word war."""
+
+    for term in terms:
+        if term == "war":
+            if re.search(r"(?<![a-z])wars?(?![a-z])", value):
+                return True
+        elif term in value:
+            return True
+    return False
+
+
 def _policy_bias(title: str) -> str:
     if _has_any(title, EASING_TERMS):
         return "easing"
@@ -59,7 +74,7 @@ def _policy_bias(title: str) -> str:
 
 
 def _energy_bias(title: str) -> str:
-    if _has_any(
+    if _has_risk_terms(
         title,
         (
             "sanction",
@@ -80,7 +95,7 @@ def _energy_bias(title: str) -> str:
 def _risk_bias(title: str) -> str:
     if _has_any(title, ("ceasefire", "peace deal", "truce", "de-escalation")):
         return "deescalation"
-    if _has_any(title, ("war", "attack", "sanction", "conflict", "strike")):
+    if _has_risk_terms(title, ("war", "attack", "sanction", "conflict", "strike")):
         return "escalation"
     return "uncertain"
 
@@ -170,6 +185,58 @@ def event_playbook(title: str, category: str) -> dict[str, object]:
                 "可能同时存在，需要把“央行信息效应”列为替代解释。"
             ),
             "confidence": 0.82 if bias != "uncertain" else 0.68,
+        }
+
+    is_global_central_bank_story = _has_any(
+        lowered,
+        (
+            "central bank governor",
+            "central bank chief",
+            "central bank independence",
+            "monetary authority",
+        ),
+    )
+    if is_global_central_bank_story:
+        return {
+            "event_type": "central_bank_governance",
+            "display_title": "全球央行的人事与政策连续性出现新的变化",
+            "core_question": "这项变化会改变央行反应函数，还是只改变沟通与短期不确定性？",
+            "why_it_matters": (
+                "央行领导层、独立性与政策信誉会先影响本币和本国利率，再可能外溢到资本流动。"
+            ),
+            "expectation_shift": (
+                "市场需要重新评估政策连续性、央行独立性以及通胀与汇率稳定目标的权重。"
+            ),
+            "causal_chain": [
+                "央行人事或制度信息改变政策信誉判断",
+                "未来利率路径与汇率干预预期重估",
+                "本币和本国债券先行定价",
+                "资本流动、银行与风险资产进一步确认",
+            ],
+            "chain_labels": ["制度变化", "反应函数", "本地定价", "资金外溢"],
+            "assets": ["dollar", "us10y", "gold", "sp500"],
+            "concept": "央行独立性、反应函数与风险溢价",
+            "scenario": "政策连续性待确认",
+            "expected_moves": {},
+            "market_thesis": (
+                "先看本币和本国收益率，而不是用全球股指倒推结论；若本地市场反应很小，"
+                "人事变化可能尚未改变政策路径。"
+            ),
+            "confirmations": [
+                "本币与本国收益率出现同步、持续的重新定价",
+                "官方继任安排或政策沟通改变市场利率预期",
+            ],
+            "falsifiers": [
+                "继任安排明确维持原有反应函数",
+                "本币与本国债券在消息后没有持续变化",
+            ],
+            "alternatives": ["同期全球美元与风险偏好变化", "本地政治噪声但政策框架保持不变"],
+            "learning_prompt": "为什么央行行长更换不一定立刻等于加息或降息？",
+            "learning_answer": (
+                "政策仍受通胀、增长、汇率、制度规则和委员会投票约束。人事变化先改变的是"
+                "市场对反应函数和独立性的概率判断，需要本地利率与汇率确认。"
+            ),
+            "confidence": 0.66,
         }
 
     if _has_any(lowered, ("oil", "opec", "energy", "lng")) or category == "energy":
@@ -302,7 +369,10 @@ def event_playbook(title: str, category: str) -> dict[str, object]:
             "confidence": 0.7,
         }
 
-    if _has_any(lowered, ("war", "attack", "sanction", "ceasefire", "conflict")):
+    if _has_risk_terms(
+        lowered,
+        ("war", "attack", "sanction", "ceasefire", "conflict"),
+    ):
         bias = _risk_bias(lowered)
         if bias == "escalation":
             scenario = "风险升级"
@@ -650,6 +720,20 @@ TRANSMISSION_PATHS: dict[str, dict[str, str]] = {
         "inflation": "需求、工资和住房通胀随后调整，实际利率也会随通胀预期变化。",
         "policy": "增长和通胀反馈进入央行反应函数，重新影响下一段利率路径。",
     },
+    "central_bank_governance": {
+        "conditions": (
+            "政策信誉与反应函数预期先改变本币、收益率曲线、银行融资成本和资本流动。"
+        ),
+        "economy": (
+            "只有利率、汇率和信贷条件持续变化，央行人事冲击才会进入投资、消费与就业。"
+        ),
+        "inflation": (
+            "汇率传导、通胀预期和需求变化共同决定价格影响，不能从人事消息直接推导通胀。"
+        ),
+        "policy": (
+            "继任安排、委员会投票与后续沟通揭示真实反应函数，并反馈到政策信誉和资产价格。"
+        ),
+    },
     "energy": {
         "conditions": "油价通过通胀预期、债券收益率、企业成本和居民实际收入收紧或放松条件。",
         "economy": "供应型油价上涨通常挤压消费与非能源企业利润；需求型上涨则可能伴随增长改善。",
@@ -980,7 +1064,7 @@ def _perspective_lens(text: str) -> tuple[str, str, list[str]]:
 def compose_perspectives(
     raw_perspectives: list[dict[str, object]],
 ) -> list[dict[str, object]]:
-    """Turn mixed-source views into explicit, testable research hypotheses."""
+    """Turn mixed-source views into a diverse set of testable hypotheses."""
 
     selected: list[dict[str, object]] = []
     per_source: dict[str, int] = {}
@@ -996,37 +1080,69 @@ def compose_perspectives(
         "practitioner": "适合提出领先假设，但可能受仓位、产品与叙事偏好影响。",
         "social": "速度最快、上下文最少；只作为待验证线索，不作为事实结论。",
     }
-    for item in raw_perspectives:
-        source = str(item.get("source") or "未知来源")
-        if per_source.get(source, 0) >= 2:
-            continue
-        text = f"{item.get('title') or ''} {item.get('summary') or ''}"
-        lens, translation, tests = _perspective_lens(text)
-        source_class = str(item.get("source_class") or "practitioner")
-        claim = str(item.get("summary") or item.get("title") or "").strip()
-        if not claim:
-            continue
-        selected.append(
-            {
-                "id": item.get("id"),
-                "title": item.get("title"),
-                "claim": claim[:520],
-                "source": source,
-                "source_class": source_class,
-                "source_class_label": class_labels.get(source_class, "外部观点"),
-                "url": item.get("url"),
-                "published_at": item.get("published_at"),
-                "lens": lens,
-                "translation": translation,
-                "test_with": tests,
-                "caveat": class_caveats.get(
-                    source_class,
-                    "这是一个需要数据与价格确认的外部主张。",
-                ),
-            }
+
+    def priority(item: dict[str, object]) -> tuple[int, str]:
+        importance = item.get("importance")
+        return (
+            int(importance) if isinstance(importance, (int, float)) else 0,
+            str(item.get("published_at") or ""),
         )
-        per_source[source] = per_source.get(source, 0) + 1
-        if len(selected) >= 6:
+
+    buckets: dict[str, list[dict[str, object]]] = {}
+    for item in sorted(raw_perspectives, key=priority, reverse=True):
+        source_class = str(item.get("source_class") or "practitioner")
+        buckets.setdefault(source_class, []).append(item)
+    class_order = ("institutional", "researcher", "practitioner", "social")
+    ordered_classes = [key for key in class_order if buckets.get(key)]
+    ordered_classes.extend(key for key in buckets if key not in ordered_classes)
+
+    while ordered_classes and len(selected) < 12:
+        progressed = False
+        for source_class in list(ordered_classes):
+            bucket = buckets.get(source_class, [])
+            while bucket:
+                item = bucket.pop(0)
+                source = str(item.get("source") or "未知来源")
+                if per_source.get(source, 0) >= 2:
+                    continue
+                text = f"{item.get('title') or ''} {item.get('summary') or ''}"
+                lens, translation, tests = _perspective_lens(text)
+                claim = str(item.get("summary") or item.get("title") or "").strip()
+                if not claim:
+                    continue
+                selected.append(
+                    {
+                        "id": item.get("id"),
+                        "title": item.get("title"),
+                        "claim": claim[:700],
+                        "source": source,
+                        "source_class": source_class,
+                        "source_class_label": class_labels.get(source_class, "外部观点"),
+                        "url": item.get("url"),
+                        "published_at": item.get("published_at"),
+                        "lens": lens,
+                        "translation": translation,
+                        "test_with": tests,
+                        "caveat": class_caveats.get(
+                            source_class,
+                            "这是一个需要数据与价格确认的外部主张。",
+                        ),
+                        "channel": item.get("channel") or "public_feed",
+                        "author": item.get("author"),
+                        "account_class": item.get("account_class"),
+                        "research_role": item.get("research_role"),
+                        "engagement": item.get("engagement"),
+                        "views": item.get("views"),
+                    }
+                )
+                per_source[source] = per_source.get(source, 0) + 1
+                progressed = True
+                break
+            if not bucket:
+                ordered_classes.remove(source_class)
+            if len(selected) >= 12:
+                break
+        if not progressed:
             break
     return selected
 
@@ -1189,12 +1305,14 @@ def compose_world_briefing(
     settings: Settings,
     raw_perspectives: list[dict[str, object]] | None = None,
     clawfeed_digests: list[dict[str, object]] | None = None,
+    agent_reach_status: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Combine deterministic numbers and traceable narrative into the API contract."""
 
     events = compose_events(news)
     explained_markets = [market_explanation(row, markets) for row in markets]
-    perspectives = compose_perspectives(raw_perspectives or [])
+    resolved_raw_perspectives = raw_perspectives or []
+    perspectives = compose_perspectives(resolved_raw_perspectives)
     available_markets = sum(bool(row.get("available")) for row in markets)
     evidence_mode = (
         "LIVE"
@@ -1261,7 +1379,7 @@ def compose_world_briefing(
         },
         "sources": {
             "news": sorted({str(item["source"]) for item in news}),
-            "perspectives": sorted({str(item["source"]) for item in (raw_perspectives or [])}),
+            "perspectives": sorted({str(item["source"]) for item in resolved_raw_perspectives}),
             "markets": ["Yahoo Finance"] if available_markets else [],
             "macro": ["FRED/ALFRED", "World State deterministic engine"],
         },
@@ -1272,9 +1390,32 @@ def compose_world_briefing(
                     "official_api" if settings.x_bearer_token is not None else "not_configured"
                 ),
                 "items": sum(
-                    str(item.get("source_class")) == "social" for item in (raw_perspectives or [])
+                    str(item.get("channel")) == "official_x_api"
+                    for item in resolved_raw_perspectives
                 ),
                 "credential_storage": "backend_environment_only",
+            },
+            "agent_reach_x": agent_reach_status
+            or {
+                "enabled": settings.agent_reach_x_enabled,
+                "configured": False,
+                "connected": False,
+                "state": "not_checked",
+                "backend": "agent_reach_twitter_cli",
+                "mode": "local_cookie_read_only",
+                "credential_storage": "local_config_to_child_process_only",
+                "accounts": 0,
+                "calls_attempted": 0,
+                "calls_succeeded": 0,
+                "items": 0,
+                "cache": {
+                    "hit": False,
+                    "ttl_seconds": settings.agent_reach_x_cache_seconds,
+                    "fetched_at": None,
+                },
+                "executable_available": False,
+                "calls": [],
+                "checked_at": datetime.now(UTC).isoformat(),
             },
             "clawfeed": clawfeed_status(
                 configured=settings.clawfeed_base_url is not None,
@@ -1285,6 +1426,8 @@ def compose_world_briefing(
                 "tools": [
                     "worldstate-get-daily-brief",
                     "worldstate-explain-market",
+                    "worldstate-get-viewpoints",
+                    "worldstate-get-research-calls",
                     "worldstate-show-section",
                 ],
             },
@@ -1302,6 +1445,7 @@ async def build_world_briefing(
     settings: Settings,
     provider: PublicIntelligenceProvider | None = None,
     clawfeed_provider: ClawFeedProvider | None = None,
+    agent_reach_provider: AgentReachXProvider | None = None,
 ) -> dict[str, object]:
     """Fetch public evidence and combine it with the existing macro state engine."""
 
@@ -1313,24 +1457,56 @@ async def build_world_briefing(
             else None
         ),
     )
-    markets = await resolved_provider.fetch_markets()
-    news = await resolved_provider.fetch_news()
-    perspectives = (
-        await resolved_provider.fetch_perspectives()
-        if hasattr(resolved_provider, "fetch_perspectives")
-        else []
-    )
     resolved_clawfeed_provider = clawfeed_provider or ClawFeedProvider(
         str(settings.clawfeed_base_url) if settings.clawfeed_base_url is not None else None,
         min(settings.public_data_timeout_seconds, 6.0),
     )
-    clawfeed_digests = await resolved_clawfeed_provider.fetch_digests()
-    snapshot = await build_snapshot(engine, settings)
+    resolved_agent_reach_provider = agent_reach_provider
+    if resolved_agent_reach_provider is None and provider is None:
+        resolved_agent_reach_provider = AgentReachXProvider(
+            enabled=settings.agent_reach_x_enabled,
+            config_path=settings.agent_reach_config_path,
+            executable_path=settings.twitter_cli_path,
+            max_posts_per_account=settings.agent_reach_x_posts_per_account,
+            timeout_seconds=settings.agent_reach_x_timeout_seconds,
+            cache_seconds=float(settings.agent_reach_x_cache_seconds),
+        )
+
+    async def public_perspectives() -> list[dict[str, object]]:
+        if not hasattr(resolved_provider, "fetch_perspectives"):
+            return []
+        return await resolved_provider.fetch_perspectives()
+
+    async def agent_reach_perspectives() -> tuple[
+        list[dict[str, object]], dict[str, object] | None
+    ]:
+        if resolved_agent_reach_provider is None:
+            return [], None
+        return await resolved_agent_reach_provider.fetch()
+
+    (
+        markets,
+        news,
+        perspectives,
+        agent_reach_result,
+        clawfeed_digests,
+        snapshot,
+    ) = await asyncio.gather(
+        resolved_provider.fetch_markets(),
+        resolved_provider.fetch_news(),
+        public_perspectives(),
+        agent_reach_perspectives(),
+        resolved_clawfeed_provider.fetch_digests(),
+        build_snapshot(engine, settings),
+    )
+    agent_reach_rows, agent_reach_status = agent_reach_result
+    merged_perspectives = [*perspectives, *agent_reach_rows]
     return compose_world_briefing(
         markets,
         news,
         snapshot,
         settings,
-        perspectives,
+        merged_perspectives,
         clawfeed_digests,
+        agent_reach_status,
     )

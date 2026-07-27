@@ -164,6 +164,12 @@ export interface WorldPerspective {
   translation: string;
   test_with: string[];
   caveat: string;
+  channel?: 'public_feed' | 'official_x_api' | 'agent_reach_x' | string;
+  author?: string | null;
+  account_class?: 'official' | 'institutional' | 'researcher' | 'practitioner' | string | null;
+  research_role?: string | null;
+  engagement?: number | null;
+  views?: number | null;
 }
 
 export interface WorldDeepBrief {
@@ -310,6 +316,45 @@ export interface WorldBriefing {
       mode: 'official_api' | 'not_configured';
       items: number;
       credential_storage: 'backend_environment_only';
+    };
+    agent_reach_x: {
+      enabled: boolean;
+      configured: boolean;
+      connected: boolean;
+      state:
+        | 'connected'
+        | 'unavailable'
+        | 'disabled'
+        | 'cli_missing'
+        | 'credentials_missing'
+        | 'not_checked'
+        | string;
+      backend: 'agent_reach_twitter_cli';
+      mode: 'local_cookie_read_only';
+      credential_storage: 'local_config_to_child_process_only';
+      executable_available: boolean;
+      accounts: number;
+      calls_attempted: number;
+      calls_succeeded: number;
+      items: number;
+      checked_at: string;
+      cache: {
+        hit: boolean;
+        ttl_seconds: number;
+        fetched_at: string | null;
+        age_seconds?: number;
+      };
+      calls: Array<{
+        handle: string;
+        label: string;
+        account_class: string;
+        research_role: string;
+        status: 'ok' | 'failed' | 'timeout' | string;
+        items: number;
+        duration_ms: number;
+        latest_at: string | null;
+        reason?: string;
+      }>;
     };
     clawfeed: {
       configured: boolean;

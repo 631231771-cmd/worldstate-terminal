@@ -318,6 +318,7 @@ def parse_x_search(payload: dict[str, Any]) -> list[dict[str, object]]:
                 "category": "perspective",
                 "language": post.get("lang") or "en",
                 "source_class": "social",
+                "channel": "official_x_api",
                 "importance": min(92, 52 + min(40, engagement // 25)),
                 "engagement": engagement,
             }

@@ -14,6 +14,19 @@ import { registerWorldStateTools } from './webmcp';
 import './macro-terminal.css';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+type WorldView = 'overview' | 'events' | 'markets' | 'signals' | 'library';
+
+const WORLD_VIEWS: ReadonlyArray<{
+  key: WorldView;
+  label: string;
+  shortLabel: string;
+}> = [
+  { key: 'overview', label: '今日总览', shortLabel: '总览' },
+  { key: 'events', label: '事件研究', shortLabel: '事件' },
+  { key: 'markets', label: '市场实验室', shortLabel: '市场' },
+  { key: 'signals', label: '观点与调用', shortLabel: '观点' },
+  { key: 'library', label: '学习与来源', shortLabel: '学习' },
+];
 
 interface TutorEntry extends TutorMessage {
   provider?: string;
@@ -82,6 +95,11 @@ function renderSparkline(values: number[] | undefined, direction: WorldMarket['d
   return svg;
 }
 
+function readWorldView(): WorldView {
+  const candidate = new URL(window.location.href).searchParams.get('view');
+  return WORLD_VIEWS.some((view) => view.key === candidate) ? candidate as WorldView : 'overview';
+}
+
 export class MacroApp {
   private readonly root: HTMLElement;
   private controller: AbortController | null = null;
@@ -90,12 +108,18 @@ export class MacroApp {
   private tutorEntries: TutorEntry[] = [];
   private tutorBusy = false;
   private refreshTimer: number | null = null;
+  private currentView: WorldView = readWorldView();
+  private readonly handlePopState = (): void => {
+    this.currentView = readWorldView();
+    this.render();
+  };
 
   constructor(rootId: string) {
     const root = document.getElementById(rootId);
     if (!root) throw new Error(`Missing application root #${rootId}`);
     this.root = root;
     this.prepareDocument();
+    window.addEventListener('popstate', this.handlePopState);
   }
 
   public async init(): Promise<void> {
@@ -180,18 +204,7 @@ export class MacroApp {
 
     const workspace = el('div', 'world-workspace');
     const editorial = el('div', 'world-editorial-column');
-    editorial.append(
-      this.renderHero(),
-      this.renderMacroChain(),
-      this.renderDeepBrief(),
-      this.renderPerspectives(),
-      this.renderEvents(),
-      this.renderValidation(),
-      this.renderMarketStrip(),
-      this.renderLesson(),
-      this.renderCurriculum(),
-      this.renderMacroFoundation(),
-    );
+    editorial.appendChild(this.renderCurrentView());
     workspace.append(editorial, this.renderTutor());
     shell.appendChild(workspace);
     shell.appendChild(this.renderFooter());
@@ -209,16 +222,16 @@ export class MacroApp {
     );
     const nav = el('nav', 'world-nav');
     nav.setAttribute('aria-label', '页面导航');
-    const navItems: Array<readonly [string, string]> = [
-      ['#today', '今日简报'],
-      ['#chain', '宏观链条'],
-      ['#deep', '深度解读'],
-      ['#perspectives', '观点实验室'],
-      ['#course', '课程路径'],
-    ];
-    for (const [href, label] of navItems) {
-      const link = el('a', '', label);
-      link.href = href;
+    for (const item of WORLD_VIEWS) {
+      const link = el('a', item.key === this.currentView ? 'is-active' : '', item.label);
+      const url = new URL(window.location.href);
+      url.searchParams.set('view', item.key);
+      link.href = url.toString();
+      if (item.key === this.currentView) link.setAttribute('aria-current', 'page');
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        this.navigate(item.key);
+      });
       nav.appendChild(link);
     }
     const meta = el('div', 'world-topbar-meta');
@@ -243,6 +256,79 @@ export class MacroApp {
     meta.append(mode, updated, refresh, language);
     header.append(brand, nav, meta);
     return header;
+  }
+
+  private navigate(
+    view: WorldView,
+    selection: { event?: string; market?: string } = {},
+  ): void {
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', view);
+    if (selection.event) url.searchParams.set('event', selection.event);
+    else if (view !== 'events') url.searchParams.delete('event');
+    if (selection.market) url.searchParams.set('market', selection.market);
+    else if (view !== 'markets') url.searchParams.delete('market');
+    history.pushState({ view }, '', url);
+    this.currentView = view;
+    this.render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  private renderCurrentView(): HTMLElement {
+    const page = el('div', `world-view world-view-${this.currentView}`);
+    if (this.currentView === 'events') {
+      page.append(this.renderViewHeading(
+        'EVENT RESEARCH DESK',
+        '事件研究',
+        '从事实、预期差、传导机制到跨资产验证，把一条新闻真正研究清楚。',
+      ), this.renderEventResearch());
+      return page;
+    }
+    if (this.currentView === 'markets') {
+      page.append(this.renderViewHeading(
+        'CROSS-ASSET LAB',
+        '市场实验室',
+        '先理解每个价格在宏观系统中的角色，再讨论今天的涨跌。',
+      ), this.renderMarketResearch());
+      return page;
+    }
+    if (this.currentView === 'signals') {
+      page.append(this.renderViewHeading(
+        'VIEWPOINT & SOURCE OPS',
+        '观点与调用',
+        '看到观点，也看到它从哪里来、调用是否成功、应该怎样验证。',
+      ), this.renderIntegrationConsole(), this.renderPerspectives(), this.renderSourceWorkbench());
+      return page;
+    }
+    if (this.currentView === 'library') {
+      page.append(this.renderViewHeading(
+        'LEARNING LIBRARY',
+        '学习与来源',
+        '按问题补概念、看原始资料，并保留长期宏观底座。',
+      ), this.renderLesson(), this.renderCurriculum(), this.renderMacroFoundation(), this.renderMethodLibrary());
+      return page;
+    }
+    page.append(
+      this.renderHero(),
+      this.renderResearchNavigator(),
+      this.renderMacroChain(),
+      this.renderDeepBrief(),
+      this.renderValidation(),
+      this.renderEvents(3),
+      this.renderMarketStrip(6),
+      this.renderPerspectivePreview(),
+    );
+    return page;
+  }
+
+  private renderViewHeading(kicker: string, title: string, description: string): HTMLElement {
+    const heading = el('section', 'world-view-heading');
+    heading.append(
+      el('div', 'world-kicker', kicker),
+      el('h1', '', title),
+      el('p', '', description),
+    );
+    return heading;
   }
 
   private renderMarketTicker(): HTMLElement {
@@ -304,6 +390,222 @@ export class MacroApp {
     }
     hero.append(copy, focus);
     return hero;
+  }
+
+  private renderResearchNavigator(): HTMLElement {
+    const briefing = this.briefing!;
+    const agentReach = briefing.integrations.agent_reach_x;
+    const cards: Array<{
+      view: Exclude<WorldView, 'overview'>;
+      index: string;
+      title: string;
+      summary: string;
+      metric: string;
+    }> = [
+      {
+        view: 'events',
+        index: '01',
+        title: '事件研究',
+        summary: '完整查看事实、预期差、八阶段传导链、反方解释与反证。',
+        metric: `${briefing.events.length} 个高影响事件`,
+      },
+      {
+        view: 'markets',
+        index: '02',
+        title: '市场实验室',
+        summary: '逐一理解黄金、利率、美元、股指、原油与加密资产的宏观角色。',
+        metric: `${briefing.markets.filter((market) => market.available).length}/${briefing.markets.length} 个市场在线`,
+      },
+      {
+        view: 'signals',
+        index: '03',
+        title: '观点与调用',
+        summary: '把机构、研究者和 X 观点变成可验证假设，并查看每次采集是否成功。',
+        metric: agentReach.connected
+          ? `${agentReach.calls_succeeded}/${agentReach.calls_attempted} 路 X 调用成功`
+          : 'X 调用等待连接',
+      },
+      {
+        view: 'library',
+        index: '04',
+        title: '学习与来源',
+        summary: '需要补概念时再进入课程、原始框架和长期宏观数据底座。',
+        metric: `${briefing.sources.news.length + briefing.sources.perspectives.length} 个来源族`,
+      },
+    ];
+    const section = el('section', 'world-research-navigator');
+    const heading = el('div', 'world-section-heading');
+    heading.append(
+      el('div', 'world-section-index', 'RESEARCH WORKSPACE'),
+      el('h2', '', '不止一层首页：选择你要深入的研究桌面'),
+      el('p', '', '总览负责抓住主线；事件、市场、观点和学习分别进入独立工作区。'),
+    );
+    const grid = el('div', 'world-research-nav-grid');
+    cards.forEach((item) => {
+      const card = el('article', 'world-research-nav-card');
+      card.append(
+        el('span', 'world-research-nav-index', item.index),
+        el('h3', '', item.title),
+        el('p', '', item.summary),
+        el('strong', 'world-research-nav-metric', item.metric),
+      );
+      const button = el('button', 'world-text-button', `进入${item.title} →`);
+      button.type = 'button';
+      button.addEventListener('click', () => this.navigate(item.view));
+      card.appendChild(button);
+      grid.appendChild(card);
+    });
+    section.append(heading, grid);
+    return section;
+  }
+
+  private renderEventResearch(): HTMLElement {
+    const briefing = this.briefing!;
+    const requestedId = new URL(window.location.href).searchParams.get('event');
+    const selected = briefing.events.find((event) => event.id === requestedId) ?? briefing.events[0];
+    const container = el('div', 'world-research-page');
+    const selector = el('div', 'world-entity-selector');
+    briefing.events.forEach((event) => {
+      const button = el(
+        'button',
+        event.id === selected?.id ? 'is-active' : '',
+        `${String(event.rank).padStart(2, '0')} ${event.display_title}`,
+      );
+      button.type = 'button';
+      button.addEventListener('click', () => this.navigate('events', { event: event.id }));
+      selector.appendChild(button);
+    });
+    container.appendChild(selector);
+    if (!selected) {
+      container.appendChild(el('p', 'world-empty', '当前没有可核对的高影响事件。'));
+      return container;
+    }
+    const orientation = el('section', 'world-research-orientation');
+    orientation.append(
+      el('span', 'world-mini-label', 'RESEARCH QUESTION'),
+      el('h2', '', selected.core_question),
+      el('p', '', selected.why_it_matters),
+    );
+    const coordinates = el('div', 'world-research-coordinates');
+    [
+      ['事件类型', selected.event_type],
+      ['先变的预期', selected.expectation_shift],
+      ['分析置信度', `${Math.round(selected.confidence * 100)}% · 假设`],
+    ].forEach(([label, value]) => {
+      const item = el('div');
+      item.append(el('span', '', label), el('strong', '', value));
+      coordinates.appendChild(item);
+    });
+    orientation.appendChild(coordinates);
+    container.append(orientation, this.eventCard(selected, true, false));
+    if (selected.id === briefing.events[0]?.id) {
+      container.append(this.renderMacroChain(), this.renderDeepBrief(), this.renderValidation());
+    } else {
+      const note = el('section', 'world-section world-research-note');
+      note.append(
+        el('div', 'world-section-index', 'RESEARCH BOUNDARY'),
+        el('h2', '', '这条事件怎样继续验证'),
+        el('p', '', '当前八阶段总链条围绕排名第一的主事件生成；本事件先使用自己的因果链、确认项和反证，避免把不同冲击强行拼成一个故事。'),
+      );
+      container.appendChild(note);
+    }
+    const switcher = el('section', 'world-related-events');
+    switcher.append(
+      el('div', 'world-section-index', 'RELATED EVENTS'),
+      el('h2', '', '切换其他重要事件'),
+    );
+    const cards = el('div', 'world-related-event-grid');
+    briefing.events
+      .filter((event) => event.id !== selected.id)
+      .forEach((event) => {
+        const button = el('button', '', event.display_title);
+        button.type = 'button';
+        button.appendChild(el('span', '', event.expectation_shift));
+        button.addEventListener('click', () => this.navigate('events', { event: event.id }));
+        cards.appendChild(button);
+      });
+    switcher.appendChild(cards);
+    container.appendChild(switcher);
+    return container;
+  }
+
+  private renderMarketResearch(): HTMLElement {
+    const briefing = this.briefing!;
+    const requestedKey = new URL(window.location.href).searchParams.get('market');
+    const selected = briefing.markets.find((market) => market.key === requestedKey)
+      ?? briefing.markets.find((market) => market.key === 'gold')
+      ?? briefing.markets[0];
+    const container = el('div', 'world-research-page');
+    const selector = el('div', 'world-market-selector');
+    briefing.markets.forEach((market) => {
+      const button = el(
+        'button',
+        market.key === selected?.key ? `is-active world-move-${market.direction}` : '',
+      );
+      button.type = 'button';
+      button.append(
+        el('span', '', market.name_zh),
+        el(
+          'strong',
+          '',
+          market.change_percent === undefined
+            ? '待更新'
+            : `${market.change_percent >= 0 ? '+' : ''}${market.change_percent.toFixed(2)}%`,
+        ),
+      );
+      button.addEventListener('click', () => this.navigate('markets', { market: market.key }));
+      selector.appendChild(button);
+    });
+    container.appendChild(selector);
+    if (!selected) return container;
+
+    const focus = el('section', `world-market-focus world-move-${selected.direction}`);
+    const identity = el('div', 'world-market-focus-identity');
+    identity.append(
+      el('span', 'world-mini-label', `${selected.symbol} · ${selected.region}`),
+      el('h2', '', selected.name_zh),
+      el('p', '', selected.role),
+    );
+    const quote = el('div', 'world-market-focus-quote');
+    quote.append(
+      el('strong', '', formatPrice(selected)),
+      el(
+        'span',
+        '',
+        selected.change_percent === undefined
+          ? '数据待更新'
+          : `${selected.change_percent >= 0 ? '+' : ''}${selected.change_percent.toFixed(2)}%`,
+      ),
+      renderSparkline(selected.sparkline, selected.direction),
+    );
+    focus.append(identity, quote);
+    const analysis = el('div', 'world-market-analysis-grid');
+    const blocks = [
+      ['这个价格在回答什么', selected.question],
+      ['今天可以怎样理解', selected.explanation],
+      ['已经观察到什么', selected.evidence.join('；') || '当前没有第二项独立证据。'],
+      [
+        '仍然不知道什么',
+        selected.order_flow_known
+          ? '当前数据包含可核对的订单流证据。'
+          : '免费公开数据无法识别具体基金订单或算法触发，只能验证价格与宏观变量。',
+      ],
+    ];
+    blocks.forEach(([label, value]) => {
+      const block = el('article');
+      block.append(el('span', 'world-mini-label', label), el('p', '', value));
+      analysis.appendChild(block);
+    });
+    focus.appendChild(analysis);
+    if (selected.source_url) {
+      focus.appendChild(externalLink(
+        `${selected.source ?? '行情来源'} · 查看原始行情 ↗`,
+        selected.source_url,
+        'world-market-source-link',
+      ));
+    }
+    container.append(focus, this.renderMarketStrip());
+    return container;
   }
 
   private renderMacroChain(): HTMLElement {
@@ -475,9 +777,94 @@ export class MacroApp {
     return section;
   }
 
-  private renderPerspectives(): HTMLElement {
+  private renderPerspectivePreview(): HTMLElement {
+    const section = this.renderPerspectives(4, true);
+    const button = el('button', 'world-primary-button', '查看全部观点与调用记录');
+    button.type = 'button';
+    button.addEventListener('click', () => this.navigate('signals'));
+    section.appendChild(button);
+    return section;
+  }
+
+  private renderIntegrationConsole(): HTMLElement {
+    const integrations = this.briefing!.integrations;
+    const agentReach = integrations.agent_reach_x;
+    const section = el('section', 'world-section world-integration-console');
+    section.id = 'calls';
+    const heading = el('div', 'world-section-heading world-heading-row');
+    const title = el('div');
+    title.append(
+      el('div', 'world-section-index', '01 / RESEARCH CALLS'),
+      el('h2', '', '今天的数据调用发生了什么'),
+      el('p', '', '连接状态、缓存和单个来源的成功率都公开展示；Cookie 内容永远不会进入这里。'),
+    );
+    const health = el(
+      'span',
+      `world-integration-health ${agentReach.connected ? 'is-online' : ''}`,
+      agentReach.connected
+        ? `${agentReach.calls_succeeded}/${agentReach.calls_attempted} 路成功`
+        : '等待连接',
+    );
+    heading.append(title, health);
+    section.appendChild(heading);
+
+    const summary = el('div', 'world-integration-summary');
+    const summaryRows: Array<[string, string]> = [
+      ['Agent Reach / X', agentReach.connected ? '只读连接正常' : agentReach.state],
+      ['本轮公开推文', `${agentReach.items} 条`],
+      ['缓存策略', agentReach.cache.hit ? `命中缓存 · ${agentReach.cache.age_seconds ?? 0} 秒前` : `新调用 · ${Math.round(agentReach.cache.ttl_seconds / 60)} 分钟复用`],
+      ['官方 X API', integrations.x.configured ? `${integrations.x.items} 条` : '未配置，不影响 Cookie 接入'],
+      ['ClawFeed', integrations.clawfeed.connected ? `${integrations.clawfeed.editions} 个版本` : '使用内置编辑流'],
+      ['WebMCP', `${integrations.webmcp.tools.length} 个页面工具`],
+    ];
+    summaryRows.forEach(([label, value]) => {
+      const item = el('div');
+      item.append(el('span', '', label), el('strong', '', value));
+      summary.appendChild(item);
+    });
+    section.appendChild(summary);
+
+    const ledger = el('div', 'world-call-ledger');
+    const ledgerHead = el('div', 'world-call-row world-call-head');
+    ledgerHead.append(
+      el('span', '', '来源'),
+      el('span', '', '研究角色'),
+      el('span', '', '结果'),
+      el('span', '', '条目'),
+      el('span', '', '耗时'),
+    );
+    ledger.appendChild(ledgerHead);
+    if (!agentReach.calls.length) {
+      ledger.appendChild(el('p', 'world-empty', '当前没有执行 X 调用。请确认 Agent Reach 与本地 Cookie 配置。'));
+    }
+    agentReach.calls.forEach((call) => {
+      const row = el('div', 'world-call-row');
+      const source = el('span', 'world-call-source');
+      source.append(el('strong', '', call.label), el('small', '', call.handle));
+      const statusLabel = call.status === 'ok'
+        ? '成功'
+        : call.status === 'timeout' ? '超时' : '失败';
+      row.append(
+        source,
+        el('span', '', call.research_role),
+        el('span', `world-call-status is-${call.status}`, statusLabel),
+        el('span', '', String(call.items)),
+        el('span', '', `${(call.duration_ms / 1000).toFixed(1)}s`),
+      );
+      ledger.appendChild(row);
+    });
+    section.appendChild(ledger);
+    section.appendChild(el(
+      'p',
+      'world-method-note',
+      '安全边界：凭据只从本机 Agent Reach 配置读取，并只注入 twitter-cli 子进程；网页、接口响应、日志和 Git 均不接触凭据值。',
+    ));
+    return section;
+  }
+
+  private renderPerspectives(limit?: number, compact = false): HTMLElement {
     const briefing = this.briefing!;
-    const section = el('section', 'world-section world-perspectives');
+    const section = el('section', `world-section world-perspectives${compact ? ' is-compact' : ''}`);
     section.id = 'perspectives';
     const heading = el('div', 'world-section-heading');
     heading.append(
@@ -488,15 +875,22 @@ export class MacroApp {
     section.appendChild(heading);
 
     const xState = briefing.integrations.x;
-    const notice = el('div', `world-x-notice ${xState.configured ? 'is-connected' : ''}`);
+    const agentReach = briefing.integrations.agent_reach_x;
+    const notice = el('div', `world-x-notice ${agentReach.connected || xState.configured ? 'is-connected' : ''}`);
     notice.append(
-      el('strong', '', xState.configured ? `X 官方接口已连接 · 今日 ${xState.items} 条` : 'X 官方接口尚未连接'),
+      el(
+        'strong',
+        '',
+        agentReach.connected
+          ? `Agent Reach 已连接 X · ${agentReach.calls_succeeded} 路来源 · ${agentReach.items} 条`
+          : xState.configured ? `X 官方接口已连接 · 今日 ${xState.items} 条` : 'X 数据源尚未连接',
+      ),
       el(
         'p',
         '',
-        xState.configured
+        agentReach.connected || xState.configured
           ? 'X 内容只作为实时线索，仍需原始数据和跨资产价格确认。'
-          : '公开机构与 Newsletter 仍会每日更新。为保护账户，不使用也不保存浏览器 Cookie。',
+          : '公开机构与 Newsletter 仍会每日更新；X 接入失败不会阻断事实简报和市场数据。',
       ),
     );
     section.appendChild(notice);
@@ -507,7 +901,7 @@ export class MacroApp {
         el('p', 'world-empty', '公开观点源本次没有返回内容；事实简报和宏观课程仍可正常使用。'),
       );
     }
-    for (const view of briefing.perspectives) {
+    for (const view of briefing.perspectives.slice(0, limit)) {
       const card = el('article', `world-perspective-card is-${view.source_class}`);
       const meta = el('div', 'world-perspective-meta');
       meta.append(
@@ -519,6 +913,19 @@ export class MacroApp {
         el('h3', '', view.title),
         el('p', 'world-perspective-claim', view.claim),
       );
+      if (view.channel === 'agent_reach_x') {
+        const provenance = el('div', 'world-perspective-provenance');
+        provenance.append(
+          el('span', '', view.account_class ?? 'X source'),
+          el('span', '', view.research_role ?? '实时研究线索'),
+          el(
+            'span',
+            '',
+            view.engagement ? `${view.engagement.toLocaleString()} 次公开互动` : '互动量待确认',
+          ),
+        );
+        card.appendChild(provenance);
+      }
       const mechanism = el('div', 'world-perspective-mechanism');
       mechanism.append(
         el('span', 'world-mini-label', `研究镜头 · ${view.lens}`),
@@ -538,7 +945,67 @@ export class MacroApp {
     return section;
   }
 
-  private renderMarketStrip(): HTMLElement {
+  private renderSourceWorkbench(): HTMLElement {
+    const briefing = this.briefing!;
+    const section = el('section', 'world-section world-source-workbench');
+    section.id = 'sources';
+    const heading = el('div', 'world-section-heading');
+    heading.append(
+      el('div', 'world-section-index', '03 / SOURCE MAP'),
+      el('h2', '', '来源不是一锅粥：每一类解决不同问题'),
+      el('p', '', '事实源确认发生了什么，观点源提出机制，价格源负责确认，宏观数据负责判断持续性。'),
+    );
+    section.appendChild(heading);
+    const groups: Array<{
+      title: string;
+      question: string;
+      sources: string[];
+      warning: string;
+    }> = [
+      {
+        title: '事实与事件',
+        question: '发生了什么？发布时间是什么？',
+        sources: briefing.sources.news,
+        warning: '新闻摘要不能替代原文，也不能自动证明价格因果。',
+      },
+      {
+        title: '观点与假设',
+        question: '可能通过什么机制传导？',
+        sources: briefing.sources.perspectives,
+        warning: '机构与作者都可能有模型、仓位或叙事偏差。',
+      },
+      {
+        title: '跨资产价格',
+        question: '市场是否在确认这条链？',
+        sources: briefing.sources.markets,
+        warning: '日线免费行情不是交易所级实时数据，也看不到私人订单流。',
+      },
+      {
+        title: '长期宏观底座',
+        question: '冲击会持续还是均值回归？',
+        sources: briefing.sources.macro,
+        warning: '宏观数据有发布时滞和修订，需要保留数据版本。',
+      },
+    ];
+    const grid = el('div', 'world-source-map-grid');
+    groups.forEach((group) => {
+      const card = el('article');
+      card.append(
+        el('h3', '', group.title),
+        el('strong', '', group.question),
+      );
+      const chips = el('div', 'world-source-chips');
+      (group.sources.length ? group.sources : ['本轮暂无可用来源']).forEach((source) => {
+        chips.appendChild(el('span', '', source));
+      });
+      card.append(chips, el('p', '', group.warning));
+      grid.appendChild(card);
+    });
+    section.appendChild(grid);
+    return section;
+  }
+
+  private renderMarketStrip(limit?: number): HTMLElement {
     const section = el('section', 'world-market-section');
     section.id = 'markets';
     const heading = el('div', 'world-section-heading');
@@ -549,7 +1016,9 @@ export class MacroApp {
     );
     section.appendChild(heading);
     const grid = el('div', 'world-market-grid');
-    for (const market of this.briefing!.markets) grid.appendChild(this.marketCard(market));
+    for (const market of this.briefing!.markets.slice(0, limit)) {
+      grid.appendChild(this.marketCard(market));
+    }
     section.appendChild(grid);
     return section;
   }
@@ -574,6 +1043,10 @@ export class MacroApp {
     card.append(top, value, renderSparkline(market.sparkline, market.direction));
     const explanation = el('p', 'world-market-explanation', market.explanation);
     card.appendChild(explanation);
+    const open = el('button', 'world-card-open', '进入市场实验室 →');
+    open.type = 'button';
+    open.addEventListener('click', () => this.navigate('markets', { market: market.key }));
+    card.appendChild(open);
     const footer = el('div', 'world-market-footer');
     footer.append(
       market.source_url
@@ -584,7 +1057,7 @@ export class MacroApp {
     return card;
   }
 
-  private renderEvents(): HTMLElement {
+  private renderEvents(limit?: number): HTMLElement {
     const section = el('section', 'world-section');
     section.id = 'events';
     const heading = el('div', 'world-section-heading world-heading-row');
@@ -600,13 +1073,16 @@ export class MacroApp {
     if (!this.briefing!.events.length) {
       list.appendChild(el('p', 'world-empty', '免费新闻源暂时没有返回可核对的高影响事件。'));
     }
-    this.briefing!.events.forEach((event) => list.appendChild(this.eventCard(event)));
+    this.briefing!.events
+      .slice(0, limit)
+      .forEach((event) => list.appendChild(this.eventCard(event)));
     section.appendChild(list);
     return section;
   }
 
-  private eventCard(event: WorldEvent): HTMLElement {
+  private eventCard(event: WorldEvent, open = false, showResearchLink = true): HTMLElement {
     const details = el('details', 'world-event-card');
+    details.open = open;
     const summary = el('summary', 'world-event-summary');
     const rank = el('span', 'world-event-rank', String(event.rank).padStart(2, '0'));
     const content = el('div', 'world-event-title-block');
@@ -667,6 +1143,12 @@ export class MacroApp {
       chain,
       tests,
     );
+    if (showResearchLink) {
+      const research = el('button', 'world-card-open', '进入事件研究页 →');
+      research.type = 'button';
+      research.addEventListener('click', () => this.navigate('events', { event: event.id }));
+      body.appendChild(research);
+    }
     details.appendChild(body);
     return details;
   }
@@ -809,6 +1291,57 @@ export class MacroApp {
     return section;
   }
 
+  private renderMethodLibrary(): HTMLElement {
+    const section = el('section', 'world-section world-method-library');
+    const heading = el('div', 'world-section-heading');
+    heading.append(
+      el('div', 'world-section-index', 'METHOD & PRODUCT REFERENCES'),
+      el('h2', '', '这套研究工作区借鉴了什么'),
+      el('p', '', '只吸收可解释的产品原则和信息结构；不会把大型项目、交易建议或不明来源代码直接混进终端。'),
+    );
+    section.appendChild(heading);
+    const references = [
+      {
+        title: 'BettaFish',
+        adopted: '多来源观点、破除信息茧房、把相互冲突的解释并列呈现。',
+        boundary: '不引入其完整多智能体和爬虫系统；当前仍以可核对、免费、低风险来源为主。',
+        url: 'https://github.com/666ghj/BettaFish',
+      },
+      {
+        title: 'daily_stock_analysis',
+        adopted: '结构化摘要、多数据源失败降级、报告完整性与来源时效意识。',
+        boundary: '不采用买卖点、止盈止损等交易导向功能。',
+        url: 'https://github.com/ZhuLinsen/daily_stock_analysis',
+      },
+      {
+        title: 'Hermes HUD',
+        adopted: '把健康、会话、成本和调用状态作为一等页面，而不是藏在后台日志。',
+        boundary: '当前只展示研究调用，不读取其他 Agent 的私人记忆。',
+        url: 'https://github.com/joeynyc/hermes-hudui',
+      },
+      {
+        title: 'Lumina Note',
+        adopted: '本地优先、知识工作区、多视图导航以及“用户决定什么发送给 AI”。',
+        boundary: '暂不复制其编辑器、知识图谱和插件运行时。',
+        url: 'https://github.com/blueberrycongee/Lumina-Note',
+      },
+    ];
+    const grid = el('div', 'world-method-reference-grid');
+    references.forEach((reference) => {
+      const card = el('article');
+      card.append(
+        externalLink(`${reference.title} ↗`, reference.url),
+        el('strong', '', '采用'),
+        el('p', '', reference.adopted),
+        el('strong', '', '边界'),
+        el('p', '', reference.boundary),
+      );
+      grid.appendChild(card);
+    });
+    section.appendChild(grid);
+    return section;
+  }
+
   private renderTutor(): HTMLElement {
     const briefing = this.briefing!;
     const aside = el('aside', 'world-tutor');
@@ -939,5 +1472,6 @@ export class MacroApp {
   public destroy(): void {
     this.controller?.abort();
     if (this.refreshTimer !== null) window.clearInterval(this.refreshTimer);
+    window.removeEventListener('popstate', this.handlePopState);
   }
 }

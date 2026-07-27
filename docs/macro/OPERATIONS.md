@@ -73,6 +73,17 @@ Only the public, read-only digest endpoint is used. No ClawFeed cookie or API ke
 is stored. See [CLAWFEED_WEBMCP.md](CLAWFEED_WEBMCP.md) for the integration and
 security boundaries.
 
+## Connect Agent Reach / X
+
+If Agent Reach and `twitter-cli` are installed and Twitter Cookie credentials
+have been configured locally, the desktop launcher enables the read-only X
+research adapter automatically. Open **观点与调用** to inspect each bounded
+call, its duration, item count, cache state, and safe failure status.
+
+Credentials remain in Agent Reach's per-user configuration and are passed only
+to the `twitter-cli` child process. Do not place Cookie values in
+`.runtime/worldstate.env`. See [AGENT_REACH_X.md](AGENT_REACH_X.md).
+
 ## Configure the optional AI tutor
 
 The terminal is useful without an AI key. In that state,

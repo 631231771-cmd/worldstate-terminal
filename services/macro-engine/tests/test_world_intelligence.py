@@ -1,16 +1,25 @@
 # ruff: noqa: RUF001
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import httpx
+import yaml
 from fastapi.testclient import TestClient
 
 from macro_engine.api import world as world_api
 from macro_engine.config import Settings
 from macro_engine.main import create_app
+from macro_engine.providers.agent_reach_x import (
+    AgentReachXProvider,
+    XResearchAccount,
+    load_agent_reach_credentials,
+    parse_twitter_cli_payload,
+    reset_agent_reach_cache,
+)
 from macro_engine.providers.clawfeed import ClawFeedProvider, parse_clawfeed_digests
 from macro_engine.providers.public_intelligence import (
     FEEDS,
@@ -265,6 +274,157 @@ def test_public_intelligence_helpers_cover_rss_and_yahoo() -> None:
     assert parse_clawfeed_digests({"bad": "shape"}, "http://localhost") == []
 
 
+def twitter_cli_payload() -> dict[str, object]:
+    return {
+        "ok": True,
+        "schema_version": "1",
+        "data": [
+            {
+                "id": "2080748905365729644",
+                "text": "Weekly bank balance-sheet data are now available.",
+                "author": {
+                    "name": "Federal Reserve",
+                    "screenName": "federalreserve",
+                },
+                "metrics": {
+                    "likes": 61,
+                    "retweets": 14,
+                    "replies": 15,
+                    "quotes": 1,
+                    "views": 52174,
+                    "bookmarks": 7,
+                },
+                "createdAtISO": "2026-07-24T20:16:12+00:00",
+                "lang": "en",
+            }
+        ],
+    }
+
+
+def test_agent_reach_parser_and_local_config_are_bounded(tmp_path: Path) -> None:
+    account = XResearchAccount("federalreserve", "美联储", "official", "美国货币政策")
+    rows = parse_twitter_cli_payload(twitter_cli_payload(), account)
+    assert rows[0]["source"] == "X · @federalreserve"
+    assert rows[0]["channel"] == "agent_reach_x"
+    assert rows[0]["engagement"] == 98
+    assert rows[0]["views"] == 52174
+    assert parse_twitter_cli_payload({}, account) == []
+    assert parse_twitter_cli_payload({"ok": True, "data": "bad"}, account) == []
+    assert parse_twitter_cli_payload(
+        {"ok": True, "data": [{"id": "", "text": ""}]},
+        account,
+    ) == []
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "twitter": {
+                    "auth_token": "fixture-auth",
+                    "ct0": "fixture-ct0",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    credentials = load_agent_reach_credentials(config)
+    assert credentials == {
+        "TWITTER_AUTH_TOKEN": "fixture-auth",
+        "TWITTER_CT0": "fixture-ct0",
+    }
+    config.write_text("twitter: [", encoding="utf-8")
+    assert load_agent_reach_credentials(config) == {}
+    assert load_agent_reach_credentials(tmp_path / "missing.yaml") == {}
+
+
+async def test_agent_reach_provider_uses_child_environment_and_cache(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    reset_agent_reach_cache()
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "twitter:\n  auth_token: fixture-auth\n  ct0: fixture-ct0\n",
+        encoding="utf-8",
+    )
+    executable = tmp_path / "twitter.exe"
+    executable.write_text("fixture", encoding="utf-8")
+    invocations: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return json.dumps(twitter_cli_payload()).encode(), b""
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    async def fake_subprocess(
+        *args: object,
+        **kwargs: object,
+    ) -> FakeProcess:
+        invocations.append((args, kwargs))
+        return FakeProcess()
+
+    monkeypatch.setattr(
+        "macro_engine.providers.agent_reach_x.asyncio.create_subprocess_exec",
+        fake_subprocess,
+    )
+    account = XResearchAccount("federalreserve", "美联储", "official", "政策")
+    provider = AgentReachXProvider(
+        config_path=config,
+        executable_path=executable,
+        accounts=(account,),
+        cache_seconds=1200,
+    )
+    rows, status = await provider.fetch()
+    cached_rows, cached_status = await provider.fetch()
+
+    assert len(rows) == len(cached_rows) == 1
+    assert status["connected"] is True
+    assert status["calls_succeeded"] == 1
+    assert cached_status["cache"]["hit"] is True  # type: ignore[index]
+    assert len(invocations) == 1
+    args, kwargs = invocations[0]
+    fixture_auth = "-".join(("fixture", "auth"))
+    assert fixture_auth not in " ".join(str(arg) for arg in args)
+    child_environment = kwargs["env"]
+    assert isinstance(child_environment, dict)
+    assert child_environment["TWITTER_AUTH_TOKEN"] == fixture_auth
+    assert fixture_auth not in json.dumps(status)
+
+
+async def test_agent_reach_provider_reports_safe_degraded_states(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    reset_agent_reach_cache()
+    disabled_rows, disabled = await AgentReachXProvider(enabled=False).fetch()
+    assert disabled_rows == []
+    assert disabled["state"] == "disabled"
+
+    monkeypatch.setattr(
+        "macro_engine.providers.agent_reach_x._resolve_twitter_executable",
+        lambda _path=None: None,
+    )
+    missing_cli_rows, missing_cli = await AgentReachXProvider().fetch()
+    assert missing_cli_rows == []
+    assert missing_cli["state"] == "cli_missing"
+
+    executable = tmp_path / "twitter.exe"
+    executable.write_text("fixture", encoding="utf-8")
+    monkeypatch.setattr(
+        "macro_engine.providers.agent_reach_x._resolve_twitter_executable",
+        lambda _path=None: executable,
+    )
+    missing_credentials_rows, missing_credentials = await AgentReachXProvider(
+        config_path=tmp_path / "missing.yaml",
+    ).fetch()
+    assert missing_credentials_rows == []
+    assert missing_credentials["state"] == "credentials_missing"
+
+
 async def test_public_provider_handles_success_failure_and_dedup(monkeypatch: Any) -> None:
     async def no_sleep(_seconds: float) -> None:
         return None
@@ -376,6 +536,12 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     ]
     for title, category, concept in cases:
         assert event_playbook(title, category)["concept"] == concept
+    governor_story = event_playbook(
+        "Indonesia central bank governor Perry Warjiyo steps down",
+        "markets",
+    )
+    assert governor_story["event_type"] == "central_bank_governance"
+    assert governor_story["concept"] == "央行独立性、反应函数与风险溢价"
 
     stories = [news_item("Federal Reserve enforcement action", "central_bank", importance=101)]
     stories.extend(
@@ -483,7 +649,7 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     assert len(live["perspectives"]) == 2  # type: ignore[arg-type]
     assert live["integrations"]["x"]["configured"] is False  # type: ignore[index]
     assert live["integrations"]["clawfeed"]["mode"] == "built_in_editorial"  # type: ignore[index]
-    assert len(live["integrations"]["webmcp"]["tools"]) == 3  # type: ignore[index]
+    assert len(live["integrations"]["webmcp"]["tools"]) == 5  # type: ignore[index]
     partial = compose_world_briefing(
         [{**row, "available": False} for row in markets],
         stories,
@@ -511,6 +677,29 @@ async def test_build_world_briefing_uses_provider_and_snapshot(
         async def fetch_news(self) -> list[dict[str, object]]:
             return [news_item("Federal Reserve updates policy")]
 
+    class FixtureAgentReachProvider:
+        async def fetch(self) -> tuple[list[dict[str, object]], dict[str, object]]:
+            return (
+                [
+                    {
+                        **news_item("Rates may stay restrictive", source="X · @fixture"),
+                        "summary": "Real yields may keep financial conditions restrictive.",
+                        "source_class": "social",
+                        "channel": "agent_reach_x",
+                    }
+                ],
+                {
+                    "enabled": True,
+                    "configured": True,
+                    "connected": True,
+                    "state": "connected",
+                    "calls_attempted": 1,
+                    "calls_succeeded": 1,
+                    "items": 1,
+                    "calls": [],
+                },
+            )
+
     async def fake_snapshot(_engine: object, _settings: Settings) -> dict[str, object]:
         return macro_snapshot()
 
@@ -520,9 +709,16 @@ async def test_build_world_briefing_uses_provider_and_snapshot(
     )
     cfg = settings(tmp_path)
     engine = create_app(cfg).state if False else object()
-    result = await build_world_briefing(engine, cfg, FixtureProvider())  # type: ignore[arg-type]
+    result = await build_world_briefing(  # type: ignore[arg-type]
+        engine,
+        cfg,
+        FixtureProvider(),
+        agent_reach_provider=FixtureAgentReachProvider(),  # type: ignore[arg-type]
+    )
     assert result["events"]
     assert result["markets"]
+    assert result["perspectives"][0]["channel"] == "agent_reach_x"  # type: ignore[index]
+    assert result["integrations"]["agent_reach_x"]["connected"] is True  # type: ignore[index]
 
 
 def test_ai_prompt_parsers_and_fallback_modes(tmp_path: Path) -> None:

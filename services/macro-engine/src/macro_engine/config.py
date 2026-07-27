@@ -19,6 +19,12 @@ def default_runtime_root() -> Path:
     return Path(__file__).resolve().parents[4] / ".runtime"
 
 
+def default_agent_reach_config_path() -> Path:
+    """Return Agent Reach's documented per-user configuration path."""
+
+    return Path.home() / ".agent-reach" / "config.yaml"
+
+
 def default_database_url() -> str:
     """Return a portable async SQLite URL for zero-configuration desktop use."""
 
@@ -82,6 +88,36 @@ class Settings(BaseSettings):
     x_bearer_token: SecretStr | None = Field(
         default=None,
         validation_alias="MACRO_X_BEARER_TOKEN",
+    )
+    agent_reach_x_enabled: bool = Field(
+        default=True,
+        validation_alias="MACRO_AGENT_REACH_X_ENABLED",
+    )
+    agent_reach_config_path: Path = Field(
+        default_factory=default_agent_reach_config_path,
+        validation_alias="MACRO_AGENT_REACH_CONFIG_PATH",
+    )
+    twitter_cli_path: Path | None = Field(
+        default=None,
+        validation_alias="MACRO_TWITTER_CLI_PATH",
+    )
+    agent_reach_x_posts_per_account: int = Field(
+        default=4,
+        ge=1,
+        le=10,
+        validation_alias="MACRO_AGENT_REACH_X_POSTS_PER_ACCOUNT",
+    )
+    agent_reach_x_timeout_seconds: float = Field(
+        default=14.0,
+        ge=2.0,
+        le=30.0,
+        validation_alias="MACRO_AGENT_REACH_X_TIMEOUT_SECONDS",
+    )
+    agent_reach_x_cache_seconds: int = Field(
+        default=1200,
+        ge=60,
+        le=86400,
+        validation_alias="MACRO_AGENT_REACH_X_CACHE_SECONDS",
     )
     clawfeed_base_url: HttpUrl | None = Field(
         default=None,

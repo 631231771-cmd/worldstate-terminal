@@ -46,6 +46,9 @@ function Ensure-LocalConfig {
         "OLLAMA_BASE_URL="
         "MACRO_OLLAMA_MODEL=qwen3:8b"
         "MACRO_X_BEARER_TOKEN="
+        "MACRO_AGENT_REACH_X_ENABLED=true"
+        "MACRO_AGENT_REACH_X_POSTS_PER_ACCOUNT=4"
+        "MACRO_AGENT_REACH_X_CACHE_SECONDS=1200"
         "MACRO_CLAWFEED_URL="
     )
     if (Test-Path -LiteralPath $ConfigPath) {

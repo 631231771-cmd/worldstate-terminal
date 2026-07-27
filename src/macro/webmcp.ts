@@ -75,6 +75,42 @@ export function registerWorldStateTools(briefing: WorldBriefing): boolean {
       },
     },
     {
+      name: 'worldstate-get-viewpoints',
+      description:
+        'Read the current institutional, researcher, practitioner, and X viewpoints as testable hypotheses with caveats and suggested validation variables.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          source_class: {
+            type: 'string',
+            enum: ['all', 'institutional', 'researcher', 'practitioner', 'social'],
+          },
+        },
+        additionalProperties: false,
+      },
+      execute: ({ source_class }) => ({
+        generated_at: briefing.generated_at,
+        viewpoints: source_class && source_class !== 'all'
+          ? briefing.perspectives.filter((view) => view.source_class === source_class)
+          : briefing.perspectives,
+        rule: 'Viewpoints are hypotheses, not observed causes. Validate them with independent data and cross-asset prices.',
+      }),
+    },
+    {
+      name: 'worldstate-get-research-calls',
+      description:
+        'Inspect credential-free research source operations, including Agent Reach X call success, item counts, bounded durations, and cache state.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      execute: () => ({
+        generated_at: briefing.generated_at,
+        agent_reach_x: briefing.integrations.agent_reach_x,
+        official_x: briefing.integrations.x,
+        clawfeed: briefing.integrations.clawfeed,
+        security:
+          'Credentials stay in the local backend and are never included in this tool response.',
+      }),
+    },
+    {
       name: 'worldstate-show-section',
       description:
         'Bring a visible World State Terminal section into view so the user and agent can inspect the same evidence together.',
@@ -96,9 +132,28 @@ export function registerWorldStateTools(briefing: WorldBriefing): boolean {
           throw new Error('Unknown section');
         }
         const target = document.getElementById(section);
-        if (!target) throw new Error('Section is not available');
+        if (!target) {
+          const viewBySection: Record<string, string> = {
+            today: 'overview',
+            chain: 'events',
+            deep: 'events',
+            events: 'events',
+            markets: 'markets',
+            perspectives: 'signals',
+            course: 'library',
+          };
+          const url = new URL(window.location.href);
+          url.searchParams.set('view', viewBySection[section] ?? 'overview');
+          url.hash = section;
+          window.location.href = url.toString();
+          return { shown: section, navigated: true };
+        }
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        return { shown: section, title: target.querySelector('h2')?.textContent ?? section };
+        return {
+          shown: section,
+          navigated: false,
+          title: target.querySelector('h2')?.textContent ?? section,
+        };
       },
     },
   ];
