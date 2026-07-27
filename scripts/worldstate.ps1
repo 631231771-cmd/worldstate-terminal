@@ -45,6 +45,7 @@ function Ensure-LocalConfig {
         "MACRO_AI_COMPATIBLE_API_KEY="
         "OLLAMA_BASE_URL="
         "MACRO_OLLAMA_MODEL=qwen3:8b"
+        "MACRO_X_BEARER_TOKEN="
     )
     if (Test-Path -LiteralPath $ConfigPath) {
         $existingConfig = Get-Content -LiteralPath $ConfigPath

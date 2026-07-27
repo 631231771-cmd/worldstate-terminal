@@ -151,6 +151,63 @@ export interface WorldMarket {
   order_flow_known?: boolean;
 }
 
+export interface WorldPerspective {
+  id: string;
+  title: string;
+  claim: string;
+  source: string;
+  source_class: 'institutional' | 'researcher' | 'practitioner' | 'social' | string;
+  source_class_label: string;
+  url: string;
+  published_at: string | null;
+  lens: string;
+  translation: string;
+  test_with: string[];
+  caveat: string;
+}
+
+export interface WorldSeminar {
+  date: string;
+  level: string;
+  duration: string;
+  topic: string;
+  research_question: string;
+  objectives: string[];
+  agenda: Array<{
+    minutes: string;
+    title: string;
+    task: string;
+    output: string;
+  }>;
+  assignment: {
+    prompt: string;
+    requirements: string[];
+    rubric: string[];
+  };
+  reading: Array<{
+    title: string;
+    source: string;
+    url: string;
+    type: string;
+  }>;
+}
+
+export interface WorldCourseModule {
+  id: string;
+  number: string;
+  title: string;
+  level: string;
+  duration: string;
+  question: string;
+  outcomes: string[];
+  resources: Array<{
+    title: string;
+    url: string;
+    provider: string;
+    access: string;
+  }>;
+}
+
 export interface WorldBriefing {
   generated_at: string;
   as_of_timezone: string;
@@ -175,6 +232,9 @@ export interface WorldBriefing {
     feedback_loop: string;
     method: string;
   };
+  seminar: WorldSeminar;
+  perspectives: WorldPerspective[];
+  curriculum: WorldCourseModule[];
   lead_validation: {
     event_id?: string;
     scenario?: string;
@@ -229,8 +289,17 @@ export interface WorldBriefing {
   };
   sources: {
     news: string[];
+    perspectives: string[];
     markets: string[];
     macro: string[];
+  };
+  integrations: {
+    x: {
+      configured: boolean;
+      mode: 'official_api' | 'not_configured';
+      items: number;
+      credential_storage: 'backend_environment_only';
+    };
   };
   limitations: string[];
 }

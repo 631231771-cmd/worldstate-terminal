@@ -681,6 +681,126 @@ TRANSMISSION_PATHS: dict[str, dict[str, str]] = {
     },
 }
 
+COURSE_PATH = [
+    {
+        "id": "macro-accounts",
+        "number": "01",
+        "title": "宏观账户与世界资产负债表",
+        "level": "基础桥梁",
+        "duration": "2周",
+        "question": "增长、储蓄、财政、国际收支和货币账户如何彼此约束？",
+        "outcomes": ["读懂四大宏观账户", "建立存量—流量一致性", "识别不可持续失衡"],
+        "resources": [
+            {
+                "title": "IMF Financial Programming and Policies",
+                "url": "https://www.imf.org/en/capacity-development/training/icdtc/topics/gma",
+                "provider": "IMF",
+                "access": "免费在线课程",
+            }
+        ],
+    },
+    {
+        "id": "fluctuations",
+        "number": "02",
+        "title": "经济波动、预期与冲击",
+        "level": "研究生核心",
+        "duration": "3周",
+        "question": "消费、投资、就业和价格为什么会对同一冲击做出不同速度的反应？",
+        "outcomes": ["区分需求与供给冲击", "理解跨期选择", "用新凯恩斯框架解释政策"],
+        "resources": [
+            {
+                "title": "MIT 14.452 Macroeconomic Theory II",
+                "url": "https://ocw.mit.edu/courses/14-452-macroeconomic-theory-ii-spring-2007/",
+                "provider": "MIT OpenCourseWare",
+                "access": "免费讲义与习题",
+            }
+        ],
+    },
+    {
+        "id": "monetary-policy",
+        "number": "03",
+        "title": "货币政策、预测与传导",
+        "level": "研究生应用",
+        "duration": "3周",
+        "question": "央行的一句话如何进入利率曲线、美元、信用、需求和通胀？",
+        "outcomes": ["画出政策传导链", "区分政策冲击与央行信息", "制作基线与替代情景"],
+        "resources": [
+            {
+                "title": "IMF Model-Based Monetary Policy Analysis and Forecasting",
+                "url": "https://www.imf.org/en/capacity-development/training/icdtc/courses/mpafx",
+                "provider": "IMF",
+                "access": "免费在线课程",
+            },
+            {
+                "title": "Federal Reserve Monetary Policy Transmission Primer",
+                "url": (
+                    "https://www.federalreserve.gov/econres/notes/feds-notes/"
+                    "closing-the-monetary-policy-curriculum-gap-accessible-20201023.htm"
+                ),
+                "provider": "Federal Reserve",
+                "access": "免费阅读",
+            },
+        ],
+    },
+    {
+        "id": "financial-markets",
+        "number": "04",
+        "title": "金融市场、风险与资产定价",
+        "level": "核心应用",
+        "duration": "3周",
+        "question": "收益率、风险溢价、期限、杠杆和行为偏差如何共同形成价格？",
+        "outcomes": ["理解债券与股票定价", "区分风险与不确定性", "识别叙事和仓位的作用"],
+        "resources": [
+            {
+                "title": "Yale ECON 252 Financial Markets",
+                "url": "https://oyc.yale.edu/economics/econ-252-08",
+                "provider": "Open Yale Courses",
+                "access": "免费视频、讲义与考试",
+            }
+        ],
+    },
+    {
+        "id": "econometrics",
+        "number": "05",
+        "title": "时间序列、识别与预测",
+        "level": "研究方法",
+        "duration": "4周",
+        "question": "相关性、领先关系和真正的因果冲击应该怎样区分？",
+        "outcomes": ["处理平稳性与结构突变", "理解VAR与事件窗口", "评估预测而非只看拟合"],
+        "resources": [
+            {
+                "title": "MIT 14.384 Time Series Analysis",
+                "url": "https://ocw.mit.edu/courses/14-384-time-series-analysis-fall-2013/",
+                "provider": "MIT OpenCourseWare",
+                "access": "免费讲义与习题",
+            },
+            {
+                "title": "QuantEcon with Python",
+                "url": "https://intro.quantecon.org/",
+                "provider": "QuantEcon",
+                "access": "免费交互课程",
+            },
+        ],
+    },
+    {
+        "id": "research-seminar",
+        "number": "06",
+        "title": "每日世界研究研讨",
+        "level": "持续课题",
+        "duration": "长期",
+        "question": "如何把当天事件写成可验证、可证伪、可复盘的研究备忘录？",
+        "outcomes": ["形成事前假设", "做跨资产验证", "写替代解释和证伪条件"],
+        "resources": [
+            {
+                "title": "World State Terminal Daily Seminar",
+                "url": "#seminar",
+                "provider": "本地研究工作台",
+                "access": "每日更新",
+            }
+        ],
+    },
+]
+
 
 def complete_macro_chain(
     events: list[dict[str, object]],
@@ -817,6 +937,182 @@ def complete_macro_chain(
     }
 
 
+def _perspective_lens(text: str) -> tuple[str, str, list[str]]:
+    lowered = text.lower()
+    if _has_any(lowered, ("liquidity", "credit", "balance sheet", "reserves", "流动性", "信用")):
+        return (
+            "流动性与信用",
+            "把主张放进银行准备金、信用创造与风险资产折现率链条。",
+            ["央行资产负债表", "信用利差", "美元", "比特币"],
+        )
+    if _has_any(lowered, ("fiscal", "treasury", "deficit", "debt", "tariff", "财政", "国债")):
+        return (
+            "财政与债券供给",
+            "检查财政脉冲、国债供给、期限溢价与私人部门收入的共同作用。",
+            ["财政赤字", "期限溢价", "十年期收益率", "美元"],
+        )
+    if _has_any(lowered, ("inflation", "wage", "cpi", "oil", "commodity", "通胀", "工资", "油价")):
+        return (
+            "通胀与成本",
+            "区分需求拉动、供应冲击和二轮工资价格传导。",
+            ["盈亏平衡通胀", "原油", "工资", "实际利率"],
+        )
+    if _has_any(lowered, ("china", "growth", "employment", "recession", "中国", "增长", "就业")):
+        return (
+            "增长周期",
+            "检查领先数据能否进入收入、消费、投资、就业和盈利。",
+            ["PMI", "就业", "信用脉冲", "盈利预期"],
+        )
+    if _has_any(lowered, ("dollar", "fx", "currency", "capital flow", "美元", "汇率", "资本流动")):
+        return (
+            "美元与全球资金",
+            "观察利差、美元融资成本、资本流动和新兴市场金融条件。",
+            ["美元指数", "跨币种基差", "新兴市场汇率", "资本流动"],
+        )
+    return (
+        "利率与风险定价",
+        "把观点翻译成收益率曲线、风险溢价和跨资产可观察方向。",
+        ["两年期收益率", "十年期收益率", "黄金", "股票"],
+    )
+
+
+def compose_perspectives(
+    raw_perspectives: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Turn mixed-source views into explicit, testable research hypotheses."""
+
+    selected: list[dict[str, object]] = []
+    per_source: dict[str, int] = {}
+    class_labels = {
+        "institutional": "机构研究",
+        "researcher": "研究者观点",
+        "practitioner": "市场实践者",
+        "social": "X 实时观点",
+    }
+    class_caveats = {
+        "institutional": "机制与数据通常更完整，但仍可能存在模型设定和发布时滞。",
+        "researcher": "适合提供跨国证据与替代解释，需核对样本和识别方法。",
+        "practitioner": "适合提出领先假设，但可能受仓位、产品与叙事偏好影响。",
+        "social": "速度最快、上下文最少；只作为待验证线索，不作为事实结论。",
+    }
+    for item in raw_perspectives:
+        source = str(item.get("source") or "未知来源")
+        if per_source.get(source, 0) >= 2:
+            continue
+        text = f"{item.get('title') or ''} {item.get('summary') or ''}"
+        lens, translation, tests = _perspective_lens(text)
+        source_class = str(item.get("source_class") or "practitioner")
+        claim = str(item.get("summary") or item.get("title") or "").strip()
+        if not claim:
+            continue
+        selected.append(
+            {
+                "id": item.get("id"),
+                "title": item.get("title"),
+                "claim": claim[:520],
+                "source": source,
+                "source_class": source_class,
+                "source_class_label": class_labels.get(source_class, "外部观点"),
+                "url": item.get("url"),
+                "published_at": item.get("published_at"),
+                "lens": lens,
+                "translation": translation,
+                "test_with": tests,
+                "caveat": class_caveats.get(
+                    source_class,
+                    "这是一个需要数据与价格确认的外部主张。",
+                ),
+            }
+        )
+        per_source[source] = per_source.get(source, 0) + 1
+        if len(selected) >= 6:
+            break
+    return selected
+
+
+def daily_research_seminar(
+    events: list[dict[str, object]],
+    perspectives: list[dict[str, object]],
+) -> dict[str, object]:
+    """Create a repeatable graduate-style seminar from today's evidence."""
+
+    lead = events[0] if events else {}
+    question = str(
+        lead.get("core_question") or "今天的公开信息究竟改变了增长、通胀、政策还是风险溢价？"
+    )
+    topic = str(lead.get("display_title") or "在证据不足时如何建立宏观研究基线")
+    reading = (
+        [
+            {
+                "title": lead.get("title"),
+                "source": lead.get("source"),
+                "url": lead.get("url"),
+                "type": "事实材料",
+            }
+        ]
+        if lead
+        else []
+    )
+    reading.extend(
+        {
+            "title": row.get("title"),
+            "source": row.get("source"),
+            "url": row.get("url"),
+            "type": row.get("source_class_label"),
+        }
+        for row in perspectives[:3]
+    )
+    return {
+        "date": datetime.now(UTC).date().isoformat(),
+        "level": "研究生研讨",
+        "duration": "75–90分钟",
+        "topic": topic,
+        "research_question": question,
+        "objectives": [
+            "区分已知事实、市场预期与作者观点",
+            "把冲击写成完整传导链并标注时间尺度",
+            "用跨资产证据提出替代解释和证伪条件",
+        ],
+        "agenda": [
+            {
+                "minutes": "15",
+                "title": "事实审计",
+                "task": "只读原始来源，写下公布时间、原话、此前预期和未知项。",
+                "output": "一张事实/未知表",
+            },
+            {
+                "minutes": "20",
+                "title": "机制建模",
+                "task": "从预期重估开始，画到金融条件、实体经济、通胀与政策反馈。",
+                "output": "一条带时滞的因果图",
+            },
+            {
+                "minutes": "20",
+                "title": "市场实验",
+                "task": "选择至少三个不同角色的资产，写下事前方向并与实际价格对照。",
+                "output": "支持/削弱证据表",
+            },
+            {
+                "minutes": "20–35",
+                "title": "观点答辩",
+                "task": "比较机构与市场作者的主张，保留解释力更强且可证伪的部分。",
+                "output": "一份200字研究备忘录",
+            },
+        ],
+        "assignment": {
+            "prompt": f"围绕“{question}”写一份事前研究备忘录。",
+            "requirements": [
+                "写出原有预期与新信息的差",
+                "标注首个定价变量和至少三个确认市场",
+                "给出一个竞争性解释",
+                "给出未来24小时与未来1个月各一个证伪条件",
+            ],
+            "rubric": ["事实可核对", "机制完整", "时间尺度明确", "允许被证伪"],
+        },
+        "reading": reading,
+    }
+
+
 def daily_lesson(events: list[dict[str, object]]) -> dict[str, object]:
     """Create a retrieval-practice loop from the day's highest-ranked event."""
 
@@ -851,11 +1147,13 @@ def compose_world_briefing(
     news: list[dict[str, object]],
     macro_snapshot: dict[str, object],
     settings: Settings,
+    raw_perspectives: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     """Combine deterministic numbers and traceable narrative into the API contract."""
 
     events = compose_events(news)
     explained_markets = [market_explanation(row, markets) for row in markets]
+    perspectives = compose_perspectives(raw_perspectives or [])
     available_markets = sum(bool(row.get("available")) for row in markets)
     evidence_mode = (
         "LIVE"
@@ -892,6 +1190,9 @@ def compose_world_briefing(
         "events": events,
         "markets": explained_markets,
         "macro_chain": complete_macro_chain(events, explained_markets, validation),
+        "seminar": daily_research_seminar(events, perspectives),
+        "perspectives": perspectives,
+        "curriculum": COURSE_PATH,
         "lead_validation": validation,
         "lesson": daily_lesson(events),
         "upcoming": macro_snapshot.get("releases", []),
@@ -912,8 +1213,21 @@ def compose_world_briefing(
         },
         "sources": {
             "news": sorted({str(item["source"]) for item in news}),
+            "perspectives": sorted({str(item["source"]) for item in (raw_perspectives or [])}),
             "markets": ["Yahoo Finance"] if available_markets else [],
             "macro": ["FRED/ALFRED", "World State deterministic engine"],
+        },
+        "integrations": {
+            "x": {
+                "configured": settings.x_bearer_token is not None,
+                "mode": (
+                    "official_api" if settings.x_bearer_token is not None else "not_configured"
+                ),
+                "items": sum(
+                    str(item.get("source_class")) == "social" for item in (raw_perspectives or [])
+                ),
+                "credential_storage": "backend_environment_only",
+            }
         },
         "limitations": [
             "免费新闻与行情可能延迟、缺失或受上游访问限制。",
@@ -930,8 +1244,20 @@ async def build_world_briefing(
 ) -> dict[str, object]:
     """Fetch public evidence and combine it with the existing macro state engine."""
 
-    resolved_provider = provider or PublicIntelligenceProvider(settings.public_data_timeout_seconds)
+    resolved_provider = provider or PublicIntelligenceProvider(
+        settings.public_data_timeout_seconds,
+        x_bearer_token=(
+            settings.x_bearer_token.get_secret_value()
+            if settings.x_bearer_token is not None
+            else None
+        ),
+    )
     markets = await resolved_provider.fetch_markets()
     news = await resolved_provider.fetch_news()
+    perspectives = (
+        await resolved_provider.fetch_perspectives()
+        if hasattr(resolved_provider, "fetch_perspectives")
+        else []
+    )
     snapshot = await build_snapshot(engine, settings)
-    return compose_world_briefing(markets, news, snapshot, settings)
+    return compose_world_briefing(markets, news, snapshot, settings, perspectives)

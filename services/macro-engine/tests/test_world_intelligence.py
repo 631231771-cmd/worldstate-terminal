@@ -14,6 +14,7 @@ from macro_engine.main import create_app
 from macro_engine.providers.public_intelligence import (
     FEEDS,
     MARKETS,
+    PERSPECTIVE_FEEDS,
     FeedSpec,
     PublicIntelligenceProvider,
     _priority_value,
@@ -22,6 +23,7 @@ from macro_engine.providers.public_intelligence import (
     google_news_url,
     parse_feed,
     parse_published,
+    parse_x_search,
     parse_yahoo_quote,
 )
 from macro_engine.services.ai_tutor import (
@@ -38,8 +40,10 @@ from macro_engine.services.world_briefing import (
     build_world_briefing,
     complete_macro_chain,
     compose_events,
+    compose_perspectives,
     compose_world_briefing,
     daily_lesson,
+    daily_research_seminar,
     event_playbook,
     lead_validation,
     market_explanation,
@@ -61,6 +65,7 @@ def yahoo_payload(price: float = 105.0, previous: float = 100.0) -> dict[str, ob
                 {
                     "meta": {
                         "regularMarketPrice": price,
+                        "previousClose": previous,
                         "chartPreviousClose": previous,
                     },
                     "timestamp": [1_700_000_000, 1_700_086_400],
@@ -144,6 +149,13 @@ def briefing_fixture() -> dict[str, object]:
         [news_item("Federal Reserve signals lower interest rates", "central_bank")],
         macro_snapshot(),
         cfg,
+        [
+            {
+                **news_item("Liquidity is improving", source="Fixture Research"),
+                "source_class": "researcher",
+                "summary": "Dollar liquidity and credit conditions are improving.",
+            }
+        ],
     )
 
 
@@ -182,6 +194,7 @@ def test_public_intelligence_helpers_cover_rss_and_yahoo() -> None:
     parsed = parse_feed(xml, feed)
     assert len(parsed) == 1
     assert parsed[0]["summary"] == "Policy changed."
+    assert parsed[0]["source_class"] == "fact"
     assert parse_feed("<broken", feed) == []
 
     atom = """
@@ -196,6 +209,12 @@ def test_public_intelligence_helpers_cover_rss_and_yahoo() -> None:
     assert quote is not None
     assert quote["change_percent"] == 5.0
     assert quote["sparkline"] == [99.0, 105.0]
+    range_payload = yahoo_payload()
+    del range_payload["chart"]["result"][0]["meta"]["previousClose"]  # type: ignore[index]
+    range_payload["chart"]["result"][0]["meta"]["chartPreviousClose"] = 80.0  # type: ignore[index]
+    range_quote = parse_yahoo_quote(range_payload, MARKETS[0])
+    assert range_quote is not None
+    assert range_quote["previous_close"] == 99.0
     assert parse_yahoo_quote({}, MARKETS[0]) is None
     assert parse_yahoo_quote({"chart": {"result": []}}, MARKETS[0]) is None
     assert parse_yahoo_quote({"chart": {"result": [{}]}}, MARKETS[0]) is None
@@ -206,6 +225,27 @@ def test_public_intelligence_helpers_cover_rss_and_yahoo() -> None:
         )
         is None
     )
+
+    x_rows = parse_x_search(
+        {
+            "includes": {
+                "users": [{"id": "7", "username": "macro_author", "name": "Macro Author"}]
+            },
+            "data": [
+                {
+                    "id": "99",
+                    "author_id": "7",
+                    "text": "Liquidity conditions are changing",
+                    "created_at": "2026-07-23T08:00:00Z",
+                    "lang": "en",
+                    "public_metrics": {"like_count": 50, "retweet_count": 10},
+                }
+            ],
+        }
+    )
+    assert x_rows[0]["source_class"] == "social"
+    assert x_rows[0]["url"] == "https://x.com/macro_author/status/99"
+    assert parse_x_search({"includes": "bad", "data": "bad"}) == []
 
 
 async def test_public_provider_handles_success_failure_and_dedup(monkeypatch: Any) -> None:
@@ -236,13 +276,52 @@ async def test_public_provider_handles_success_failure_and_dedup(monkeypatch: An
         provider = PublicIntelligenceProvider(client=client)
         markets = await provider.fetch_markets()
         stories = await provider.fetch_news()
+        perspectives = await provider.fetch_perspectives()
 
     assert len(markets) == len(MARKETS)
     assert any(row.get("available") for row in markets)
     assert any(not row.get("available") for row in markets)
     assert len(stories) == 1
     assert stories[0]["source"] == "Federal Reserve"
+    assert perspectives
+    assert perspectives[0]["source_class"] in {"institutional", "practitioner", "researcher"}
     assert len(FEEDS) >= 7
+    assert len(PERSPECTIVE_FEEDS) >= 5
+
+
+async def test_public_provider_uses_official_x_api_when_configured() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.x.com":
+            assert request.headers["Authorization"] == "Bearer read-only-token"
+            return httpx.Response(
+                200,
+                json={
+                    "includes": {
+                        "users": [{"id": "1", "username": "researcher", "name": "Researcher"}]
+                    },
+                    "data": [
+                        {
+                            "id": "2",
+                            "author_id": "1",
+                            "text": "Treasury supply may raise the term premium.",
+                            "created_at": "2026-07-23T08:00:00Z",
+                            "lang": "en",
+                            "public_metrics": {"like_count": 125},
+                        }
+                    ],
+                },
+            )
+        return httpx.Response(503)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        token = "-".join(("read", "only", "token"))
+        rows = await PublicIntelligenceProvider(
+            client=client,
+            x_bearer_token=token,
+        ).fetch_perspectives()
+
+    assert len(rows) == 1
+    assert rows[0]["source_class"] == "social"
 
 
 def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> None:
@@ -301,6 +380,27 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     assert daily_lesson(events)["concept"] == events[0]["concept"]
     assert daily_lesson(events)["retrieval_answer"]
 
+    raw_perspectives = [
+        {
+            **news_item("Treasury supply and term premium", source="Macro Research"),
+            "summary": "Fiscal deficits and Treasury issuance may lift the term premium.",
+            "source_class": "researcher",
+        },
+        {
+            **news_item("Liquidity pulse", source="Market Author"),
+            "summary": "Dollar liquidity may support risk assets.",
+            "source_class": "social",
+        },
+    ]
+    perspectives = compose_perspectives(raw_perspectives)
+    assert perspectives[0]["lens"] == "财政与债券供给"
+    assert perspectives[0]["test_with"]
+    assert "反证" not in str(perspectives[0]["caveat"])
+    seminar = daily_research_seminar(events, perspectives)
+    assert seminar["level"] == "研究生研讨"
+    assert len(seminar["agenda"]) == 4  # type: ignore[arg-type]
+    assert seminar["assignment"]["rubric"]  # type: ignore[index]
+
     validation = lead_validation(events, list(explanations.values()))
     assert validation["status"] == "supports"
     assert validation["supports"] == 4
@@ -312,11 +412,21 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     assert chain["stages"][-1]["title"] == "资产结果"  # type: ignore[index]
 
     cfg = settings(tmp_path)
-    live = compose_world_briefing(markets, stories, macro_snapshot("LIVE"), cfg)
+    live = compose_world_briefing(
+        markets,
+        stories,
+        macro_snapshot("LIVE"),
+        cfg,
+        raw_perspectives,
+    )
     assert live["evidence_mode"] == "LIVE"
     assert live["macro_context"]["states"][0]["key"] == "growth"  # type: ignore[index]
     assert len(live["macro_chain"]["stages"]) == 8  # type: ignore[index]
     assert live["lead_validation"]["rows"]  # type: ignore[index]
+    assert live["seminar"]["research_question"]  # type: ignore[index]
+    assert len(live["curriculum"]) == 6  # type: ignore[arg-type]
+    assert len(live["perspectives"]) == 2  # type: ignore[arg-type]
+    assert live["integrations"]["x"]["configured"] is False  # type: ignore[index]
     partial = compose_world_briefing(
         [{**row, "available": False} for row in markets],
         stories,
@@ -365,6 +475,9 @@ def test_ai_prompt_parsers_and_fallback_modes(tmp_path: Path) -> None:
     assert evidence_sources({"events": "bad"}) == []
     assert build_evidence_pack(briefing)["markets"]
     assert build_evidence_pack(briefing)["lead_validation"]
+    assert build_evidence_pack(briefing)["macro_chain"]
+    assert build_evidence_pack(briefing)["seminar"]
+    assert build_evidence_pack(briefing)["perspectives"]
     prompt = tutor_prompt(
         "为什么黄金上涨？",
         "deep",

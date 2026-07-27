@@ -21,6 +21,7 @@ def test_explicit_environment_aliases(monkeypatch: object, tmp_path: Path) -> No
     monkeypatch.setenv("MACRO_ENABLE_WRITES", "true")  # type: ignore[attr-defined]
     monkeypatch.setenv("MACRO_WRITE_TOKEN", "local-test-token")  # type: ignore[attr-defined]
     monkeypatch.setenv("FRED_API_KEY", "fred-test-key")  # type: ignore[attr-defined]
+    monkeypatch.setenv("MACRO_X_BEARER_TOKEN", "x-read-token")  # type: ignore[attr-defined]
     monkeypatch.setenv("MACRO_CATALOG_ROOT", str(tmp_path))  # type: ignore[attr-defined]
 
     settings = Settings()
@@ -29,4 +30,6 @@ def test_explicit_environment_aliases(monkeypatch: object, tmp_path: Path) -> No
     assert settings.writes_available is True
     assert isinstance(settings.write_token, SecretStr)
     assert isinstance(settings.fred_api_key, SecretStr)
+    assert isinstance(settings.x_bearer_token, SecretStr)
+    assert settings.x_bearer_token.get_secret_value() == "x-read-token"
     assert settings.catalog_root == tmp_path

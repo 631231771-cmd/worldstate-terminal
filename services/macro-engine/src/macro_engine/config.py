@@ -79,6 +79,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("FRED_API_KEY", "MACRO_FRED_API_KEY"),
     )
+    x_bearer_token: SecretStr | None = Field(
+        default=None,
+        validation_alias="MACRO_X_BEARER_TOKEN",
+    )
     openai_api_key: SecretStr | None = Field(default=None, validation_alias="OPENAI_API_KEY")
     ai_provider: Literal["auto", "none", "openai", "ollama", "compatible"] = Field(
         default="auto",

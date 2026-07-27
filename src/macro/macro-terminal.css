@@ -76,6 +76,17 @@
   padding: 0 28px 36px;
 }
 
+#today,
+#chain,
+#seminar,
+#perspectives,
+#events,
+#markets,
+#learn,
+#course {
+  scroll-margin-top: 82px;
+}
+
 .world-topbar {
   position: sticky;
   z-index: 30;
@@ -1904,5 +1915,391 @@
 
   .world-validation-row {
     font-size: 12px;
+  }
+}
+
+.world-seminar {
+  border-color: rgba(237, 189, 103, 0.28);
+  background:
+    linear-gradient(145deg, rgba(106, 76, 29, 0.19), transparent 44%),
+    var(--world-surface);
+}
+
+.world-seminar-meta {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 5px;
+  padding: 12px 16px;
+  border: 1px solid rgba(237, 189, 103, 0.3);
+  border-radius: 12px;
+  color: var(--world-gold);
+  text-align: right;
+}
+
+.world-seminar-meta strong {
+  font-size: 15px;
+}
+
+.world-seminar-meta span {
+  color: var(--world-muted);
+  font-size: 13px;
+}
+
+.world-seminar-question {
+  margin-top: 22px;
+  padding: 22px 24px;
+  border-left: 3px solid var(--world-gold);
+  background: rgba(237, 189, 103, 0.065);
+}
+
+.world-seminar-question h3 {
+  max-width: 920px;
+  margin: 9px 0 8px;
+  font-size: clamp(22px, 2vw, 30px);
+  line-height: 1.35;
+}
+
+.world-seminar-question p {
+  margin: 0;
+  color: var(--world-muted);
+  font-size: 15px;
+}
+
+.world-seminar-agenda {
+  display: grid;
+  margin: 16px 0 0;
+  padding: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+}
+
+.world-seminar-step {
+  min-height: 220px;
+  padding: 18px;
+  border: 1px solid var(--world-line);
+  border-radius: 13px;
+  background: rgba(8, 13, 20, 0.56);
+}
+
+.world-seminar-minute {
+  color: var(--world-gold);
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.world-seminar-step h3 {
+  margin: 18px 0 10px;
+  font-size: 19px;
+}
+
+.world-seminar-step p {
+  margin: 0 0 18px;
+  color: #c9d3df;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.world-seminar-step strong {
+  display: block;
+  padding-top: 13px;
+  border-top: 1px solid var(--world-line);
+  color: var(--world-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.world-seminar-assignment {
+  margin-top: 12px;
+  border: 1px solid var(--world-line-strong);
+  border-radius: 12px;
+  background: rgba(8, 13, 20, 0.46);
+}
+
+.world-seminar-assignment summary {
+  display: grid;
+  padding: 16px 18px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+}
+
+.world-seminar-assignment summary > span:first-child {
+  color: var(--world-gold);
+  font-size: 13px;
+}
+
+.world-seminar-assignment summary strong {
+  font-size: 15px;
+}
+
+.world-seminar-assignment summary > span:last-child {
+  color: var(--world-muted);
+  font-size: 12px;
+}
+
+.world-seminar-assignment-body {
+  padding: 0 18px 18px;
+  border-top: 1px solid var(--world-line);
+}
+
+.world-seminar-assignment-body ul {
+  display: grid;
+  margin: 16px 0;
+  padding-left: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 24px;
+  color: #c9d3df;
+  font-size: 14px;
+}
+
+.world-rubric,
+.world-perspective-tests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.world-rubric span,
+.world-perspective-tests span {
+  padding: 6px 9px;
+  border: 1px solid var(--world-line-strong);
+  border-radius: 999px;
+  color: var(--world-muted);
+  font-size: 12px;
+}
+
+.world-x-notice {
+  display: grid;
+  margin-top: 20px;
+  padding: 15px 18px;
+  grid-template-columns: minmax(220px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  border: 1px solid rgba(114, 167, 255, 0.28);
+  border-radius: 12px;
+  background: rgba(57, 126, 234, 0.08);
+}
+
+.world-x-notice.is-connected {
+  border-color: rgba(89, 212, 163, 0.35);
+  background: rgba(89, 212, 163, 0.07);
+}
+
+.world-x-notice strong {
+  font-size: 14px;
+}
+
+.world-x-notice p {
+  margin: 0;
+  color: var(--world-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.world-perspective-grid {
+  display: grid;
+  margin-top: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.world-perspective-card {
+  display: flex;
+  min-height: 330px;
+  padding: 20px;
+  flex-direction: column;
+  border: 1px solid var(--world-line);
+  border-radius: 14px;
+  background: rgba(8, 13, 20, 0.55);
+}
+
+.world-perspective-card.is-institutional {
+  border-top-color: rgba(114, 167, 255, 0.8);
+}
+
+.world-perspective-card.is-social {
+  border-top-color: rgba(237, 189, 103, 0.8);
+}
+
+.world-perspective-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--world-muted);
+  font-size: 12px;
+}
+
+.world-perspective-class {
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: var(--world-accent);
+  background: rgba(114, 167, 255, 0.1);
+}
+
+.world-perspective-card h3 {
+  margin: 17px 0 10px;
+  font-size: 20px;
+  line-height: 1.42;
+}
+
+.world-perspective-claim {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: #cbd5e1;
+  font-size: 15px;
+  line-height: 1.65;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.world-perspective-mechanism {
+  margin-top: 17px;
+  padding: 14px;
+  border-left: 2px solid var(--world-accent);
+  background: rgba(114, 167, 255, 0.055);
+}
+
+.world-perspective-mechanism p {
+  margin: 7px 0 0;
+  color: #d8e0e9;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.world-perspective-tests {
+  margin-top: 13px;
+}
+
+.world-perspective-caveat {
+  margin: 14px 0 0;
+  color: var(--world-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.world-perspective-link {
+  width: fit-content;
+  margin-top: auto;
+  padding-top: 15px;
+  color: var(--world-accent);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.world-course-grid {
+  display: grid;
+  margin-top: 22px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.world-course-card {
+  padding: 21px;
+  border: 1px solid var(--world-line);
+  border-radius: 14px;
+  background: rgba(8, 13, 20, 0.52);
+}
+
+.world-course-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--world-muted);
+  font-size: 12px;
+}
+
+.world-course-meta span:first-child {
+  color: var(--world-gold);
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-weight: 700;
+}
+
+.world-course-meta span:not(:first-child) {
+  padding: 4px 7px;
+  border: 1px solid var(--world-line);
+  border-radius: 999px;
+}
+
+.world-course-card h3 {
+  margin: 17px 0 9px;
+  font-size: 21px;
+}
+
+.world-course-question {
+  min-height: 48px;
+  margin: 0;
+  color: #d3dbe4;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.world-course-outcomes {
+  display: grid;
+  margin: 16px 0;
+  padding: 15px 0 15px 20px;
+  gap: 6px;
+  border-top: 1px solid var(--world-line);
+  border-bottom: 1px solid var(--world-line);
+  color: var(--world-muted);
+  font-size: 14px;
+}
+
+.world-course-resources {
+  display: grid;
+  gap: 8px;
+}
+
+.world-course-resources a {
+  display: grid;
+  gap: 3px;
+  color: var(--world-accent);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.world-course-resources small {
+  color: var(--world-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 1500px) {
+  .world-seminar-agenda {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .world-seminar-meta {
+    width: fit-content;
+    text-align: left;
+  }
+
+  .world-seminar-agenda,
+  .world-perspective-grid,
+  .world-course-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .world-x-notice,
+  .world-seminar-assignment summary {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 640px) {
+  .world-seminar-assignment-body ul {
+    grid-template-columns: 1fr;
+  }
+
+  .world-seminar-question,
+  .world-course-card,
+  .world-perspective-card {
+    padding: 17px;
   }
 }

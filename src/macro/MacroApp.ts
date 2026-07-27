@@ -182,10 +182,13 @@ export class MacroApp {
     editorial.append(
       this.renderHero(),
       this.renderMacroChain(),
+      this.renderSeminar(),
+      this.renderPerspectives(),
       this.renderEvents(),
       this.renderValidation(),
       this.renderMarketStrip(),
       this.renderLesson(),
+      this.renderCurriculum(),
       this.renderMacroFoundation(),
     );
     workspace.append(editorial, this.renderTutor());
@@ -207,9 +210,9 @@ export class MacroApp {
     const navItems: Array<readonly [string, string]> = [
       ['#today', '今日简报'],
       ['#chain', '宏观链条'],
-      ['#events', '关键事件'],
-      ['#markets', '市场脉冲'],
-      ['#learn', '学习'],
+      ['#seminar', '今日研讨'],
+      ['#perspectives', '观点实验室'],
+      ['#course', '课程路径'],
     ];
     for (const [href, label] of navItems) {
       const link = el('a', '', label);
@@ -369,12 +372,130 @@ export class MacroApp {
     return section;
   }
 
+  private renderSeminar(): HTMLElement {
+    const seminar = this.briefing!.seminar;
+    const section = el('section', 'world-section world-seminar');
+    section.id = 'seminar';
+    const heading = el('div', 'world-section-heading world-heading-row');
+    const title = el('div');
+    title.append(
+      el('div', 'world-section-index', '02 / DAILY RESEARCH SEMINAR'),
+      el('h2', '', '今天，把世界当成一门研究课'),
+      el('p', '', '每天围绕一个问题完成事实审计、机制建模、市场实验和观点答辩。'),
+    );
+    const meta = el('div', 'world-seminar-meta');
+    meta.append(el('strong', '', seminar.level), el('span', '', seminar.duration));
+    heading.append(title, meta);
+    section.appendChild(heading);
+
+    const question = el('article', 'world-seminar-question');
+    question.append(
+      el('span', 'world-mini-label', 'TODAY’S RESEARCH QUESTION'),
+      el('h3', '', seminar.research_question),
+      el('p', '', seminar.topic),
+    );
+    section.appendChild(question);
+
+    const agenda = el('ol', 'world-seminar-agenda');
+    seminar.agenda.forEach((item, index) => {
+      const card = el('li', 'world-seminar-step');
+      card.append(
+        el('span', 'world-seminar-minute', `${item.minutes} MIN`),
+        el('h3', '', `${String(index + 1).padStart(2, '0')} · ${item.title}`),
+        el('p', '', item.task),
+        el('strong', '', `交付物：${item.output}`),
+      );
+      agenda.appendChild(card);
+    });
+    section.appendChild(agenda);
+
+    const assignment = el('details', 'world-seminar-assignment');
+    const assignmentSummary = el('summary');
+    assignmentSummary.append(
+      el('span', '', '今日作业'),
+      el('strong', '', seminar.assignment.prompt),
+      el('span', '', '展开要求'),
+    );
+    const assignmentBody = el('div', 'world-seminar-assignment-body');
+    const requirements = el('ul');
+    seminar.assignment.requirements.forEach((item) => requirements.appendChild(el('li', '', item)));
+    const rubric = el('div', 'world-rubric');
+    seminar.assignment.rubric.forEach((item) => rubric.appendChild(el('span', '', item)));
+    assignmentBody.append(requirements, rubric);
+    assignment.append(assignmentSummary, assignmentBody);
+    section.appendChild(assignment);
+    return section;
+  }
+
+  private renderPerspectives(): HTMLElement {
+    const briefing = this.briefing!;
+    const section = el('section', 'world-section world-perspectives');
+    section.id = 'perspectives';
+    const heading = el('div', 'world-section-heading');
+    heading.append(
+      el('div', 'world-section-index', '03 / VIEWPOINT LAB'),
+      el('h2', '', '观点不是答案，而是可以被检验的假设'),
+      el('p', '', '机构研究负责机制，市场作者负责提出线索；每一条都要翻译成数据与价格。'),
+    );
+    section.appendChild(heading);
+
+    const xState = briefing.integrations.x;
+    const notice = el('div', `world-x-notice ${xState.configured ? 'is-connected' : ''}`);
+    notice.append(
+      el('strong', '', xState.configured ? `X 官方接口已连接 · 今日 ${xState.items} 条` : 'X 官方接口尚未连接'),
+      el(
+        'p',
+        '',
+        xState.configured
+          ? 'X 内容只作为实时线索，仍需原始数据和跨资产价格确认。'
+          : '公开机构与 Newsletter 仍会每日更新。为保护账户，不使用也不保存浏览器 Cookie。',
+      ),
+    );
+    section.appendChild(notice);
+
+    const grid = el('div', 'world-perspective-grid');
+    if (!briefing.perspectives.length) {
+      grid.appendChild(
+        el('p', 'world-empty', '公开观点源本次没有返回内容；事实简报和宏观课程仍可正常使用。'),
+      );
+    }
+    for (const view of briefing.perspectives) {
+      const card = el('article', `world-perspective-card is-${view.source_class}`);
+      const meta = el('div', 'world-perspective-meta');
+      meta.append(
+        el('span', 'world-perspective-class', view.source_class_label),
+        el('span', '', `${view.source} · ${formatDate(view.published_at, false)}`),
+      );
+      card.append(
+        meta,
+        el('h3', '', view.title),
+        el('p', 'world-perspective-claim', view.claim),
+      );
+      const mechanism = el('div', 'world-perspective-mechanism');
+      mechanism.append(
+        el('span', 'world-mini-label', `研究镜头 · ${view.lens}`),
+        el('p', '', view.translation),
+      );
+      const tests = el('div', 'world-perspective-tests');
+      view.test_with.forEach((item) => tests.appendChild(el('span', '', item)));
+      card.append(
+        mechanism,
+        tests,
+        el('p', 'world-perspective-caveat', `限制：${view.caveat}`),
+        externalLink('阅读原文 ↗', view.url, 'world-perspective-link'),
+      );
+      grid.appendChild(card);
+    }
+    section.appendChild(grid);
+    return section;
+  }
+
   private renderMarketStrip(): HTMLElement {
     const section = el('section', 'world-market-section');
     section.id = 'markets';
     const heading = el('div', 'world-section-heading');
     heading.append(
-      el('div', 'world-section-index', '04 / MARKET ROLES'),
+      el('div', 'world-section-index', '06 / MARKET ROLES'),
       el('h2', '', '每个市场在回答什么问题'),
       el('p', '', '不要孤立读涨跌；先看它在宏观链条中的角色。'),
     );
@@ -421,7 +542,7 @@ export class MacroApp {
     const heading = el('div', 'world-section-heading world-heading-row');
     const title = el('div');
     title.append(
-      el('div', 'world-section-index', '02 / TOP WORLD EVENTS'),
+      el('div', 'world-section-index', '04 / TOP WORLD EVENTS'),
       el('h2', '', '今天全球最重要的事情'),
       el('p', '', '不是把新闻变长，而是找出它改变了什么预期。'),
     );
@@ -507,7 +628,7 @@ export class MacroApp {
     const section = el('section', 'world-section world-validation');
     const heading = el('div', 'world-section-heading');
     heading.append(
-      el('div', 'world-section-index', '03 / HYPOTHESIS CHECK'),
+      el('div', 'world-section-index', '05 / HYPOTHESIS CHECK'),
       el('h2', '', '市场在确认这条主线吗？'),
       el('p', '', '把事前方向与实际价格并排，避免看完涨跌再编故事。'),
     );
@@ -557,7 +678,7 @@ export class MacroApp {
     section.id = 'learn';
     const heading = el('div', 'world-section-heading');
     heading.append(
-      el('div', 'world-section-index', '05 / RETRIEVAL PRACTICE'),
+      el('div', 'world-section-index', '07 / RETRIEVAL PRACTICE'),
       el('h2', '', `今天真正学会：${lesson.concept}`),
       el('p', '', '先自己判断，再看反馈。'),
     );
@@ -579,6 +700,42 @@ export class MacroApp {
     );
     body.append(question, reveal, transfer);
     section.append(heading, body);
+    return section;
+  }
+
+  private renderCurriculum(): HTMLElement {
+    const section = el('section', 'world-section world-curriculum');
+    section.id = 'course';
+    const heading = el('div', 'world-section-heading');
+    heading.append(
+      el('div', 'world-section-index', '08 / GRADUATE LEARNING PATH'),
+      el('h2', '', '从零散信息走向完整宏观研究'),
+      el('p', '', '一条可长期完成的免费课程路径：账户 → 波动 → 政策 → 市场 → 计量 → 每日研究。'),
+    );
+    section.appendChild(heading);
+    const grid = el('div', 'world-course-grid');
+    for (const module of this.briefing!.curriculum) {
+      const card = el('article', 'world-course-card');
+      const meta = el('div', 'world-course-meta');
+      meta.append(
+        el('span', '', module.number),
+        el('span', '', module.level),
+        el('span', '', module.duration),
+      );
+      card.append(meta, el('h3', '', module.title), el('p', 'world-course-question', module.question));
+      const outcomes = el('ul', 'world-course-outcomes');
+      module.outcomes.forEach((item) => outcomes.appendChild(el('li', '', item)));
+      card.appendChild(outcomes);
+      const resources = el('div', 'world-course-resources');
+      for (const resource of module.resources) {
+        const link = externalLink(resource.title, resource.url);
+        link.appendChild(el('small', '', `${resource.provider} · ${resource.access}`));
+        resources.appendChild(link);
+      }
+      card.appendChild(resources);
+      grid.appendChild(card);
+    }
+    section.appendChild(grid);
     return section;
   }
 

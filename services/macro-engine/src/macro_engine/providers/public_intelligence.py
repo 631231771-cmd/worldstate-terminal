@@ -18,6 +18,12 @@ from defusedxml import ElementTree
 
 USER_AGENT = "WorldStateTerminal/0.2 (+local educational research)"
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+X_RECENT_SEARCH_URL = "https://api.x.com/2/tweets/search/recent"
+X_MACRO_QUERY = (
+    "(from:LynAldenContact OR from:MacroAlf OR from:FedGuy12 OR "
+    "from:Brad_Setser OR from:RobinBrooksIIF OR from:TheStalwart) "
+    "-is:retweet -is:reply"
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +42,7 @@ class FeedSpec:
     url: str
     category: str
     language: str = "en"
+    source_class: str = "fact"
 
 
 MARKETS = (
@@ -92,6 +99,45 @@ FEEDS = (
         "Energy",
         google_news_url("(oil OR OPEC OR LNG OR energy sanctions) when:3d"),
         "energy",
+    ),
+)
+
+PERSPECTIVE_FEEDS = (
+    FeedSpec(
+        "纽约联储研究",
+        "https://libertystreeteconomics.newyorkfed.org/feed/",
+        "perspective",
+        source_class="institutional",
+    ),
+    FeedSpec(
+        "BIS研究",
+        google_news_url("site:bis.org research monetary liquidity debt when:14d"),
+        "perspective",
+        source_class="institutional",
+    ),
+    FeedSpec(
+        "Lyn Alden",
+        "https://www.lynalden.com/feed/",
+        "perspective",
+        source_class="practitioner",
+    ),
+    FeedSpec(
+        "The Macro Compass",
+        "https://themacrocompass.substack.com/feed",
+        "perspective",
+        source_class="practitioner",
+    ),
+    FeedSpec(
+        "Fed Guy",
+        "https://fedguy.com/feed/",
+        "perspective",
+        source_class="practitioner",
+    ),
+    FeedSpec(
+        "Brad Setser",
+        google_news_url("Brad Setser dollar trade capital flows when:14d"),
+        "perspective",
+        source_class="researcher",
     ),
 )
 
@@ -223,10 +269,60 @@ def parse_feed(xml_text: str, feed: FeedSpec) -> list[dict[str, object]]:
                 "published_at": published.isoformat() if published else None,
                 "category": feed.category,
                 "language": feed.language,
+                "source_class": feed.source_class,
                 "importance": article_importance(title, feed.name),
             }
         )
     return articles
+
+
+def parse_x_search(payload: dict[str, Any]) -> list[dict[str, object]]:
+    """Normalize a bounded X recent-search response without storing credentials."""
+
+    includes = payload.get("includes")
+    raw_users = includes.get("users", []) if isinstance(includes, dict) else []
+    users = {
+        str(user["id"]): user
+        for user in raw_users
+        if isinstance(user, dict) and user.get("id") and user.get("username")
+    }
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return []
+    rows: list[dict[str, object]] = []
+    for post in data[:30]:
+        if not isinstance(post, dict):
+            continue
+        post_id = str(post.get("id") or "")
+        text = clean_text(str(post.get("text") or ""))
+        author = users.get(str(post.get("author_id") or ""), {})
+        username = str(author.get("username") or "")
+        if not post_id or not text or not username:
+            continue
+        metrics = post.get("public_metrics")
+        engagement = 0
+        if isinstance(metrics, dict):
+            engagement = sum(
+                int(metrics.get(key) or 0)
+                for key in ("like_count", "retweet_count", "reply_count", "quote_count")
+            )
+        rows.append(
+            {
+                "id": f"x-{post_id}",
+                "title": text[:280],
+                "summary": text[:600],
+                "source": f"X · @{username}",
+                "author": str(author.get("name") or username),
+                "url": f"https://x.com/{username}/status/{post_id}",
+                "published_at": post.get("created_at"),
+                "category": "perspective",
+                "language": post.get("lang") or "en",
+                "source_class": "social",
+                "importance": min(92, 52 + min(40, engagement // 25)),
+                "engagement": engagement,
+            }
+        )
+    return rows
 
 
 def parse_yahoo_quote(payload: dict[str, Any], spec: MarketSpec) -> dict[str, object] | None:
@@ -243,13 +339,6 @@ def parse_yahoo_quote(payload: dict[str, Any], spec: MarketSpec) -> dict[str, ob
     if not isinstance(meta, dict):
         return None
     price = meta.get("regularMarketPrice")
-    previous = meta.get("chartPreviousClose") or meta.get("previousClose")
-    if (
-        not isinstance(price, (int, float))
-        or not isinstance(previous, (int, float))
-        or not previous
-    ):
-        return None
     timestamps = result.get("timestamp")
     as_of = datetime.now(UTC)
     if isinstance(timestamps, list) and timestamps and isinstance(timestamps[-1], (int, float)):
@@ -264,6 +353,21 @@ def parse_yahoo_quote(payload: dict[str, Any], spec: MarketSpec) -> dict[str, ob
                 closes = [float(value) for value in raw_closes if isinstance(value, (int, float))][
                     -20:
                 ]
+    # Yahoo's chartPreviousClose is the close before the requested *range*, not
+    # necessarily the prior session. Prefer the explicit prior close, then the
+    # penultimate daily observation, so a one-month chart cannot become a fake
+    # one-day move.
+    previous = meta.get("previousClose")
+    if not isinstance(previous, (int, float)) and len(closes) >= 2:
+        previous = closes[-2]
+    if not isinstance(previous, (int, float)):
+        previous = meta.get("chartPreviousClose")
+    if (
+        not isinstance(price, (int, float))
+        or not isinstance(previous, (int, float))
+        or not previous
+    ):
+        return None
     return {
         **asdict(spec),
         "price": float(price),
@@ -284,9 +388,11 @@ class PublicIntelligenceProvider:
         self,
         timeout_seconds: float = 8.0,
         client: httpx.AsyncClient | None = None,
+        x_bearer_token: str | None = None,
     ) -> None:
         self.timeout_seconds = timeout_seconds
         self.client = client
+        self.x_bearer_token = x_bearer_token
 
     async def _client_context(self) -> httpx.AsyncClient:
         if self.client is not None:
@@ -358,3 +464,52 @@ class PublicIntelligenceProvider:
             key=lambda item: (_priority_value(item), str(item.get("published_at") or "")),
             reverse=True,
         )[:40]
+
+    async def _fetch_x_perspectives(
+        self,
+        client: httpx.AsyncClient,
+    ) -> list[dict[str, object]]:
+        if not self.x_bearer_token:
+            return []
+        try:
+            response = await client.get(
+                X_RECENT_SEARCH_URL,
+                params={
+                    "query": X_MACRO_QUERY,
+                    "max_results": 25,
+                    "expansions": "author_id",
+                    "tweet.fields": "author_id,created_at,lang,public_metrics",
+                    "user.fields": "name,username,verified",
+                },
+                headers={"Authorization": f"Bearer {self.x_bearer_token}"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError, TypeError):
+            return []
+        return parse_x_search(payload) if isinstance(payload, dict) else []
+
+    async def fetch_perspectives(self) -> list[dict[str, object]]:
+        """Fetch institutional and practitioner views, with optional X evidence."""
+
+        client = await self._client_context()
+        owns_client = self.client is None
+        try:
+            groups = await asyncio.gather(
+                *(self._fetch_feed(client, feed) for feed in PERSPECTIVE_FEEDS),
+                self._fetch_x_perspectives(client),
+            )
+        finally:
+            if owns_client:
+                await client.aclose()
+        deduplicated: dict[str, dict[str, object]] = {}
+        for item in (article for group in groups for article in group):
+            title_key = re.sub(r"\W+", "", str(item["title"]).lower())[:180]
+            current = deduplicated.get(title_key)
+            if current is None or _importance_value(item) > _importance_value(current):
+                deduplicated[title_key] = item
+        return sorted(
+            deduplicated.values(),
+            key=lambda item: (_priority_value(item), str(item.get("published_at") or "")),
+            reverse=True,
+        )[:30]
