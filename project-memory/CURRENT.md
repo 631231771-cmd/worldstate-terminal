@@ -1,6 +1,6 @@
 ---
 project: World State Terminal
-status: phase-6-deep-brief-clawfeed-webmcp
+status: phase-7-agent-reach-multi-view-research-workspace
 updated: 2026-07-27
 branch: feature/world-state-terminal
 phase_1_formal_commit: a458e54d06b32992001693804b49f5f59a1f4019
@@ -11,18 +11,19 @@ phase_3_depth_commit: 6fb2760fc7b653b31b62597d559f6863d0a3c4b8
 phase_4_desktop_chain_commit: 1e9327e6f542a4224f3532b6452f8b4e094b2b84
 phase_5_research_seminar_commit: 86b48c2397d5152d9e7d7304cfca9f40c73090d5
 phase_6_clawfeed_webmcp_commit: 63b380e3b
-resume_from: phase-7-intraday-event-windows-and-research-journal
+phase_7_agent_reach_commit: c86554868
+resume_from: phase-8-intraday-event-windows-and-research-journal
 ---
 
 # Current continuation point
 
 > [!important] Resume here
-> The ready-to-read five-part deep brief, ClawFeed-compatible editorial flow,
-> optional external ClawFeed adapter, and progressive WebMCP page tools are
-> complete at `63b380e3b`. The earlier seminar/homework interpretation was
-> deliberately removed: the user wants depth without coursework overhead.
-> Start the next session from intraday event-window measurement or a persistent
-> research journal.
+> The local Agent Reach X adapter, per-source call ledger, source-balanced
+> viewpoints, and five-view research workspace are complete at `c86554868`.
+> The homepage stays bounded while events, markets, calls, and learning open
+> into dedicated URL-backed workspaces. Start the next session from intraday
+> event-window measurement, a persistent research journal, or user-manageable
+> source pools.
 > Preserve the fact → expectation → pricing → conditions → economy →
 > inflation/profits → policy → assets loop.
 
@@ -34,6 +35,10 @@ resume_from: phase-7-intraday-event-windows-and-research-journal
 - Commands: `start`, `stop`, `restart`, `status`, `sync`, `doctor`, `logs`.
 - A desktop shortcut named `打开世界状态终端.bat` starts the terminal.
 - The default page is a Chinese-first daily world and market explainer.
+- The terminal now has five URL-backed views: daily overview, event research,
+  market laboratory, viewpoints and calls, and learning and sources.
+- Browser back/forward, selected event, and selected market state are preserved
+  in the URL instead of being trapped inside one long page.
 - The page uses one core question, a labeled causal chain, ranked event list,
   hypothesis-versus-market validation, market-role cards, retrieval practice,
   and a sticky AI tutor.
@@ -71,18 +76,24 @@ resume_from: phase-7-intraday-event-windows-and-research-journal
 - The viewpoint lab ingests public institutional, researcher, and practitioner
   feeds, limits source concentration, and translates each claim into a
   mechanism lens, test variables, and an explicit caveat.
-- X ingestion is optional and uses only the official recent-search API through
-  a backend-only `MACRO_X_BEARER_TOKEN`; browser cookies are never requested,
-  stored, or scraped.
+- X ingestion can use either the optional official recent-search API or the
+  user's already-configured local Agent Reach Cookie transport. Agent Reach
+  values remain in the user profile and are passed only to the temporary
+  `twitter` child process; they never appear in the HTTP API, frontend, logs,
+  database, command arguments, or Git.
+- The viewpoints-and-calls workspace shows six bounded source calls, per-source
+  latency and item counts, partial failures, and cache state without exposing
+  credentials.
 - AI evidence packs distinguish external viewpoints from facts and include the
   complete macro chain, deep brief, validation, and source index.
 - ClawFeed's editorial principle is built in: the source pool may grow while
   the visible daily edition stays bounded. A separately running instance can
   be connected through backend-only `MACRO_CLAWFEED_URL`; no cookie or API key
   is required for the public read-only digest endpoint.
-- When a browser supports `navigator.modelContext`, WebMCP exposes three local
-  page tools for reading the daily brief, explaining one market, and showing a
-  visible section. Unsupported browsers degrade to the normal UI.
+- When a browser supports `navigator.modelContext`, WebMCP exposes five local
+  page tools for the daily brief, market explanation, section navigation,
+  viewpoints, and research-call inspection. Unsupported browsers degrade to
+  the normal UI.
 - Yahoo daily change calculation now uses the real prior session rather than
   the beginning of the requested chart range.
 
@@ -92,6 +103,8 @@ resume_from: phase-7-intraday-event-windows-and-research-journal
 - Operations launcher: `WorldState.bat`, `scripts/worldstate.ps1`
 - Public evidence:
   `services/macro-engine/src/macro_engine/providers/public_intelligence.py`
+- Agent Reach:
+  `services/macro-engine/src/macro_engine/providers/agent_reach_x.py`
 - World briefing:
   `services/macro-engine/src/macro_engine/services/world_briefing.py`
 - AI tutor: `services/macro-engine/src/macro_engine/services/ai_tutor.py`
@@ -99,6 +112,8 @@ resume_from: phase-7-intraday-event-windows-and-research-journal
 - Frontend: `src/macro/`, `src/services/macro-client.ts`
 - Product contract: `docs/macro/WORLD_EXPLAINER.md`
 - Operations: `docs/macro/OPERATIONS.md`
+- Agent Reach contract: `docs/macro/AGENT_REACH_X.md`
+- Product research: `docs/macro/PRODUCT_RESEARCH_2026-07.md`
 - Progress: `docs/macro/progress/phase-03.md`,
   `docs/macro/progress/phase-03-ui-redesign.md`,
   `docs/macro/progress/phase-03-content-depth.md`
@@ -108,7 +123,7 @@ resume_from: phase-7-intraday-event-windows-and-research-journal
 - real keyless upstream run: 11/11 markets and 40 news items;
 - real briefing: `LIVE`, five events, and eleven available markets;
 - no-key tutor: deterministic, grounded, and five cited sources;
-- 37 Macro Engine tests pass at 88.10% coverage;
+- 40 Macro Engine tests pass at 87.89% coverage;
 - Ruff, Python compilation, TypeScript, and macro Vite production build pass;
 - native desktop runtime check passes and the PySide6 window remains responsive;
 - desktop shortcut exists at `C:\Users\Administrator\Desktop\世界状态终端.lnk`;
@@ -127,11 +142,18 @@ resume_from: phase-7-intraday-event-windows-and-research-journal
 - browser validation confirms 16 px deep-brief body text, 14 px event/market
   explanation text, five rendered explanation cards, collapsed courses, exact
   anchor offsets, and zero horizontal overflow.
+- a live Agent Reach briefing returns six successful source calls, twenty-four
+  public X items, twelve balanced viewpoints, and a correct cache hit;
+- browser validation covers all five workspaces, working back/forward history,
+  eight lead-event stages, eleven market selectors, six call rows, five WebMCP
+  tools, larger explanatory text, and zero horizontal overflow;
+- central-bank leadership news uses a dedicated governance path and no longer
+  matches the substring `war` inside a person's surname.
 
 ## Handoff state
 
-- Phase 6 ClawFeed editorial flow, WebMCP tools, and no-homework deep brief are
-  formally committed at `63b380e3b`.
+- Phase 7 Agent Reach, call observability, source-balanced viewpoints, and the
+  multi-view research workspace are formally committed at `c86554868`.
 - Launcher-managed services are running on ports 8000 and 4173 for immediate
   review.
 - Continue after reviewing
@@ -147,8 +169,9 @@ resume_from: phase-7-intraday-event-windows-and-research-journal
 - AI-generated causal explanations remain hypotheses, not investment advice;
 - the desktop app is a native local window but not yet a signed standalone
   installer; first use still depends on Python and may install PySide6;
-- X is not configured by default; official access is pay-per-use and requires
-  a developer bearer token placed locally, never pasted into chat;
+- Agent Reach Cookie access depends on the user's local X session and an
+  upstream CLI whose behavior can change; it is optional, cached, bounded, and
+  always treated as an unverified viewpoint source rather than a fact source;
 - external ClawFeed is not bundled; it must be started separately and its base
   URL configured locally if the user wants its stored editions;
 - WebMCP remains a browser proposal and is unavailable in browsers that do not
