@@ -25,6 +25,17 @@ notice bundle. Dataset terms are reviewed separately from software licenses.
 | respx / Hypothesis / coverage | 0.23.1 / 6.160.0 / 7.15.2 | tests | BSD-3-Clause / MPL-2.0 / Apache-2.0 |
 | Ruff / mypy | 0.15.22 / 1.20.2 | quality gates | MIT / MIT |
 
+## Referenced integration projects
+
+| Project | Reviewed revision | Use | License |
+| --- | --- | --- | --- |
+| [ClawFeed](https://github.com/lvy010/clawfeed) | `38b43f0c3d5c781acbc3173a3a4a47f480cb18a5` | optional public digest adapter and editorial-model reference | MIT |
+| [WebMCP](https://github.com/lvy010/webmcp) | `971aa24aea2afd865ca8607ba79a486fc7429360` | browser page-tool proposal and interface reference | W3C Software and Document License |
+
+No source file from either project is vendored. World State Terminal's adapter
+and page-tool implementation are original code behind optional,
+feature-detected boundaries.
+
 `uv.lock` includes hashes for registry artifacts. `python -m uv sync --group
 dev` installed 56 packages without the OpenBB extra; `python -m uv lock
 --check` confirmed the lock remained current.

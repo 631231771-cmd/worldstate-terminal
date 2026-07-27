@@ -59,6 +59,20 @@ The daily world briefing does not need the FRED key. Its public RSS and daily
 market evidence are keyless and report their own `LIVE`, `PARTIAL`, or `OFFLINE`
 status.
 
+## Connect an optional ClawFeed instance
+
+The built-in five-part deep brief is always available. If a separately running
+ClawFeed instance should also contribute its latest daily editions, add this to
+the ignored `.runtime/worldstate.env` and restart:
+
+```text
+MACRO_CLAWFEED_URL=http://127.0.0.1:8767
+```
+
+Only the public, read-only digest endpoint is used. No ClawFeed cookie or API key
+is stored. See [CLAWFEED_WEBMCP.md](CLAWFEED_WEBMCP.md) for the integration and
+security boundaries.
+
 ## Configure the optional AI tutor
 
 The terminal is useful without an AI key. In that state,

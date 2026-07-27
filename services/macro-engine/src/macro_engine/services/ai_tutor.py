@@ -77,7 +77,7 @@ def build_evidence_pack(briefing: dict[str, object]) -> dict[str, object]:
         "markets": markets if isinstance(markets, list) else [],
         "lead_validation": briefing.get("lead_validation"),
         "macro_chain": briefing.get("macro_chain"),
-        "seminar": briefing.get("seminar"),
+        "deep_brief": briefing.get("deep_brief"),
         "perspectives": perspectives[:6] if isinstance(perspectives, list) else [],
         "macro_context": briefing.get("macro_context"),
         "lesson": lesson if isinstance(lesson, dict) else {},

@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from macro_engine.config import Settings
+from macro_engine.providers.clawfeed import ClawFeedProvider, clawfeed_status
 from macro_engine.providers.public_intelligence import PublicIntelligenceProvider
 from macro_engine.services.terminal import build_snapshot
 
@@ -783,19 +784,19 @@ COURSE_PATH = [
         ],
     },
     {
-        "id": "research-seminar",
+        "id": "daily-deep-reading",
         "number": "06",
-        "title": "每日世界研究研讨",
-        "level": "持续课题",
+        "title": "每日深度阅读",
+        "level": "按需阅读",
         "duration": "长期",
-        "question": "如何把当天事件写成可验证、可证伪、可复盘的研究备忘录？",
-        "outcomes": ["形成事前假设", "做跨资产验证", "写替代解释和证伪条件"],
+        "question": "怎样在几分钟内看懂当天事件、传导链与不同解释？",
+        "outcomes": ["分清事实与解释", "看懂跨资产验证", "知道下一步观察什么"],
         "resources": [
             {
-                "title": "World State Terminal Daily Seminar",
-                "url": "#seminar",
-                "provider": "本地研究工作台",
-                "access": "每日更新",
+                "title": "World State Terminal Daily Deep Brief",
+                "url": "#deep",
+                "provider": "本地深度解读",
+                "access": "打开即读",
             }
         ],
     },
@@ -1030,86 +1031,125 @@ def compose_perspectives(
     return selected
 
 
-def daily_research_seminar(
+def compose_deep_brief(
     events: list[dict[str, object]],
+    markets: list[dict[str, object]],
     perspectives: list[dict[str, object]],
+    validation: dict[str, object],
+    clawfeed_digests: list[dict[str, object]],
 ) -> dict[str, object]:
-    """Create a repeatable graduate-style seminar from today's evidence."""
+    """Create a fixed-length, ready-to-read editorial explanation."""
 
     lead = events[0] if events else {}
-    question = str(
-        lead.get("core_question") or "今天的公开信息究竟改变了增长、通胀、政策还是风险溢价？"
+    causal_chain = lead.get("causal_chain")
+    chain = [str(item) for item in causal_chain] if isinstance(causal_chain, list) else []
+    alternatives = lead.get("alternatives")
+    alternative_items = (
+        [str(item) for item in alternatives[:2]]
+        if isinstance(alternatives, list)
+        else ["其他同期数据、仓位或流动性也可能解释价格变化。"]
     )
-    topic = str(lead.get("display_title") or "在证据不足时如何建立宏观研究基线")
-    reading = (
-        [
+    confirmations = lead.get("confirmations")
+    falsifiers = lead.get("falsifiers")
+    watch = (
+        [str(item) for item in confirmations[:2]] if isinstance(confirmations, list) else []
+    ) + ([str(item) for item in falsifiers[:2]] if isinstance(falsifiers, list) else [])
+    validation_rows = validation.get("rows")
+    price_evidence = []
+    if isinstance(validation_rows, list):
+        price_evidence = [
             {
-                "title": lead.get("title"),
-                "source": lead.get("source"),
-                "url": lead.get("url"),
-                "type": "事实材料",
+                "market": row.get("market_name"),
+                "role": row.get("role"),
+                "observed": row.get("observed_label"),
+                "verdict": row.get("status"),
             }
+            for row in validation_rows[:4]
+            if isinstance(row, dict)
         ]
-        if lead
-        else []
-    )
-    reading.extend(
+    if not price_evidence:
+        price_evidence = [
+            {
+                "market": row.get("name_zh"),
+                "role": row.get("role"),
+                "observed": (
+                    f"{float(row['change_percent']):+.2f}%"
+                    if isinstance(row.get("change_percent"), (int, float))
+                    else "待更新"
+                ),
+                "verdict": "unclear",
+            }
+            for row in markets[:4]
+        ]
+    debate = [
         {
-            "title": row.get("title"),
             "source": row.get("source"),
+            "class": row.get("source_class_label"),
+            "claim": row.get("claim"),
+            "lens": row.get("lens"),
+            "caveat": row.get("caveat"),
             "url": row.get("url"),
-            "type": row.get("source_class_label"),
         }
-        for row in perspectives[:3]
-    )
+        for row in perspectives[:2]
+    ]
+    external_editions = [
+        {
+            "id": row.get("id"),
+            "type": row.get("type"),
+            "content": row.get("content"),
+            "created_at": row.get("created_at"),
+            "url": row.get("url"),
+        }
+        for row in clawfeed_digests[:2]
+    ]
     return {
-        "date": datetime.now(UTC).date().isoformat(),
-        "level": "研究生研讨",
-        "duration": "75–90分钟",
-        "topic": topic,
-        "research_question": question,
-        "objectives": [
-            "区分已知事实、市场预期与作者观点",
-            "把冲击写成完整传导链并标注时间尺度",
-            "用跨资产证据提出替代解释和证伪条件",
+        "editorial_model": "ClawFeed-compatible fixed edition",
+        "read_time": "约 8 分钟",
+        "question": lead.get("core_question") or "今天的信息改变了增长、通胀、政策还是风险溢价？",
+        "bottom_line": lead.get("why_it_matters")
+        or "证据不足时保持基线，不用价格倒推一个确定故事。",
+        "sections": [
+            {
+                "key": "fact",
+                "title": "发生了什么",
+                "label": "事实与预期差",
+                "body": lead.get("display_title")
+                or lead.get("title")
+                or "等待可核对的高影响事件。",
+                "detail": lead.get("expectation_shift") or "原有预期未知；先等待新的可核对信息。",
+            },
+            {
+                "key": "mechanism",
+                "title": "为什么会影响市场",
+                "label": "传导机制",
+                "body": " → ".join(chain[:4]) if chain else "事实 → 预期 → 定价变量 → 资产确认",
+                "detail": lead.get("market_thesis")
+                or "先观察收益率、美元、商品与股票是否相互确认。",
+            },
+            {
+                "key": "evidence",
+                "title": "价格是否确认",
+                "label": "跨资产证据",
+                "body": validation.get("summary") or "当前价格证据不足，暂不提高因果置信度。",
+                "evidence": price_evidence,
+            },
+            {
+                "key": "debate",
+                "title": "还有什么解释",
+                "label": "分歧与反方",
+                "body": "；".join(alternative_items),
+                "perspectives": debate,
+            },
+            {
+                "key": "watch",
+                "title": "接下来观察什么",
+                "label": "验证与反证",
+                "body": "未来数据必须继续沿这条链条发展，否则降低当前解释的权重。",
+                "watch": watch[:4] or ["首个定价变量", "第二个独立市场", "下一项宏观数据"],
+            },
         ],
-        "agenda": [
-            {
-                "minutes": "15",
-                "title": "事实审计",
-                "task": "只读原始来源，写下公布时间、原话、此前预期和未知项。",
-                "output": "一张事实/未知表",
-            },
-            {
-                "minutes": "20",
-                "title": "机制建模",
-                "task": "从预期重估开始，画到金融条件、实体经济、通胀与政策反馈。",
-                "output": "一条带时滞的因果图",
-            },
-            {
-                "minutes": "20",
-                "title": "市场实验",
-                "task": "选择至少三个不同角色的资产，写下事前方向并与实际价格对照。",
-                "output": "支持/削弱证据表",
-            },
-            {
-                "minutes": "20–35",
-                "title": "观点答辩",
-                "task": "比较机构与市场作者的主张，保留解释力更强且可证伪的部分。",
-                "output": "一份200字研究备忘录",
-            },
-        ],
-        "assignment": {
-            "prompt": f"围绕“{question}”写一份事前研究备忘录。",
-            "requirements": [
-                "写出原有预期与新信息的差",
-                "标注首个定价变量和至少三个确认市场",
-                "给出一个竞争性解释",
-                "给出未来24小时与未来1个月各一个证伪条件",
-            ],
-            "rubric": ["事实可核对", "机制完整", "时间尺度明确", "允许被证伪"],
-        },
-        "reading": reading,
+        "external_editions": external_editions,
+        "edition_rule": "信息源可以增加，但首页只保留一条主线、五个解释段和有限证据。",
     }
 
 
@@ -1148,6 +1188,7 @@ def compose_world_briefing(
     macro_snapshot: dict[str, object],
     settings: Settings,
     raw_perspectives: list[dict[str, object]] | None = None,
+    clawfeed_digests: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     """Combine deterministic numbers and traceable narrative into the API contract."""
 
@@ -1168,6 +1209,7 @@ def compose_world_briefing(
         else "免费新闻源暂不可用；宏观数据底座仍可继续学习"
     )
     validation = lead_validation(events, explained_markets)
+    resolved_clawfeed_digests = clawfeed_digests or []
     states = macro_snapshot.get("states")
     compact_states = []
     if isinstance(states, list):
@@ -1190,7 +1232,13 @@ def compose_world_briefing(
         "events": events,
         "markets": explained_markets,
         "macro_chain": complete_macro_chain(events, explained_markets, validation),
-        "seminar": daily_research_seminar(events, perspectives),
+        "deep_brief": compose_deep_brief(
+            events,
+            explained_markets,
+            perspectives,
+            validation,
+            resolved_clawfeed_digests,
+        ),
         "perspectives": perspectives,
         "curriculum": COURSE_PATH,
         "lead_validation": validation,
@@ -1227,7 +1275,19 @@ def compose_world_briefing(
                     str(item.get("source_class")) == "social" for item in (raw_perspectives or [])
                 ),
                 "credential_storage": "backend_environment_only",
-            }
+            },
+            "clawfeed": clawfeed_status(
+                configured=settings.clawfeed_base_url is not None,
+                digests=resolved_clawfeed_digests,
+            ),
+            "webmcp": {
+                "mode": "progressive_enhancement",
+                "tools": [
+                    "worldstate-get-daily-brief",
+                    "worldstate-explain-market",
+                    "worldstate-show-section",
+                ],
+            },
         },
         "limitations": [
             "免费新闻与行情可能延迟、缺失或受上游访问限制。",
@@ -1241,6 +1301,7 @@ async def build_world_briefing(
     engine: AsyncEngine,
     settings: Settings,
     provider: PublicIntelligenceProvider | None = None,
+    clawfeed_provider: ClawFeedProvider | None = None,
 ) -> dict[str, object]:
     """Fetch public evidence and combine it with the existing macro state engine."""
 
@@ -1259,5 +1320,17 @@ async def build_world_briefing(
         if hasattr(resolved_provider, "fetch_perspectives")
         else []
     )
+    resolved_clawfeed_provider = clawfeed_provider or ClawFeedProvider(
+        str(settings.clawfeed_base_url) if settings.clawfeed_base_url is not None else None,
+        min(settings.public_data_timeout_seconds, 6.0),
+    )
+    clawfeed_digests = await resolved_clawfeed_provider.fetch_digests()
     snapshot = await build_snapshot(engine, settings)
-    return compose_world_briefing(markets, news, snapshot, settings, perspectives)
+    return compose_world_briefing(
+        markets,
+        news,
+        snapshot,
+        settings,
+        perspectives,
+        clawfeed_digests,
+    )

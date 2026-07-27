@@ -10,6 +10,7 @@ import {
   type WorldEvent,
   type WorldMarket,
 } from '@/services/macro-client';
+import { registerWorldStateTools } from './webmcp';
 import './macro-terminal.css';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -182,7 +183,7 @@ export class MacroApp {
     editorial.append(
       this.renderHero(),
       this.renderMacroChain(),
-      this.renderSeminar(),
+      this.renderDeepBrief(),
       this.renderPerspectives(),
       this.renderEvents(),
       this.renderValidation(),
@@ -195,6 +196,7 @@ export class MacroApp {
     shell.appendChild(workspace);
     shell.appendChild(this.renderFooter());
     this.root.replaceChildren(shell);
+    registerWorldStateTools(this.briefing);
   }
 
   private renderHeader(): HTMLElement {
@@ -210,7 +212,7 @@ export class MacroApp {
     const navItems: Array<readonly [string, string]> = [
       ['#today', '今日简报'],
       ['#chain', '宏观链条'],
-      ['#seminar', '今日研讨'],
+      ['#deep', '深度解读'],
       ['#perspectives', '观点实验室'],
       ['#course', '课程路径'],
     ];
@@ -372,58 +374,104 @@ export class MacroApp {
     return section;
   }
 
-  private renderSeminar(): HTMLElement {
-    const seminar = this.briefing!.seminar;
-    const section = el('section', 'world-section world-seminar');
-    section.id = 'seminar';
+  private renderDeepBrief(): HTMLElement {
+    const brief = this.briefing!.deep_brief;
+    const clawfeed = this.briefing!.integrations.clawfeed;
+    const section = el('section', 'world-section world-deep-brief');
+    section.id = 'deep';
     const heading = el('div', 'world-section-heading world-heading-row');
     const title = el('div');
     title.append(
-      el('div', 'world-section-index', '02 / DAILY RESEARCH SEMINAR'),
-      el('h2', '', '今天，把世界当成一门研究课'),
-      el('p', '', '每天围绕一个问题完成事实审计、机制建模、市场实验和观点答辩。'),
+      el('div', 'world-section-index', '02 / EDITORIAL DEEP BRIEF'),
+      el('h2', '', '今天这件事，应该怎样真正理解'),
+      el('p', '', '直接给出事实、机制、价格证据、不同解释和下一步观察，不要求你完成任何作业。'),
     );
-    const meta = el('div', 'world-seminar-meta');
-    meta.append(el('strong', '', seminar.level), el('span', '', seminar.duration));
+    const meta = el('div', 'world-deep-meta');
+    meta.append(
+      el(
+        'strong',
+        '',
+        clawfeed.connected ? `ClawFeed 已连接 · ${clawfeed.editions} 期` : 'ClawFeed 编辑模式',
+      ),
+      el('span', '', brief.read_time),
+    );
     heading.append(title, meta);
     section.appendChild(heading);
 
-    const question = el('article', 'world-seminar-question');
+    const question = el('article', 'world-deep-question');
     question.append(
-      el('span', 'world-mini-label', 'TODAY’S RESEARCH QUESTION'),
-      el('h3', '', seminar.research_question),
-      el('p', '', seminar.topic),
+      el('span', 'world-mini-label', '先回答一个问题'),
+      el('h3', '', brief.question),
+      el('p', '', brief.bottom_line),
     );
     section.appendChild(question);
 
-    const agenda = el('ol', 'world-seminar-agenda');
-    seminar.agenda.forEach((item, index) => {
-      const card = el('li', 'world-seminar-step');
-      card.append(
-        el('span', 'world-seminar-minute', `${item.minutes} MIN`),
-        el('h3', '', `${String(index + 1).padStart(2, '0')} · ${item.title}`),
-        el('p', '', item.task),
-        el('strong', '', `交付物：${item.output}`),
+    const flow = el('div', 'world-deep-flow');
+    brief.sections.forEach((item, index) => {
+      const card = el('article', `world-deep-card is-${item.key}`);
+      const cardTop = el('div', 'world-deep-card-top');
+      cardTop.append(
+        el('span', '', String(index + 1).padStart(2, '0')),
+        el('span', '', item.label),
       );
-      agenda.appendChild(card);
+      card.append(cardTop, el('h3', '', item.title), el('p', 'world-deep-body', item.body));
+      if (item.detail) card.appendChild(el('p', 'world-deep-detail', item.detail));
+      if (item.evidence?.length) {
+        const evidence = el('div', 'world-deep-evidence');
+        for (const row of item.evidence) {
+          const line = el('div', `is-${row.verdict}`);
+          line.append(
+            el('strong', '', row.market),
+            el('span', '', row.role),
+            el('span', '', row.observed),
+            el(
+              'span',
+              '',
+              row.verdict === 'supports' ? '支持' : row.verdict === 'weakens' ? '削弱' : '待确认',
+            ),
+          );
+          evidence.appendChild(line);
+        }
+        card.appendChild(evidence);
+      }
+      if (item.perspectives?.length) {
+        const debate = el('div', 'world-deep-debate');
+        for (const view of item.perspectives) {
+          const viewCard = el('article');
+          viewCard.append(
+            el('span', '', `${view.class} · ${view.source}`),
+            el('strong', '', view.claim),
+            el('p', '', `${view.lens}：${view.caveat}`),
+          );
+          if (view.url) viewCard.appendChild(externalLink('原文 ↗', view.url));
+          debate.appendChild(viewCard);
+        }
+        card.appendChild(debate);
+      }
+      if (item.watch?.length) {
+        const watch = el('ul', 'world-deep-watch');
+        item.watch.forEach((entry) => watch.appendChild(el('li', '', entry)));
+        card.appendChild(watch);
+      }
+      flow.appendChild(card);
     });
-    section.appendChild(agenda);
+    section.appendChild(flow);
 
-    const assignment = el('details', 'world-seminar-assignment');
-    const assignmentSummary = el('summary');
-    assignmentSummary.append(
-      el('span', '', '今日作业'),
-      el('strong', '', seminar.assignment.prompt),
-      el('span', '', '展开要求'),
-    );
-    const assignmentBody = el('div', 'world-seminar-assignment-body');
-    const requirements = el('ul');
-    seminar.assignment.requirements.forEach((item) => requirements.appendChild(el('li', '', item)));
-    const rubric = el('div', 'world-rubric');
-    seminar.assignment.rubric.forEach((item) => rubric.appendChild(el('span', '', item)));
-    assignmentBody.append(requirements, rubric);
-    assignment.append(assignmentSummary, assignmentBody);
-    section.appendChild(assignment);
+    if (brief.external_editions.length) {
+      const editions = el('details', 'world-clawfeed-editions');
+      editions.appendChild(el('summary', '', '查看接入的 ClawFeed 每日版'));
+      for (const edition of brief.external_editions) {
+        const card = el('article');
+        card.append(
+          el('span', '', `${edition.type} · ${formatDate(edition.created_at)}`),
+          el('p', '', edition.content),
+          externalLink('在 ClawFeed 中打开 ↗', edition.url),
+        );
+        editions.appendChild(card);
+      }
+      section.appendChild(editions);
+    }
+    section.appendChild(el('p', 'world-edition-rule', brief.edition_rule));
     return section;
   }
 
@@ -680,7 +728,7 @@ export class MacroApp {
     heading.append(
       el('div', 'world-section-index', '07 / RETRIEVAL PRACTICE'),
       el('h2', '', `今天真正学会：${lesson.concept}`),
-      el('p', '', '先自己判断，再看反馈。'),
+      el('p', '', '这是理解检查，不是作业；想确认自己是否读懂时再展开。'),
     );
     const body = el('div', 'world-learning-loop');
     const question = el('article', 'world-learning-question');
@@ -704,15 +752,17 @@ export class MacroApp {
   }
 
   private renderCurriculum(): HTMLElement {
-    const section = el('section', 'world-section world-curriculum');
+    const section = el('details', 'world-section world-curriculum');
     section.id = 'course';
-    const heading = el('div', 'world-section-heading');
+    const summary = el('summary', 'world-curriculum-summary');
+    const heading = el('div');
     heading.append(
-      el('div', 'world-section-index', '08 / GRADUATE LEARNING PATH'),
-      el('h2', '', '从零散信息走向完整宏观研究'),
-      el('p', '', '一条可长期完成的免费课程路径：账户 → 波动 → 政策 → 市场 → 计量 → 每日研究。'),
+      el('div', 'world-section-index', '08 / OPTIONAL LEARNING REFERENCES'),
+      el('h2', '', '想系统学习时，再打开这些免费课程'),
+      el('p', '', '平时不需要按课程打卡；这里只在你想补某个概念时提供可靠入口。'),
     );
-    section.appendChild(heading);
+    summary.append(heading, el('span', 'world-count', '可选参考'));
+    section.appendChild(summary);
     const grid = el('div', 'world-course-grid');
     for (const module of this.briefing!.curriculum) {
       const card = el('article', 'world-course-card');

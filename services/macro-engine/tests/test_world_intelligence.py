@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from macro_engine.api import world as world_api
 from macro_engine.config import Settings
 from macro_engine.main import create_app
+from macro_engine.providers.clawfeed import ClawFeedProvider, parse_clawfeed_digests
 from macro_engine.providers.public_intelligence import (
     FEEDS,
     MARKETS,
@@ -39,11 +40,11 @@ from macro_engine.services.ai_tutor import (
 from macro_engine.services.world_briefing import (
     build_world_briefing,
     complete_macro_chain,
+    compose_deep_brief,
     compose_events,
     compose_perspectives,
     compose_world_briefing,
     daily_lesson,
-    daily_research_seminar,
     event_playbook,
     lead_validation,
     market_explanation,
@@ -247,6 +248,22 @@ def test_public_intelligence_helpers_cover_rss_and_yahoo() -> None:
     assert x_rows[0]["url"] == "https://x.com/macro_author/status/99"
     assert parse_x_search({"includes": "bad", "data": "bad"}) == []
 
+    clawfeed = parse_clawfeed_digests(
+        [
+            {
+                "id": 3,
+                "type": "daily",
+                "content": "<b>Daily</b> macro highlights",
+                "metadata": "{}",
+                "created_at": "2026-07-23T08:00:00Z",
+            }
+        ],
+        "http://127.0.0.1:8767",
+    )
+    assert clawfeed[0]["content"] == "Daily macro highlights"
+    assert clawfeed[0]["url"] == "http://127.0.0.1:8767/#digest-3"
+    assert parse_clawfeed_digests({"bad": "shape"}, "http://localhost") == []
+
 
 async def test_public_provider_handles_success_failure_and_dedup(monkeypatch: Any) -> None:
     async def no_sleep(_seconds: float) -> None:
@@ -324,6 +341,30 @@ async def test_public_provider_uses_official_x_api_when_configured() -> None:
     assert rows[0]["source_class"] == "social"
 
 
+async def test_clawfeed_provider_is_optional_and_bounded() -> None:
+    assert await ClawFeedProvider(None).fetch_digests() == []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/digests"
+        assert request.url.params["type"] == "daily"
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 9,
+                    "type": "daily",
+                    "content": "A fixed editorial edition",
+                    "created_at": "2026-07-23T08:00:00Z",
+                }
+            ],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        rows = await ClawFeedProvider("http://clawfeed.test", client=client).fetch_digests()
+    assert len(rows) == 1
+    assert rows[0]["source"] == "ClawFeed"
+
+
 def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> None:
     cases = [
         ("Federal Reserve cuts interest rates", "central_bank", "预期差、实际利率与央行信息效应"),
@@ -396,12 +437,26 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     assert perspectives[0]["lens"] == "财政与债券供给"
     assert perspectives[0]["test_with"]
     assert "反证" not in str(perspectives[0]["caveat"])
-    seminar = daily_research_seminar(events, perspectives)
-    assert seminar["level"] == "研究生研讨"
-    assert len(seminar["agenda"]) == 4  # type: ignore[arg-type]
-    assert seminar["assignment"]["rubric"]  # type: ignore[index]
-
     validation = lead_validation(events, list(explanations.values()))
+    deep_brief = compose_deep_brief(
+        events,
+        list(explanations.values()),
+        perspectives,
+        validation,
+        [
+            {
+                "id": "1",
+                "type": "daily",
+                "content": "External digest",
+                "created_at": "2026-07-23T08:00:00Z",
+                "url": "http://clawfeed.test/#digest-1",
+            }
+        ],
+    )
+    assert len(deep_brief["sections"]) == 5  # type: ignore[arg-type]
+    assert deep_brief["sections"][2]["evidence"]  # type: ignore[index]
+    assert deep_brief["external_editions"]  # type: ignore[index]
+
     assert validation["status"] == "supports"
     assert validation["supports"] == 4
     assert all(row["status"] == "supports" for row in validation["rows"])
@@ -423,10 +478,12 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     assert live["macro_context"]["states"][0]["key"] == "growth"  # type: ignore[index]
     assert len(live["macro_chain"]["stages"]) == 8  # type: ignore[index]
     assert live["lead_validation"]["rows"]  # type: ignore[index]
-    assert live["seminar"]["research_question"]  # type: ignore[index]
+    assert live["deep_brief"]["question"]  # type: ignore[index]
     assert len(live["curriculum"]) == 6  # type: ignore[arg-type]
     assert len(live["perspectives"]) == 2  # type: ignore[arg-type]
     assert live["integrations"]["x"]["configured"] is False  # type: ignore[index]
+    assert live["integrations"]["clawfeed"]["mode"] == "built_in_editorial"  # type: ignore[index]
+    assert len(live["integrations"]["webmcp"]["tools"]) == 3  # type: ignore[index]
     partial = compose_world_briefing(
         [{**row, "available": False} for row in markets],
         stories,
@@ -476,7 +533,7 @@ def test_ai_prompt_parsers_and_fallback_modes(tmp_path: Path) -> None:
     assert build_evidence_pack(briefing)["markets"]
     assert build_evidence_pack(briefing)["lead_validation"]
     assert build_evidence_pack(briefing)["macro_chain"]
-    assert build_evidence_pack(briefing)["seminar"]
+    assert build_evidence_pack(briefing)["deep_brief"]
     assert build_evidence_pack(briefing)["perspectives"]
     prompt = tutor_prompt(
         "为什么黄金上涨？",

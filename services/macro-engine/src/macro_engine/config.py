@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field, HttpUrl, SecretStr
+from pydantic import AliasChoices, Field, HttpUrl, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -83,6 +83,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias="MACRO_X_BEARER_TOKEN",
     )
+    clawfeed_base_url: HttpUrl | None = Field(
+        default=None,
+        validation_alias="MACRO_CLAWFEED_URL",
+    )
     openai_api_key: SecretStr | None = Field(default=None, validation_alias="OPENAI_API_KEY")
     ai_provider: Literal["auto", "none", "openai", "ollama", "compatible"] = Field(
         default="auto",
@@ -118,6 +122,13 @@ class Settings(BaseSettings):
         default=HttpUrl("https://api.db.nomics.world/v22"),
         validation_alias="DBNOMICS_BASE_URL",
     )
+
+    @field_validator("clawfeed_base_url", mode="before")
+    @classmethod
+    def empty_clawfeed_url_is_disabled(cls, value: object) -> object:
+        """Treat the launcher's blank optional URL as a disabled integration."""
+
+        return None if value == "" else value
 
     @property
     def writes_available(self) -> bool:

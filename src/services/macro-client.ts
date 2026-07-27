@@ -166,30 +166,41 @@ export interface WorldPerspective {
   caveat: string;
 }
 
-export interface WorldSeminar {
-  date: string;
-  level: string;
-  duration: string;
-  topic: string;
-  research_question: string;
-  objectives: string[];
-  agenda: Array<{
-    minutes: string;
+export interface WorldDeepBrief {
+  editorial_model: string;
+  read_time: string;
+  question: string;
+  bottom_line: string;
+  sections: Array<{
+    key: 'fact' | 'mechanism' | 'evidence' | 'debate' | 'watch';
     title: string;
-    task: string;
-    output: string;
+    label: string;
+    body: string;
+    detail?: string;
+    evidence?: Array<{
+      market: string;
+      role: string;
+      observed: string;
+      verdict: 'supports' | 'weakens' | 'unclear';
+    }>;
+    perspectives?: Array<{
+      source: string;
+      class: string;
+      claim: string;
+      lens: string;
+      caveat: string;
+      url: string;
+    }>;
+    watch?: string[];
   }>;
-  assignment: {
-    prompt: string;
-    requirements: string[];
-    rubric: string[];
-  };
-  reading: Array<{
-    title: string;
-    source: string;
-    url: string;
+  external_editions: Array<{
+    id: string;
     type: string;
+    content: string;
+    created_at: string | null;
+    url: string;
   }>;
+  edition_rule: string;
 }
 
 export interface WorldCourseModule {
@@ -232,7 +243,7 @@ export interface WorldBriefing {
     feedback_loop: string;
     method: string;
   };
-  seminar: WorldSeminar;
+  deep_brief: WorldDeepBrief;
   perspectives: WorldPerspective[];
   curriculum: WorldCourseModule[];
   lead_validation: {
@@ -299,6 +310,18 @@ export interface WorldBriefing {
       mode: 'official_api' | 'not_configured';
       items: number;
       credential_storage: 'backend_environment_only';
+    };
+    clawfeed: {
+      configured: boolean;
+      connected: boolean;
+      editions: number;
+      mode: 'external' | 'built_in_editorial';
+      checked_at: string;
+      principle: string;
+    };
+    webmcp: {
+      mode: 'progressive_enhancement';
+      tools: string[];
     };
   };
   limitations: string[];
