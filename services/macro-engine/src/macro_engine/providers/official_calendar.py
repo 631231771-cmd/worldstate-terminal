@@ -27,6 +27,7 @@ FED_CALENDAR_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.
 ECB_CALENDAR_URL = "https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html"
 BOJ_CALENDAR_URL = "https://www.boj.or.jp/en/mopo/mpmsche_minu/index.htm"
 BOE_CALENDAR_URL = "https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates"
+CENSUS_CALENDAR_URL = "https://www.census.gov/economic-indicators/calendar-listview.html"
 
 NEW_YORK = ZoneInfo("America/New_York")
 LONDON = ZoneInfo("Europe/London")
@@ -106,6 +107,19 @@ BOE_2026 = (
     "2026-09-17",
     "2026-11-05",
     "2026-12-17",
+)
+
+# High-information Census manufacturing releases only. Source:
+# https://www.census.gov/manufacturing/m3/release_schedule.html
+# (reviewed 2026-07-27). These rows intentionally provide timing only;
+# consensus and actual values require a separate results source.
+CENSUS_DURABLE_GOODS_2026: tuple[tuple[str, str], ...] = (
+    ("2026-07-27", "June 2026"),
+    ("2026-08-26", "July 2026"),
+    ("2026-09-25", "August 2026"),
+    ("2026-10-27", "September 2026"),
+    ("2026-11-25", "October 2026"),
+    ("2026-12-23", "November 2026"),
 )
 
 _CACHE_LOCK = asyncio.Lock()
@@ -218,7 +232,10 @@ def _calendar_kind(title: str) -> str:
         )
     ):
         return "labor"
-    if any(term in lowered for term in ("gdp", "productivity", "industrial production")):
+    if any(
+        term in lowered
+        for term in ("gdp", "productivity", "industrial production", "durable goods")
+    ):
         return "growth"
     if "trade" in lowered or "import and export" in lowered:
         return "trade"
@@ -239,6 +256,7 @@ def _calendar_impact(title: str) -> str:
         "gdp (advance",
         "personal income and outlays",
         "employment cost",
+        "durable goods",
         "利率决议",
         "货币政策",
     )
@@ -250,13 +268,13 @@ CALENDAR_PLAYBOOKS: dict[str, dict[str, object]] = {
         "question": "声明、预测与新闻发布会相对市场定价更鹰派还是更鸽派？",
         "hotter": "更鹰派：短端利率与美元先上行，黄金和久期资产承压。",
         "softer": "更鸽派：利率与美元回落，黄金和成长股可能受益。",
-        "watch_assets": ["us10y", "dollar", "gold", "nasdaq"],
+        "watch_assets": ["us10y", "dollar", "gold", "silver", "nasdaq"],
     },
     "inflation": {
         "question": "公布值相对共识的意外来自住房、工资还是商品成本？",
         "hotter": "高于预期：利率路径上修，美元偏强，黄金与成长股先承压。",
         "softer": "低于预期：实际利率预期回落，久期资产和黄金更容易获得支持。",
-        "watch_assets": ["us10y", "dollar", "gold", "nasdaq"],
+        "watch_assets": ["us10y", "dollar", "gold", "silver", "nasdaq"],
     },
     "labor": {
         "question": "就业与工资是否同时偏强，还是数量强但质量正在转弱？",
@@ -268,7 +286,7 @@ CALENDAR_PLAYBOOKS: dict[str, dict[str, object]] = {
         "question": "增长意外是需求扩张、库存波动还是价格因素造成？",
         "hotter": "强于预期：周期资产受益，但若通胀同步走高，利率压力会抵消。",
         "softer": "弱于预期：收益率可能下降，但盈利预期和原油也可能承压。",
-        "watch_assets": ["us10y", "sp500", "oil", "dollar"],
+        "watch_assets": ["us10y", "sp500", "oil", "silver", "dollar"],
     },
     "trade": {
         "question": "变化来自国内需求、外部需求、价格还是汇率？",
@@ -370,6 +388,25 @@ def _bls_fallback_rows() -> list[dict[str, object]]:
                 country="US",
                 source="U.S. Bureau of Labor Statistics",
                 source_url="https://www.bls.gov/schedule/2026/",
+                retrieval="bundled_official_schedule",
+            )
+        )
+    return rows
+
+
+def _census_schedule_rows() -> list[dict[str, object]]:
+    rows = []
+    for raw_date, reference_period in CENSUS_DURABLE_GOODS_2026:
+        local = datetime.strptime(f"{raw_date} 08:30", "%Y-%m-%d %H:%M").replace(
+            tzinfo=NEW_YORK
+        )
+        rows.append(
+            _calendar_row(
+                title=f"Advance Durable Goods Orders, {reference_period}",
+                scheduled=local,
+                country="US",
+                source="U.S. Census Bureau",
+                source_url=CENSUS_CALENDAR_URL,
                 retrieval="bundled_official_schedule",
             )
         )
@@ -644,6 +681,7 @@ class OfficialCalendarProvider:
             )
 
             static_rows = [
+                *_census_schedule_rows(),
                 *_static_date_rows(
                     BOJ_2026,
                     title="日本银行货币政策会议结果",
@@ -671,6 +709,12 @@ class OfficialCalendarProvider:
             )
             calls.extend(
                 (
+                    _call_status(
+                        "U.S. Census Bureau",
+                        status="scheduled",
+                        items=sum(row["source"] == "U.S. Census Bureau" for row in rows),
+                        duration_ms=0,
+                    ),
                     _call_status(
                         "Bank of Japan",
                         status="scheduled",

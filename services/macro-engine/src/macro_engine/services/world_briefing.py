@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import math
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -537,6 +537,7 @@ def _count(value: object) -> int:
 
 MARKET_ROLES = {
     "gold": ("实际利率 / 避险", "这次波动由实际利率、美元还是避险需求主导？"),
+    "silver": ("贵金属 / 工业需求", "这次波动由实际利率、黄金联动还是工业需求主导？"),
     "sp500": ("增长 / 风险溢价", "盈利预期和风险溢价哪一个变化更大？"),
     "nasdaq": ("久期 / 流动性", "长端利率是否解释了成长股的相对表现？"),
     "dollar": ("利差 / 全球流动性", "美元变化来自美国利率优势还是全球避险？"),
@@ -589,6 +590,17 @@ def market_explanation(
         else:
             explanation = "黄金走弱；检查美元、实际利率和避险需求是否反向变化。"
             confidence = 0.58
+    elif key == "silver":
+        gold = _move(_available_market(all_markets, "gold"))
+        if gold is not None:
+            evidence.append(f"黄金当日{gold:+.2f}%")
+        if dollar is not None:
+            evidence.append(f"美元指数当日{dollar:+.2f}%")
+        if change > 0:
+            explanation = "白银上涨；需要区分贵金属共振、工业需求改善与高波动弹性。"
+        else:
+            explanation = "白银下跌；贵金属利率通道、工业需求担忧和杠杆减仓都可能放大跌幅。"
+        confidence = 0.56
     elif key in {"sp500", "nasdaq"}:
         if yield_10y is not None:
             evidence.append(f"十年期收益率代理当日{yield_10y:+.2f}%")
@@ -645,6 +657,304 @@ def market_explanation(
         "confidence": confidence,
         "order_flow_known": False,
         "horizons": _market_horizons(market),
+    }
+
+
+def _calendar_datetime(row: dict[str, object]) -> datetime | None:
+    raw = row.get("scheduled_at")
+    if not isinstance(raw, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _reaction_variable_reading(key: str, direction: str) -> str:
+    readings = {
+        ("us10y", "up"): "长端利率上行：折现率或期限溢价正在收紧金融条件。",
+        ("us10y", "down"): "长端利率回落：增长、降息或避险需求至少有一项在增强。",
+        ("us10y", "flat"): "长端利率没有给出清晰确认，利率通道权重应下调。",
+        ("dollar", "up"): "美元走强：美国利差或全球避险正在抽紧外部流动性。",
+        ("dollar", "down"): "美元走弱：利差压力缓和，但仍需确认是否来自增长担忧。",
+        ("dollar", "flat"): "美元变化有限，不能把资产波动简单归因于美元。",
+        ("oil", "up"): "油价上行：供应风险或需求韧性可能抬升通胀路径。",
+        ("oil", "down"): "油价回落：需求担忧、供应改善或风险溢价消退需要区分。",
+        ("oil", "flat"): "油价没有确认明显的增长或供应冲击。",
+    }
+    return readings.get((key, direction), "当前方向只能作为线索，不能单独证明因果。")
+
+
+def _reaction_asset_note(key: str, direction: str) -> str:
+    notes = {
+        "gold": "先看实际利率和美元，再检查避险溢价；回撤也可能只是高位获利了结。",
+        "silver": "同时受贵金属与工业需求影响，方向相同也可能比黄金波动更大。",
+        "bitcoin": "先看美元流动性与风险偏好，再检查永续合约、清算和加密内部催化。",
+        "sp500": "需要把盈利预期、折现率和风险溢价拆开，不能把指数方向等同于增长方向。",
+        "nasdaq": "久期与拥挤度更高，对长端利率和流动性变化通常更敏感。",
+        "oil": "既是需求信号也是供应价格，必须结合股票和收益率判断冲击类型。",
+    }
+    suffix = {
+        "up": "当前价格方向偏上。",
+        "down": "当前价格方向偏下。",
+        "flat": "当前价格尚未形成方向。",
+        "unavailable": "当前免费行情不可用。",
+    }.get(direction, "当前方向待确认。")
+    return f"{notes.get(key, '结合本地驱动与全球定价变量判断。')}{suffix}"
+
+
+def compose_event_reaction(
+    calendar_events: list[dict[str, object]],
+    markets: list[dict[str, object]],
+    *,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Build an honest pre/post-event study path from free public evidence."""
+
+    resolved_now = (now or datetime.now(UTC)).astimezone(UTC)
+    timed = [
+        (stamp, row)
+        for row in calendar_events
+        if (stamp := _calendar_datetime(row)) is not None
+    ]
+    recent = [
+        (stamp, row)
+        for stamp, row in timed
+        if resolved_now - timedelta(hours=18) <= stamp <= resolved_now
+    ]
+    future = [(stamp, row) for stamp, row in timed if stamp > resolved_now]
+    if recent:
+        scheduled, selected = max(recent, key=lambda item: item[0])
+        state = "released"
+    elif future:
+        scheduled, selected = min(future, key=lambda item: item[0])
+        state = "upcoming"
+    else:
+        return {
+            "event_id": None,
+            "state": "waiting",
+            "state_label": "等待事件",
+            "title": "等待下一项可核对的官方事件",
+            "scheduled_at": None,
+            "window_label": "暂无事件窗口",
+            "values": {
+                "actual": None,
+                "forecast": None,
+                "previous": None,
+                "status": "unavailable",
+                "note": "没有可用官方日程，因此不生成预期差。",
+            },
+            "steps": [],
+            "pricing_variables": [],
+            "asset_reactions": [],
+            "shared_move_note": "没有事件与价格窗口时，不强行编写因果故事。",
+            "amplifiers": [],
+            "verdict": {
+                "label": "证据不足",
+                "summary": "等待官方事件、共识数据和跨资产价格。",
+                "confidence": 0.0,
+                "confidence_label": "低",
+            },
+            "next_checks": ["下一项官方日程", "实际值与市场共识", "第一定价变量"],
+            "caveats": ["免费数据源可能延迟或缺失。"],
+        }
+
+    by_key = {str(row.get("key")): row for row in markets}
+    variable_keys = ("us10y", "dollar", "oil")
+    pricing_variables: list[dict[str, object]] = []
+    for key in variable_keys:
+        row = by_key.get(key)
+        if not row or not row.get("available"):
+            continue
+        direction = str(row.get("direction") or "flat")
+        pricing_variables.append(
+            {
+                "market_key": key,
+                "name": row.get("name_zh") or key,
+                "move": row.get("change_percent"),
+                "direction": direction,
+                "reading": _reaction_variable_reading(key, direction),
+            }
+        )
+
+    watch_assets = selected.get("watch_assets")
+    requested_assets = [
+        *(
+            [str(key) for key in watch_assets]
+            if isinstance(watch_assets, list)
+            else []
+        ),
+        "gold",
+        "silver",
+        "bitcoin",
+        "sp500",
+        "nasdaq",
+    ]
+    unique_assets = list(dict.fromkeys(requested_assets))
+    asset_reactions: list[dict[str, object]] = []
+    for key in unique_assets:
+        row = by_key.get(key)
+        if not row:
+            continue
+        direction = str(row.get("direction") or "unavailable")
+        asset_reactions.append(
+            {
+                "market_key": key,
+                "name": row.get("name_zh") or key,
+                "move": row.get("change_percent"),
+                "direction": direction,
+                "role": row.get("role") or MARKET_ROLES.get(key, ("宏观定价", ""))[0],
+                "channel": _reaction_asset_note(key, direction),
+                "verdict": row.get("explanation"),
+                "evidence_state": (
+                    "observed_daily" if row.get("available") else "unavailable"
+                ),
+            }
+        )
+
+    core = {
+        row["market_key"]: row
+        for row in asset_reactions
+        if row["market_key"] in {"gold", "silver", "bitcoin"}
+    }
+    core_directions = {
+        str(row.get("direction"))
+        for row in core.values()
+        if row.get("direction") in {"up", "down"}
+    }
+    if len(core) == 3 and len(core_directions) == 1:
+        shared_move_note = (
+            "黄金、白银和比特币方向一致，但不能直接归为同一笔交易："
+            "黄金先看实际利率与避险，白银还含工业需求，比特币还含杠杆清算。"
+        )
+    else:
+        shared_move_note = (
+            "资产方向并不完全一致，这通常意味着多个通道同时存在；"
+            "应分别检查利率、增长、避险与市场内部杠杆。"
+        )
+
+    released = state == "released"
+    values_note = (
+        "官方日程确认事件已到时；该免费日程不提供稳定的实际值与市场共识，"
+        "因此预期差暂不冒充已核验事实。"
+        if released
+        else "事件尚未公布；先写两种情景，公布后再填入实际值、共识与修订。"
+    )
+    context_summary = "；".join(
+        f"{row['name']}{UP_WORDS.get(str(row['direction']), '待确认')}"
+        for row in pricing_variables
+    ) or "第一定价变量尚未形成清晰方向"
+    event_title = str(selected.get("title") or "官方宏观事件")
+    steps = [
+        {
+            "key": "fact",
+            "number": "01",
+            "title": "发生了什么",
+            "state": "observed" if released else "prepared",
+            "summary": (
+                f"{event_title} 已进入公布后跟踪。"
+                if released
+                else f"{event_title} 将于官方时间公布。"
+            ),
+        },
+        {
+            "key": "surprise",
+            "number": "02",
+            "title": "预期差",
+            "state": "waiting",
+            "summary": values_note,
+        },
+        {
+            "key": "variables",
+            "number": "03",
+            "title": "先定价的变量",
+            "state": "observed" if pricing_variables else "waiting",
+            "summary": context_summary,
+        },
+        {
+            "key": "assets",
+            "number": "04",
+            "title": "各资产为什么不同",
+            "state": "hypothesis",
+            "summary": shared_move_note,
+        },
+        {
+            "key": "amplifiers",
+            "number": "05",
+            "title": "谁在放大",
+            "state": "hypothesis",
+            "summary": "算法关键词、止损、期权对冲与杠杆清算可以放大速度，但不是最终宏观原因。",
+        },
+        {
+            "key": "verify",
+            "number": "06",
+            "title": "下一步验证",
+            "state": "active",
+            "summary": "等待实际值核验，并观察第二个独立市场和后续时段是否继续确认。",
+        },
+    ]
+    available_assets = sum(
+        row.get("evidence_state") == "observed_daily" for row in asset_reactions
+    )
+    confidence = min(0.62, 0.26 + available_assets * 0.045 + len(pricing_variables) * 0.03)
+    confidence_label = "中" if confidence >= 0.5 else "中低"
+    verdict_summary = (
+        "已经能观察到本交易日的跨资产背景，但实际值、共识和精确分钟窗口尚未完整核验；"
+        "当前结论应视为可继续检验的解释，而不是唯一原因。"
+        if released
+        else "当前是事件前预案：价格只是背景，真正方向取决于公布值相对共识的意外。"
+    )
+    return {
+        "event_id": selected.get("id"),
+        "state": state,
+        "state_label": "公布后复盘" if released else "事件前预案",
+        "title": event_title,
+        "scheduled_at": scheduled.isoformat(),
+        "country": selected.get("country"),
+        "kind": selected.get("kind"),
+        "impact": selected.get("impact"),
+        "source": selected.get("source"),
+        "source_url": selected.get("source_url"),
+        "window_label": (
+            "本交易日反应（非精确分钟事件窗口）"
+            if released
+            else "事件前市场背景（非预测）"
+        ),
+        "values": {
+            "actual": None,
+            "forecast": None,
+            "previous": None,
+            "status": "not_verified" if released else "awaiting_release",
+            "note": values_note,
+        },
+        "steps": steps,
+        "pricing_variables": pricing_variables,
+        "asset_reactions": asset_reactions[:7],
+        "shared_move_note": shared_move_note,
+        "amplifiers": [
+            "关键词算法会加快第一轮反应，但后续能否延续仍由利率、美元、增长与风险溢价决定。",
+            "止损、CTA、期权做市对冲与加密清算会把已有方向放大。",
+            "免费公开数据无法识别具体基金订单，不能把“有人大量买卖”当作已观察事实。",
+        ],
+        "verdict": {
+            "label": "待交叉验证" if released else "等待公布",
+            "summary": verdict_summary,
+            "confidence": round(confidence, 2),
+            "confidence_label": confidence_label,
+        },
+        "next_checks": [
+            "核对实际值、市场共识、前值修订与分项结构",
+            "观察两年/十年期利率、美元与油价是否给出同向确认",
+            "比较黄金、白银与比特币：共同方向是否来自不同通道",
+            "等待第一轮波动后 30–90 分钟，检查价格是否延续或反转",
+        ],
+        "caveats": [
+            "当前免费行情为日内最新/日线口径，不等于精确事件前后分钟收益。",
+            "市场解释是带置信度的假设；相关方向不自动等于因果。",
+        ],
     }
 
 
@@ -923,6 +1233,7 @@ def compose_market_system(markets: list[dict[str, object]]) -> dict[str, object]
     pair_specs = (
         ("gold", "us10y", "黄金 / 美债收益率", "通常负相关，偏离时检查避险与期限溢价"),
         ("gold", "dollar", "黄金 / 美元", "通常负相关，同涨时检查避险与央行需求"),
+        ("gold", "silver", "黄金 / 白银", "同为贵金属，但白银还受工业需求与更高杠杆弹性影响"),
         ("sp500", "nasdaq", "标普 / 纳斯达克", "相对表现帮助识别久期与科技集中度"),
         ("oil", "sp500", "原油 / 标普", "同向更像需求，反向可能是供应冲击"),
         ("a_shares", "hong_kong", "A股 / 港股", "分歧可提示本地政策与全球资金不同步"),
@@ -2177,6 +2488,10 @@ def compose_world_briefing(
         (row for row in resolved_calendar_events if row.get("impact") == "high"),
         resolved_calendar_events[0] if resolved_calendar_events else None,
     )
+    event_reaction = compose_event_reaction(
+        resolved_calendar_events,
+        explained_markets,
+    )
     news_sources = sorted({str(item["source"]) for item in news})
     perspective_sources = sorted({str(item["source"]) for item in resolved_raw_perspectives})
     states = macro_snapshot.get("states")
@@ -2200,7 +2515,7 @@ def compose_world_briefing(
             "attempted": len(markets),
             "succeeded": available_markets,
             "items": available_markets,
-            "detail": "11 个核心跨资产日线与最近历史窗口",
+            "detail": f"{len(markets)} 个核心跨资产日线与最近历史窗口",
         },
         {
             "key": "news",
@@ -2244,7 +2559,7 @@ def compose_world_briefing(
             "attempted": _count(resolved_calendar_status.get("sources_attempted")),
             "succeeded": _count(resolved_calendar_status.get("sources_succeeded")),
             "items": len(resolved_calendar_events),
-            "detail": "BLS、BEA、Fed、ECB、BoE 与 BOJ；显式标注回退来源",
+            "detail": "BLS、BEA、Census、Fed、ECB、BoE 与 BOJ；显式标注回退来源",
         },
         {
             "key": "macro",
@@ -2284,6 +2599,7 @@ def compose_world_briefing(
             "status": resolved_calendar_status,
             "method": "优先读取第一方官方日程；官方接口不可用时只回退到带日期的官方年度表。",
         },
+        "event_reaction": event_reaction,
         "topics": topics,
         "countries": countries,
         "event_archetypes": event_archetypes,
@@ -2336,7 +2652,7 @@ def compose_world_briefing(
             "macro": [
                 "FRED/ALFRED",
                 "World State deterministic engine",
-                "BLS/BEA/Fed/ECB/BoE/BOJ official calendars",
+                "BLS/BEA/Census/Fed/ECB/BoE/BOJ official calendars",
             ],
         },
         "integrations": {

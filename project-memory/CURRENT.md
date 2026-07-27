@@ -1,6 +1,6 @@
 ---
 project: World State Terminal
-status: phase-8-global-macro-research-desk
+status: phase-9-event-reaction-desk-wip
 updated: 2026-07-27
 branch: feature/world-state-terminal
 phase_1_formal_commit: a458e54d06b32992001693804b49f5f59a1f4019
@@ -11,7 +11,7 @@ phase_5_research_seminar_commit: 86b48c2397d5152d9e7d7304cfca9f40c73090d5
 phase_6_clawfeed_webmcp_commit: 63b380e3b
 phase_7_agent_reach_commit: c86554868
 phase_8_research_desk_commit: ff6cd0be22232661bb9ed0d06bad29d48a447809
-resume_from: phase-9-intraday-event-windows-and-research-journal
+resume_from: finish-phase-9-event-reaction-layout-and-verify
 ---
 
 # Current continuation point
@@ -26,6 +26,16 @@ resume_from: phase-9-intraday-event-windows-and-research-journal
 > capture, or the persistent research journal. Preserve the core loop:
 > **fact → expectation gap → pricing variable → financial conditions →
 > economy → inflation/profits → policy response → asset confirmation**.
+
+> [!warning] Phase 9 paused safely
+> Phase 9 is partially implemented on top of the Phase 8 commit. Silver, the
+> Census durable-goods schedule, the `event_reaction` data contract, and the
+> main frontend renderer are already written. Ruff and TypeScript typecheck
+> pass. CSS, full tests, live service restart, browser QA, docs, and the final
+> implementation commit are still pending.
+>
+> Resume from:
+> `00-checkpoints/2026-07-27-phase-9-event-reaction-desk-wip.md`
 
 ## What is running
 

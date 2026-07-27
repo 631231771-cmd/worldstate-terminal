@@ -13,6 +13,7 @@ from macro_engine.providers.official_calendar import (
     _bls_fallback_rows,
     _calendar_impact,
     _calendar_kind,
+    _census_schedule_rows,
     _extract_ecb_dates,
     _extract_fomc_dates,
     _parse_ics_datetime,
@@ -88,6 +89,7 @@ def test_calendar_parsers_and_playbooks() -> None:
     assert static[0]["kind"] == "policy"
     assert static[0]["retrieval"] == "bundled_official_schedule"
     assert _bls_fallback_rows()
+    assert _census_schedule_rows()[0]["kind"] == "growth"
     assert _extract_fomc_dates("<p>July 28\u201329, 2026</p>") == ["2026-07-29"]
     assert _extract_fomc_dates("<p>not a meeting</p>") == []
     assert _extract_ecb_dates(
@@ -134,8 +136,9 @@ async def test_official_calendar_live_merge_and_cache() -> None:
     assert any(row["source"] == "Bank of England" for row in rows)
     assert any(row["source"] == "Bank of Japan" for row in rows)
     assert status["connected"] is True
-    assert status["sources_attempted"] == 6
-    assert status["sources_succeeded"] == 6
+    assert any(row["source"] == "U.S. Census Bureau" for row in rows)
+    assert status["sources_attempted"] == 7
+    assert status["sources_succeeded"] == 7
     assert cached_rows == rows
     assert cached_status["cache"]["hit"] is True
 

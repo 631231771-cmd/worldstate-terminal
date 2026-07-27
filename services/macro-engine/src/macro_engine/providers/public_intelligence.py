@@ -47,6 +47,7 @@ class FeedSpec:
 
 MARKETS = (
     MarketSpec("gold", "黄金", "Gold", "GC=F", "USD/oz", "global"),
+    MarketSpec("silver", "白银", "Silver", "SI=F", "USD/oz", "global"),
     MarketSpec("sp500", "标普500", "S&P 500", "^GSPC", "index", "US"),
     MarketSpec("nasdaq", "纳斯达克", "Nasdaq", "^IXIC", "index", "US"),
     MarketSpec("dollar", "美元指数", "US Dollar Index", "DX-Y.NYB", "index", "global"),

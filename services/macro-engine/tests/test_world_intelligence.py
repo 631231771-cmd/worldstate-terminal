@@ -52,6 +52,7 @@ from macro_engine.services.world_briefing import (
     compose_country_map,
     compose_deep_brief,
     compose_event_archetypes,
+    compose_event_reaction,
     compose_events,
     compose_market_system,
     compose_perspectives,
@@ -112,6 +113,7 @@ def news_item(
 def market_rows() -> list[dict[str, object]]:
     changes = {
         "gold": 1.2,
+        "silver": 1.5,
         "sp500": 0.6,
         "nasdaq": 0.9,
         "dollar": -0.4,
@@ -576,6 +578,8 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     assert explanations["bitcoin"]["confidence"] == 0.52
     assert explanations["nikkei"]["confidence"] == 0.5
     assert explanations["gold"]["role"] == "实际利率 / 避险"
+    assert explanations["silver"]["role"] == "贵金属 / 工业需求"
+    assert "工业需求" in str(explanations["silver"]["explanation"])
     assert explanations["gold"]["question"]
     assert explanations["gold"]["horizons"]["one_day"] == 1.2
 
@@ -594,6 +598,30 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     assert daily_lesson([])["concept"] == "信息、预期与价格"
     assert daily_lesson(events)["concept"] == events[0]["concept"]
     assert daily_lesson(events)["retrieval_answer"]
+
+    reaction = compose_event_reaction(
+        [
+            {
+                "id": "durable-goods",
+                "title": "Advance Durable Goods Orders, June 2026",
+                "scheduled_at": "2026-07-27T12:30:00+00:00",
+                "country": "US",
+                "kind": "growth",
+                "impact": "high",
+                "source": "U.S. Census Bureau",
+                "source_url": "https://www.census.gov/economic-indicators/",
+                "watch_assets": ["us10y", "dollar", "silver"],
+            }
+        ],
+        list(explanations.values()),
+        now=datetime(2026, 7, 27, 13, tzinfo=UTC),
+    )
+    assert reaction["state"] == "released"
+    assert reaction["values"]["status"] == "not_verified"  # type: ignore[index]
+    assert len(reaction["steps"]) == 6  # type: ignore[arg-type]
+    assert any(
+        row["market_key"] == "silver" for row in reaction["asset_reactions"]  # type: ignore[union-attr]
+    )
 
     raw_perspectives = [
         {
@@ -702,6 +730,7 @@ def test_event_playbooks_market_explanations_and_composition(tmp_path: Path) -> 
     assert live["integrations"]["clawfeed"]["mode"] == "built_in_editorial"  # type: ignore[index]
     assert len(live["integrations"]["webmcp"]["tools"]) == 7  # type: ignore[index]
     assert live["calendar"]["events"]  # type: ignore[index]
+    assert live["event_reaction"]["steps"]  # type: ignore[index]
     assert live["market_system"]["regimes"]  # type: ignore[index]
     assert live["topics"]  # type: ignore[index]
     assert live["countries"]  # type: ignore[index]

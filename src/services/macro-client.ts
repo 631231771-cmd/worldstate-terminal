@@ -222,6 +222,61 @@ export interface WorldCalendarStatus {
   }>;
 }
 
+export interface WorldEventReaction {
+  event_id: string | null;
+  state: 'released' | 'upcoming' | 'waiting' | string;
+  state_label: string;
+  title: string;
+  scheduled_at: string | null;
+  country?: string;
+  kind?: string;
+  impact?: string;
+  source?: string;
+  source_url?: string;
+  window_label: string;
+  values: {
+    actual: string | number | null;
+    forecast: string | number | null;
+    previous: string | number | null;
+    status: 'not_verified' | 'awaiting_release' | 'unavailable' | string;
+    note: string;
+  };
+  steps: Array<{
+    key: 'fact' | 'surprise' | 'variables' | 'assets' | 'amplifiers' | 'verify' | string;
+    number: string;
+    title: string;
+    state: 'observed' | 'prepared' | 'waiting' | 'hypothesis' | 'active' | string;
+    summary: string;
+  }>;
+  pricing_variables: Array<{
+    market_key: string;
+    name: string;
+    move: number | null;
+    direction: WorldMarket['direction'];
+    reading: string;
+  }>;
+  asset_reactions: Array<{
+    market_key: string;
+    name: string;
+    move: number | null;
+    direction: WorldMarket['direction'];
+    role: string;
+    channel: string;
+    verdict: string;
+    evidence_state: 'observed_daily' | 'unavailable' | string;
+  }>;
+  shared_move_note: string;
+  amplifiers: string[];
+  verdict: {
+    label: string;
+    summary: string;
+    confidence: number;
+    confidence_label: string;
+  };
+  next_checks: string[];
+  caveats: string[];
+}
+
 export interface WorldMarketSystem {
   breadth: {
     up: number;
@@ -382,6 +437,7 @@ export interface WorldBriefing {
     status: WorldCalendarStatus;
     method: string;
   };
+  event_reaction: WorldEventReaction;
   topics: WorldTopic[];
   countries: WorldCountry[];
   event_archetypes: WorldEventArchetype[];

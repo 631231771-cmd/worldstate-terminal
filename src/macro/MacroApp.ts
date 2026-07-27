@@ -217,7 +217,7 @@ export class MacroApp {
     const shell = el('main', 'world-shell');
     shell.append(this.renderHeader(), this.renderMarketTicker());
 
-    const workspace = el('div', 'world-workspace');
+    const workspace = el('div', `world-workspace world-workspace-${this.currentView}`);
     const editorial = el('div', 'world-editorial-column');
     editorial.appendChild(this.renderCurrentView());
     workspace.append(editorial, this.renderTutor());
@@ -313,9 +313,9 @@ export class MacroApp {
     }
     if (this.currentView === 'calendar') {
       page.append(this.renderViewHeading(
-        'OFFICIAL MACRO CALENDAR',
-        '宏观日历与事件预案',
-        '不只告诉你“几点公布”：提前写出预期差、两种情景、第一定价变量和需要等待的跨资产确认。',
+        'EVENT STUDY DESK',
+        '事件研究工作台',
+        '从刚刚发生的事件出发，沿“预期差 → 定价变量 → 资产分化 → 杠杆放大 → 后续验证”完成一次复盘。',
       ), this.renderCalendarWorkspace());
       return page;
     }
@@ -476,7 +476,7 @@ export class MacroApp {
     } else {
       releaseCard.append(el('h3', '', '官方日程等待更新'), el('p', '', '不会用未经核对的日期填充日历。'));
     }
-    section.append(metrics, leadCard, releaseCard);
+    section.append(metrics, this.renderReactionWorkbench(true), leadCard, releaseCard);
     return section;
   }
 
@@ -552,16 +552,28 @@ export class MacroApp {
     const briefing = this.briefing!;
     const releases = briefing.calendar.events;
     const requested = new URL(window.location.href).searchParams.get('release');
-    const selected = releases.find((release) => release.id === requested) ?? releases[0];
+    const selected = releases.find((release) => release.id === requested)
+      ?? releases.find((release) => release.id === briefing.event_reaction.event_id)
+      ?? releases[0];
     const section = el('section', 'world-calendar-workspace');
     section.id = 'calendar';
+    section.appendChild(this.renderReactionWorkbench(false));
+
     const status = el('div', 'world-calendar-status');
     status.append(
       el('strong', '', `${briefing.calendar.status.sources_succeeded}/${briefing.calendar.status.sources_attempted || briefing.calendar.status.sources_succeeded} 个官方日程源可用`),
-      el('span', '', `${releases.length} 项未来日程`),
-      el('span', '', briefing.calendar.method),
+      el('span', '', `${releases.length} 项近期与未来日程`),
+      el('span', '', '官方时间负责“发生了什么”；预期值与价格负责“市场怎样理解”。'),
     );
     section.appendChild(status);
+
+    const browserHeading = el('div', 'world-calendar-browser-heading');
+    browserHeading.append(
+      el('div', 'world-section-index', 'EVENT BROWSER'),
+      el('h2', '', '切换事件，查看事前预案'),
+      el('p', '', briefing.calendar.method),
+    );
+    section.appendChild(browserHeading);
 
     const layout = el('div', 'world-calendar-layout');
     const list = el('div', 'world-calendar-list');
@@ -574,11 +586,16 @@ export class MacroApp {
       }
       const button = el('button', `world-calendar-row${release.id === selected?.id ? ' is-active' : ''}`);
       button.type = 'button';
+      const released = new Date(release.scheduled_at).getTime() <= Date.now();
       button.append(
         el('time', '', formatDate(release.scheduled_at).split(' ').slice(-1)[0] ?? ''),
         el('span', `world-country-code is-${release.country.toLowerCase()}`, release.country),
         el('strong', '', release.title),
-        el('span', `world-impact is-${release.impact}`, release.impact === 'high' ? '高影响' : '中影响'),
+        el(
+          'span',
+          `world-impact is-${released ? 'released' : release.impact}`,
+          released ? '已公布' : release.impact === 'high' ? '高影响' : '中影响',
+        ),
       );
       button.addEventListener('click', () => this.navigate('calendar', { release: release.id }));
       list.appendChild(button);
@@ -587,12 +604,35 @@ export class MacroApp {
 
     const detail = el('article', 'world-calendar-detail');
     if (selected) {
+      const selectedReleased = new Date(selected.scheduled_at).getTime() <= Date.now();
       detail.append(
-        el('span', 'world-mini-label', `${selected.country} / ${selected.kind.toUpperCase()} / ${selected.impact.toUpperCase()}`),
+        el(
+          'span',
+          'world-mini-label',
+          `${selected.country} / ${selected.kind.toUpperCase()} / ${selectedReleased ? 'RELEASED' : selected.impact.toUpperCase()}`,
+        ),
         el('time', 'world-calendar-time', formatDate(selected.scheduled_at)),
         el('h2', '', selected.title),
         el('p', 'world-calendar-question', selected.question),
       );
+      const path = el('ol', 'world-release-path');
+      [
+        ['01', '事实', selectedReleased ? '官方时间已到，先核对原始公布。' : '先记住官方时间与统计口径。'],
+        ['02', '预期差', '比较实际值、市场共识与前值修订。'],
+        ['03', '变量', '先看利率、美元，再看油价与风险偏好。'],
+        ['04', '资产', '同向不等于同因，逐个拆解资产通道。'],
+        ['05', '放大', '算法、止损、期权与清算改变速度。'],
+        ['06', '验证', '等待第二市场和后续时段确认。'],
+      ].forEach(([number, title, copy]) => {
+        const item = el('li');
+        item.append(
+          el('span', '', number),
+          el('strong', '', title),
+          el('p', '', copy),
+        );
+        path.appendChild(item);
+      });
+      detail.appendChild(path);
       const scenarios = el('div', 'world-calendar-scenarios');
       const hotter = el('div', 'is-hotter');
       hotter.append(el('span', '', '如果偏强 / 偏鹰'), el('p', '', selected.scenario_hotter));
@@ -615,13 +655,168 @@ export class MacroApp {
       );
       const ask = el('button', 'world-primary-button', '让 AI 帮我做事件前预演');
       ask.type = 'button';
-      ask.addEventListener('click', () => void this.askTutor(`请为 ${selected.title} 做一个事件前预演，说明两种结果如何影响跨资产。`));
+      ask.textContent = selectedReleased ? '让 AI 帮我复盘这次事件' : '让 AI 帮我做事件前预演';
+      ask.addEventListener('click', () => void this.askTutor(
+        selectedReleased
+          ? `请按“预期差、定价变量、各资产通道、杠杆放大、下一步验证”复盘 ${selected.title}。`
+          : `请为 ${selected.title} 做一个事件前预演，说明两种结果如何影响跨资产。`,
+      ));
       detail.append(scenarios, watch, provenance, ask);
     } else {
       detail.appendChild(el('p', 'world-empty', '选择一项日程查看预期差与跨资产预案。'));
     }
     layout.append(list, detail);
     section.appendChild(layout);
+    return section;
+  }
+
+  private renderReactionWorkbench(compact: boolean): HTMLElement {
+    const reaction = this.briefing!.event_reaction;
+    const section = el(
+      'section',
+      `world-reaction-workbench${compact ? ' is-compact' : ''} is-${reaction.state}`,
+    );
+    const header = el('div', 'world-reaction-header');
+    const identity = el('div');
+    identity.append(
+      el('div', 'world-section-index', compact ? 'JUST HAPPENED' : 'LATEST EVENT / REACTION PATH'),
+      el('h2', '', compact ? `刚刚发生：${reaction.title}` : reaction.title),
+      el(
+        'p',
+        '',
+        reaction.scheduled_at
+          ? `${formatDate(reaction.scheduled_at)} · ${reaction.window_label}`
+          : reaction.window_label,
+      ),
+    );
+    const badge = el('div', `world-reaction-state is-${reaction.state}`);
+    badge.append(
+      el('span', '', reaction.state_label),
+      el('strong', '', reaction.verdict.label),
+      el('small', '', `证据置信 ${reaction.verdict.confidence_label}`),
+    );
+    header.append(identity, badge);
+    section.appendChild(header);
+
+    const flow = el('ol', 'world-reaction-flow');
+    reaction.steps.forEach((step) => {
+      const item = el('li', `is-${step.state}`);
+      item.append(
+        el('span', '', step.number),
+        el('strong', '', step.title),
+        el('p', '', step.summary),
+      );
+      flow.appendChild(item);
+    });
+    section.appendChild(flow);
+
+    if (compact) {
+      const compactBottom = el('div', 'world-reaction-compact-bottom');
+      compactBottom.append(
+        el('p', '', reaction.verdict.summary),
+        el('strong', '', reaction.shared_move_note),
+      );
+      const open = el('button', 'world-primary-button', '打开完整事件复盘');
+      open.type = 'button';
+      open.addEventListener('click', () => this.navigate('calendar', {
+        release: reaction.event_id ?? undefined,
+      }));
+      compactBottom.appendChild(open);
+      section.appendChild(compactBottom);
+      return section;
+    }
+
+    const values = el('div', 'world-reaction-values');
+    [
+      ['实际值', reaction.values.actual],
+      ['市场共识', reaction.values.forecast],
+      ['前值 / 修订', reaction.values.previous],
+    ].forEach(([label, value]) => {
+      const item = el('div');
+      item.append(
+        el('span', '', String(label)),
+        el(
+          'strong',
+          value === null
+            ? reaction.state === 'released' ? '待核验' : '待公布'
+            : String(value),
+        ),
+      );
+      values.appendChild(item);
+    });
+    const valuesNote = el('p', 'world-reaction-values-note', reaction.values.note);
+    section.append(values, valuesNote);
+
+    const analysis = el('div', 'world-reaction-analysis');
+    const variables = el('section', 'world-reaction-panel world-reaction-variables');
+    variables.append(
+      el('div', 'world-mini-label', 'FIRST PRICING VARIABLES'),
+      el('h3', '', '市场先改了哪几个价格'),
+    );
+    reaction.pricing_variables.forEach((variable) => {
+      const row = el('article', `world-move-${variable.direction}`);
+      row.append(
+        el('strong', '', variable.name),
+        el('span', '', formatMove(variable.move, '待更新')),
+        el('p', '', variable.reading),
+      );
+      variables.appendChild(row);
+    });
+    if (!reaction.pricing_variables.length) {
+      variables.appendChild(el('p', 'world-empty', '当前没有足够价格变量形成确认。'));
+    }
+
+    const assets = el('section', 'world-reaction-panel world-reaction-assets');
+    assets.append(
+      el('div', 'world-mini-label', 'ASSET-SPECIFIC CHANNELS'),
+      el('h3', '', '同涨同跌，也可能不是同一个原因'),
+    );
+    reaction.asset_reactions.forEach((asset) => {
+      const row = el('article', `world-move-${asset.direction}`);
+      const top = el('div');
+      top.append(
+        el('strong', '', asset.name),
+        el('span', '', formatMove(asset.move, '待更新')),
+        el('small', '', asset.role),
+      );
+      row.append(top, el('p', '', asset.channel));
+      assets.appendChild(row);
+    });
+    assets.appendChild(el('p', 'world-reaction-shared-note', reaction.shared_move_note));
+    analysis.append(variables, assets);
+    section.appendChild(analysis);
+
+    const reasoning = el('div', 'world-reaction-reasoning');
+    const amplifiers = el('section');
+    amplifiers.append(
+      el('div', 'world-mini-label', 'AMPLIFIERS ≠ ROOT CAUSE'),
+      el('h3', '', '什么会把第一轮波动放大'),
+    );
+    const amplifierList = el('ul');
+    reaction.amplifiers.forEach((item) => amplifierList.appendChild(el('li', '', item)));
+    amplifiers.appendChild(amplifierList);
+
+    const next = el('section');
+    next.append(
+      el('div', 'world-mini-label', 'NEXT CHECKS'),
+      el('h3', '', '接下来怎样证明或推翻'),
+    );
+    const nextList = el('ol');
+    reaction.next_checks.forEach((item) => nextList.appendChild(el('li', '', item)));
+    next.appendChild(nextList);
+    reasoning.append(amplifiers, next);
+    section.appendChild(reasoning);
+
+    const verdict = el('div', 'world-reaction-verdict');
+    verdict.append(
+      el('span', '', reaction.verdict.label),
+      el('strong', '', reaction.verdict.summary),
+      el('small', '', reaction.caveats.join(' · ')),
+    );
+    if (reaction.source_url) {
+      verdict.appendChild(externalLink(`${reaction.source ?? '官方来源'} ↗`, reaction.source_url));
+    }
+    section.appendChild(verdict);
     return section;
   }
 
