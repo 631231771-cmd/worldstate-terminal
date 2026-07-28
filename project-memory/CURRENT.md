@@ -1,7 +1,7 @@
 ---
 project: World State Terminal
-status: phase-9-event-reaction-desk-wip
-updated: 2026-07-27
+status: phase-9-event-reaction-desk-complete
+updated: 2026-07-28
 branch: feature/world-state-terminal
 phase_1_formal_commit: a458e54d06b32992001693804b49f5f59a1f4019
 phase_2_formal_commit: d144c96a6afcf674e854e80feefbfa66cdbf8549
@@ -11,31 +11,31 @@ phase_5_research_seminar_commit: 86b48c2397d5152d9e7d7304cfca9f40c73090d5
 phase_6_clawfeed_webmcp_commit: 63b380e3b
 phase_7_agent_reach_commit: c86554868
 phase_8_research_desk_commit: ff6cd0be22232661bb9ed0d06bad29d48a447809
-resume_from: finish-phase-9-event-reaction-layout-and-verify
+phase_9_event_reaction_commit: 0864f26ec40efc506f8731dcf439f28008ddb696
+resume_from: phase-10-intraday-values-or-research-journal
 ---
 
 # Current continuation point
 
 > [!important] Resume here
-> Phase 8 is complete. World State Terminal is now a seven-workspace global
-> macro research desk with an official event calendar, cross-asset system,
-> country and topic lenses, transparent X research calls, reusable event
-> playbooks, and an evidence-bounded AI tutor.
+> Phase 9 is complete. World State Terminal is now a seven-workspace global
+> macro research desk with an event-reaction workbench, official calendar,
+> cross-asset system, country and topic lenses, transparent X research calls,
+> reusable event playbooks, and an evidence-bounded AI tutor.
 >
 > Continue from intraday event-window measurement, actual-versus-consensus
 > capture, or the persistent research journal. Preserve the core loop:
 > **fact → expectation gap → pricing variable → financial conditions →
 > economy → inflation/profits → policy response → asset confirmation**.
 
-> [!warning] Phase 9 paused safely
-> Phase 9 is partially implemented on top of the Phase 8 commit. Silver, the
-> Census durable-goods schedule, the `event_reaction` data contract, and the
-> main frontend renderer are already written. Ruff and TypeScript typecheck
-> pass. CSS, full tests, live service restart, browser QA, docs, and the final
-> implementation commit are still pending.
+> [!success] Phase 9 completed
+> The macro calendar is now an event research workbench. It preserves the
+> six-step reasoning path before and after a release, distinguishes scenario
+> planning from verified reaction review, and never invents Actual, Forecast,
+> Prior, intraday returns, or private order flow.
 >
-> Resume from:
-> `00-checkpoints/2026-07-27-phase-9-event-reaction-desk-wip.md`
+> Completion checkpoint:
+> `00-checkpoints/2026-07-28-phase-9-event-reaction-desk.md`
 
 ## What is running
 
@@ -52,21 +52,28 @@ The terminal has seven URL-backed workspaces:
 
 1. `overview` — 今日桌面：核心问题、市场状态、跨资产确认和今日主线。
 2. `events` — 事件雷达：事实、预期差、完整传导、替代解释和反证。
-3. `calendar` — 宏观日历：官方时间、双情景、首批定价变量和确认资产。
-4. `markets` — 资产地图：十一类资产、1/5/20 日视角、历史与相关性。
+3. `calendar` — 事件研究工作台：事前预案、预期差、定价变量、资产分化、
+   放大机制和后续验证。
+4. `markets` — 资产地图：十二类资产、1/5/20 日视角、历史与相关性。
 5. `themes` — 国家与主题：八个主题和七个国家或地区研究入口。
 6. `signals` — 观点与证据：研究管线、来源调用、相关性和证据边界。
 7. `library` — 学习与复盘：六类事件模板、框架、课程和 AI 导师。
 
 ## Delivered state
 
-- Eight prioritized world events and eleven tracked markets.
-- Nineteen official upcoming macro events from BLS, BEA, Federal Reserve, ECB,
+- Eight prioritized world events and twelve tracked markets, including silver.
+- Twenty-two official macro events from BLS, BEA, Census, Federal Reserve, ECB,
   Bank of Japan, and Bank of England.
 - Every calendar event includes provenance, impact, a research question, two
   scenarios, first-pricing variables, and assets to watch.
+- The selected calendar event exposes a six-step preview/reaction path:
+  timeline, expectation gap, first pricing variables, asset-specific channels,
+  possible amplifiers, and next verification.
+- The overview uses “接下来最重要” for upcoming events and “刚刚发生” only
+  after release.
 - Market evidence includes 1-day, 5-day, and 20-day moves plus 30-day history.
-- Four market regimes and seven explicit cross-asset relationships.
+- Four market regimes and eight explicit cross-asset relationships, including
+  gold/silver.
 - Eight topic lenses, seven region lenses, and six reusable event archetypes.
 - A seven-stage research pipeline keeps facts, news, viewpoints, official
   calendars, macro regimes, market confirmation, and AI explanation separate.
@@ -101,27 +108,29 @@ The terminal has seven URL-backed workspaces:
 - Frontend: `src/macro/MacroApp.ts`, `src/macro/macro-terminal.css`
 - WebMCP: `src/macro/webmcp.ts`
 - Client types: `src/services/macro-client.ts`
-- Phase 8 research: `docs/macro/RESEARCH_DESK_2026-07.md`
+- Phase 8–9 research: `docs/macro/RESEARCH_DESK_2026-07.md`
 - Operations contract: `docs/macro/OPERATIONS.md`
 - Checkpoint:
-  `00-checkpoints/2026-07-27-phase-8-global-research-desk.md`
+  `00-checkpoints/2026-07-28-phase-9-event-reaction-desk.md`
 
 ## Verified
 
-- Live briefing: eight events, eleven markets, and nineteen official events.
+- Live briefing: eight events, twelve markets, and twenty-two official events.
 - July FOMC is present.
-- Six of six official calendar source adapters are represented.
-- Four regimes, seven correlations, eight topics, seven countries, six event
+- Seven of seven official calendar source adapters are represented.
+- Four regimes, eight correlations, eight topics, seven countries, six event
   archetypes, and seven research stages are returned.
+- The reaction contract returns six reasoning steps and selects the next event
+  when no recent release exists.
 - Twelve of twelve Agent Reach calls succeed; thirty-six items total; no call
   returns more than three items.
-- Forty-three backend tests pass at 87.85% coverage.
+- Forty-three backend tests pass at 87.82% coverage.
 - Ruff, mypy, TypeScript, Biome, Markdown lint, and direct Vite production
   build pass.
-- All seven workspaces load in the browser with no application error and no
-  horizontal overflow.
-- Baseline body text is 16 px and zero moves render as `0.00%`, not signed
-  negative or positive zero.
+- The calendar and overview load in the browser at 1280 px and 430 px without
+  document-level horizontal overflow.
+- Baseline body text is 16 px; the event workbench remains readable at 430 px.
+- Zero moves render as `0.00%`, not signed negative or positive zero.
 
 ## Honest limitations
 
