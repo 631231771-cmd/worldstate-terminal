@@ -1,6 +1,6 @@
 # Macro Terminal operations
 
-Status: Phase 9 event-reaction research desk.
+Status: Phase 10 event-reaction research desk and local learning journal.
 
 ## Windows one-click workflow
 
@@ -20,6 +20,9 @@ Runtime files stay under `.runtime/`:
 - `worldstate.db`: SQLite database;
 - `*.pid`: managed process IDs;
 - `logs/`: separate engine, frontend, and synchronization logs.
+- `desktop-profile/`: persistent native-app browser storage, including the
+  event research journal;
+- `desktop-cache/`: disposable native-app web cache.
 
 The stop command validates both the saved PID and command line before stopping a
 process tree. It does not search for or terminate unrelated Python/Node
@@ -72,6 +75,13 @@ same six-step path for expectation gap, first-pricing variables, asset-specific
 channels, possible amplifiers, and subsequent validation. Blank Actual,
 Forecast, or Prior fields mean that the values have not been verified; they are
 never inferred from a headline or price move.
+
+Below the event browser, **把当时的判断保存下来** stores an append-only local
+research note. Every meaningful save adds a revision; unchanged saves are
+ignored. **保存并导出 Markdown** creates an Obsidian-readable copy. Notes in a
+normal web browser belong to that browser profile, while the native desktop app
+uses `.runtime/desktop-profile`. Back up or export important notes before
+clearing browser data or removing `.runtime`.
 
 BLS sometimes rejects automated calendar reads. In that case the engine uses
 only the explicitly dated major releases copied from the official 2026 annual

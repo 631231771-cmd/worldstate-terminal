@@ -21,6 +21,12 @@ Write capability is fail-closed. It is available only when both conditions hold:
 Phase 1 exposes no write routes. Future gateway and service routes must enforce
 the token server-side and must not place it in a browser bundle.
 
+The Phase 10 event research journal is not a Macro Engine write route. It uses
+origin-scoped browser storage and can export a local Markdown file. The native
+desktop profile is stored under ignored `.runtime/desktop-profile`; journal
+text, revision history, and exported notes are never added to API requests,
+logs, Git, or AI prompts automatically.
+
 ## Network boundary
 
 - Macro Engine binds to loopback by default.

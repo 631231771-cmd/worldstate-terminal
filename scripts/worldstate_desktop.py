@@ -17,6 +17,8 @@ APP_URL = "http://127.0.0.1:4173/?lang=zh&desktop=1"
 FRONTEND_PROBE = "http://127.0.0.1:4173/?lang=zh"
 ENGINE_PROBE = "http://127.0.0.1:8000/v1/health"
 ICON_PATH = REPO_ROOT / "src-tauri" / "icons" / "icon.ico"
+WEB_PROFILE_PATH = REPO_ROOT / ".runtime" / "desktop-profile"
+WEB_CACHE_PATH = REPO_ROOT / ".runtime" / "desktop-cache"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
@@ -134,7 +136,7 @@ def main() -> int:
 
     from PySide6.QtCore import QThread, QUrl, Signal
     from PySide6.QtGui import QDesktopServices, QIcon, QKeySequence, QShortcut
-    from PySide6.QtWebEngineCore import QWebEnginePage
+    from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
     from PySide6.QtWebEngineWidgets import QWebEngineView
     from PySide6.QtWidgets import (
         QApplication,
@@ -225,7 +227,12 @@ def main() -> int:
         def _load_terminal(self, owns_services: bool) -> None:
             self.owns_services = owns_services
             view = QWebEngineView(self)
-            view.setPage(TerminalPage(view))
+            WEB_PROFILE_PATH.mkdir(parents=True, exist_ok=True)
+            WEB_CACHE_PATH.mkdir(parents=True, exist_ok=True)
+            profile = QWebEngineProfile("worldstate-terminal", view)
+            profile.setPersistentStoragePath(str(WEB_PROFILE_PATH))
+            profile.setCachePath(str(WEB_CACHE_PATH))
+            view.setPage(TerminalPage(profile, view))
             view.setZoomFactor(self.zoom_factor)
             view.setUrl(QUrl(APP_URL))
             self.view = view

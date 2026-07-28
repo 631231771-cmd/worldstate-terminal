@@ -1,6 +1,6 @@
 # Global research desk redesign
 
-Status: implemented through Phase 9, reviewed 2026-07-28.
+Status: implemented through Phase 10, reviewed 2026-07-28.
 
 ## Product decision
 
@@ -126,3 +126,29 @@ The design deliberately treats keyword algorithms, stop-losses, CTA activity,
 options hedging, and crypto liquidations as possible amplifiers. They are not
 presented as the root cause or as observed private fund orders without direct
 evidence.
+
+## Phase 10: append-only research journal
+
+The selected calendar event now includes a local decision journal. It records
+the fields that are most vulnerable to hindsight bias separately:
+
+- central question;
+- primary hypothesis;
+- alternative explanation;
+- expected transmission;
+- disconfirming evidence;
+- unresolved unknowns;
+- Actual, Forecast, and Previous/Revision when verified;
+- post-event review and a transferable lesson.
+
+Each meaningful save appends a timestamped revision. Saving an unchanged form
+does not create noise, and editing the current form never removes the earlier
+states. This makes it possible to distinguish a good process with a surprising
+outcome from a lucky outcome produced by weak reasoning.
+
+The journal is stored only in the current local browser profile. The native
+desktop app pins its profile to `.runtime/desktop-profile` so service and
+computer restarts preserve the notes. A Markdown export can be opened directly
+in Obsidian. The Macro Engine still exposes no browser-authenticated write API,
+and journal text is not sent to AI providers unless the user deliberately puts
+it into a tutor question.

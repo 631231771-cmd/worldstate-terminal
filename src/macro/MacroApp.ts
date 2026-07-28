@@ -7,10 +7,18 @@ import {
   type TutorMessage,
   type TutorMode,
   type WorldBriefing,
+  type WorldCalendarEvent,
   type WorldEvent,
   type WorldMarket,
 } from '@/services/macro-client';
 import { registerWorldStateTools } from './webmcp';
+import {
+  downloadResearchJournal,
+  getResearchJournalEntry,
+  type ResearchJournalDraft,
+  type ResearchJournalEntry,
+  saveResearchJournalEntry,
+} from './research-journal';
 import './macro-terminal.css';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -88,6 +96,15 @@ function formatMove(value: number | null | undefined, fallback = '待更新'): s
   if (value === null || value === undefined) return fallback;
   const normalized = Math.abs(value) < 0.005 ? 0 : value;
   return `${normalized > 0 ? '+' : ''}${normalized.toFixed(2)}%`;
+}
+
+function localDateTimeInput(value: string | null | undefined, plusMinutes = 0): string {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  parsed.setMinutes(parsed.getMinutes() + plusMinutes);
+  const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 
 function renderSparkline(values: number[] | undefined, direction: WorldMarket['direction']): SVGSVGElement {
@@ -667,6 +684,225 @@ export class MacroApp {
     }
     layout.append(list, detail);
     section.appendChild(layout);
+    if (selected) section.appendChild(this.renderResearchJournal(selected));
+    return section;
+  }
+
+  private defaultJournalDraft(release: WorldCalendarEvent): ResearchJournalDraft {
+    const briefing = this.briefing!;
+    const released = new Date(release.scheduled_at).getTime() <= Date.now();
+    const watchNames = release.watch_assets
+      .map((key) => briefing.markets.find((market) => market.key === key)?.name_zh ?? key);
+    const reaction = briefing.event_reaction.event_id === release.id
+      ? briefing.event_reaction
+      : null;
+    const value = (input: string | number | null | undefined): string => (
+      input === null || input === undefined ? '' : String(input)
+    );
+    return {
+      phase: released ? 'post_event' : 'pre_event',
+      status: 'draft',
+      centralQuestion: release.question,
+      primaryHypothesis: release.scenario_hotter,
+      alternativeHypothesis: release.scenario_softer,
+      expectedTransmission: watchNames.length
+        ? `先观察 ${watchNames.join('、')}，再检查第二个独立市场和后续时段是否确认。`
+        : '先记录最先变化的定价变量，再检查跨资产是否形成独立确认。',
+      disconfirmingEvidence: '若首批定价变量没有确认、资产走势彼此矛盾，或第一轮波动在 30–90 分钟内反转，则降低主假设权重。',
+      unknowns: reaction?.values.note
+        ?? '实际值、市场共识、前值修订与精确事件窗口尚待核验。',
+      nextCheckAt: localDateTimeInput(release.scheduled_at, released ? 0 : 90),
+      actual: value(reaction?.values.actual),
+      forecast: value(reaction?.values.forecast),
+      previous: value(reaction?.values.previous),
+      outcomeReview: '',
+      lesson: '',
+    };
+  }
+
+  private renderResearchJournal(release: WorldCalendarEvent): HTMLElement {
+    type JournalControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+    const saved = getResearchJournalEntry(release.id);
+    const draft = saved?.current ?? this.defaultJournalDraft(release);
+    const section = el('section', 'world-research-journal');
+    section.id = 'research-journal';
+    const header = el('div', 'world-journal-header');
+    const title = el('div');
+    title.append(
+      el('div', 'world-section-index', 'DECISION JOURNAL / APPEND-ONLY'),
+      el('h2', '', '把当时的判断保存下来'),
+      el(
+        'p',
+        '',
+        '主假设、替代解释、证伪条件与未知项分开记录；每次保存都会追加修订，避免事后改写原来的想法。',
+      ),
+    );
+    const meta = el('div', `world-journal-state${saved ? ' is-saved' : ''}`);
+    meta.append(
+      el('span', '', saved ? '已在本机保存' : '尚未保存'),
+      el('strong', '', saved ? `${saved.revisions.length} 次修订` : '从这次事件开始'),
+      el('small', '', saved ? `最近更新 ${formatDate(saved.updatedAt)}` : '不会上传 Cookie 或账户信息'),
+    );
+    header.append(title, meta);
+    section.appendChild(header);
+
+    const controls = new Map<keyof ResearchJournalDraft, JournalControl>();
+    const field = (
+      label: string,
+      key: keyof ResearchJournalDraft,
+      helper: string,
+      rows = 3,
+    ): HTMLLabelElement => {
+      const wrapper = el('label', 'world-journal-field');
+      wrapper.append(el('span', '', label), el('small', '', helper));
+      const input = el('textarea');
+      input.rows = rows;
+      input.value = draft[key];
+      input.maxLength = 6000;
+      input.dataset.journalField = key;
+      controls.set(key, input);
+      wrapper.appendChild(input);
+      return wrapper;
+    };
+    const core = el('div', 'world-journal-core');
+    core.append(
+      field('中心问题', 'centralQuestion', '这次事件究竟要回答什么？', 2),
+      field('主假设', 'primaryHypothesis', '如果你的首要解释成立，应该看到什么？'),
+      field('替代解释', 'alternativeHypothesis', '同样的价格变化还可能由什么造成？'),
+      field('预期传导', 'expectedTransmission', '先变量、后资产、再跨市场确认。'),
+      field('证伪条件', 'disconfirmingEvidence', '提前写下什么现象会让你降低或放弃主假设。'),
+      field('仍未知', 'unknowns', '不能从当前公开证据确认的内容。'),
+    );
+    section.appendChild(core);
+
+    const verification = el('div', 'world-journal-verification');
+    const compactInput = (
+      label: string,
+      key: keyof ResearchJournalDraft,
+      type = 'text',
+    ): HTMLLabelElement => {
+      const wrapper = el('label');
+      wrapper.appendChild(el('span', '', label));
+      const input = el('input');
+      input.type = type;
+      input.value = draft[key];
+      input.maxLength = 255;
+      input.dataset.journalField = key;
+      controls.set(key, input);
+      wrapper.appendChild(input);
+      return wrapper;
+    };
+    verification.append(
+      compactInput('Actual', 'actual'),
+      compactInput('Forecast', 'forecast'),
+      compactInput('Previous / Revision', 'previous'),
+      compactInput('下次检查', 'nextCheckAt', 'datetime-local'),
+    );
+    section.appendChild(verification);
+
+    const review = el('div', 'world-journal-review');
+    review.append(
+      field('事件后复盘', 'outcomeReview', '第一轮和后续走势发生了什么？原假设解释对了吗？'),
+      field('可迁移的教训', 'lesson', '下次遇到相似事件，应该保留或改变哪一步？'),
+    );
+    section.appendChild(review);
+
+    const actions = el('div', 'world-journal-actions');
+    const statusLabel = el('label', 'world-journal-status');
+    statusLabel.appendChild(el('span', '', '当前状态'));
+    const status = el('select');
+    ([
+      ['draft', '草稿'],
+      ['monitoring', '等待验证'],
+      ['reviewed', '复盘完成'],
+      ['invalidated', '主假设已失效'],
+    ] as const).forEach(([value, label]) => {
+      const option = el('option', '', label);
+      option.value = value;
+      option.selected = value === draft.status;
+      status.appendChild(option);
+    });
+    controls.set('status', status);
+    statusLabel.appendChild(status);
+    const save = el('button', 'world-primary-button', '保存为一条新修订');
+    save.type = 'button';
+    const exportButton = el('button', 'world-secondary-button', '保存并导出 Markdown');
+    exportButton.type = 'button';
+    const readDraft = (): ResearchJournalDraft => ({
+      phase: draft.phase,
+      status: controls.get('status')!.value as ResearchJournalDraft['status'],
+      centralQuestion: controls.get('centralQuestion')!.value.trim(),
+      primaryHypothesis: controls.get('primaryHypothesis')!.value.trim(),
+      alternativeHypothesis: controls.get('alternativeHypothesis')!.value.trim(),
+      expectedTransmission: controls.get('expectedTransmission')!.value.trim(),
+      disconfirmingEvidence: controls.get('disconfirmingEvidence')!.value.trim(),
+      unknowns: controls.get('unknowns')!.value.trim(),
+      nextCheckAt: controls.get('nextCheckAt')!.value,
+      actual: controls.get('actual')!.value.trim(),
+      forecast: controls.get('forecast')!.value.trim(),
+      previous: controls.get('previous')!.value.trim(),
+      outcomeReview: controls.get('outcomeReview')!.value.trim(),
+      lesson: controls.get('lesson')!.value.trim(),
+    });
+    const persist = (): ResearchJournalEntry => saveResearchJournalEntry(
+      { id: release.id, title: release.title, scheduledAt: release.scheduled_at },
+      readDraft(),
+    );
+    save.addEventListener('click', () => {
+      persist();
+      this.render();
+    });
+    exportButton.addEventListener('click', () => {
+      const entry = persist();
+      downloadResearchJournal(entry);
+      this.render();
+    });
+    actions.append(statusLabel, save, exportButton);
+    section.appendChild(actions);
+
+    const history = el('div', 'world-journal-history');
+    history.append(
+      el('div', 'world-mini-label', 'REVISION HISTORY'),
+      el('h3', '', '只追加，不覆盖'),
+    );
+    if (!saved?.revisions.length) {
+      history.appendChild(el('p', 'world-empty', '第一次保存后，这里会保留每次判断变化的时间和字段。'));
+    } else {
+      const list = el('ol');
+      const labels: Partial<Record<keyof ResearchJournalDraft, string>> = {
+        status: '状态',
+        centralQuestion: '中心问题',
+        primaryHypothesis: '主假设',
+        alternativeHypothesis: '替代解释',
+        expectedTransmission: '预期传导',
+        disconfirmingEvidence: '证伪条件',
+        unknowns: '未知项',
+        nextCheckAt: '检查时间',
+        actual: 'Actual',
+        forecast: 'Forecast',
+        previous: 'Previous',
+        outcomeReview: '事件后复盘',
+        lesson: '教训',
+      };
+      saved.revisions.slice().reverse().slice(0, 8).forEach((revision, index) => {
+        const item = el('li');
+        item.append(
+          el('span', '', String(saved.revisions.length - index).padStart(2, '0')),
+          el('strong', '', formatDate(revision.createdAt)),
+          el(
+            'p',
+            '',
+            revision.changedFields
+              .filter((key) => key !== 'phase')
+              .map((key) => labels[key] ?? key)
+              .join(' · ') || '仅更新事件阶段',
+          ),
+        );
+        list.appendChild(item);
+      });
+      history.appendChild(list);
+    }
+    section.appendChild(history);
     return section;
   }
 
