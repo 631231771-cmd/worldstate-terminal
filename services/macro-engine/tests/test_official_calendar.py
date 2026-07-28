@@ -66,7 +66,7 @@ def test_calendar_parsers_and_playbooks() -> None:
     assert rows[0]["kind"] == "inflation"
     assert rows[0]["impact"] == "high"
     assert rows[0]["retrieval"] == "live_official"
-    assert rows[0]["watch_assets"] == ["us10y", "dollar", "gold", "nasdaq"]
+    assert rows[0]["watch_assets"] == ["us10y", "dollar", "gold", "silver", "nasdaq"]
     assert (
         parse_ics_events(
             "BEGIN:VEVENT\nDTSTART:bad\nSUMMARY:Bad\nEND:VEVENT",

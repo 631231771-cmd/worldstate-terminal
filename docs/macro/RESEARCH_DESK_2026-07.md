@@ -1,6 +1,6 @@
 # Global research desk redesign
 
-Status: implemented in Phase 8, reviewed 2026-07-27.
+Status: implemented through Phase 9, reviewed 2026-07-28.
 
 ## Product decision
 
@@ -53,7 +53,7 @@ explicitly dated official annual schedule.
 
 ### Prices
 
-Eleven core assets retain up to thirty recent daily observations. The desk
+Twelve core assets retain up to thirty recent daily observations. The desk
 derives:
 
 - 1-, 5-, and 20-session changes;
@@ -97,3 +97,32 @@ evidence rather than unrestricted page text.
   slower economic data.
 - Country attention is an evidence-priority score, not a risk rating.
 - This is an educational research system, not investment advice.
+
+## Phase 9: event reaction workbench
+
+The macro calendar is now an event research workbench rather than a schedule
+alone. It uses the same six-step path before and after a release:
+
+1. What happened?
+2. What changed relative to expectations?
+3. Which variables priced first?
+4. Why did individual assets react differently?
+5. Which market mechanisms may have amplified the move?
+6. What should confirm or falsify the explanation next?
+
+Before a release, the workbench labels the analysis as a scenario plan and
+does not fabricate Actual, Forecast, or Prior values. After a release, the
+same structure becomes a reaction review when verified values are available.
+Daily public prices are labelled as context rather than precise minute-window
+event returns.
+
+Silver is now a first-class market alongside gold. Its explanation explicitly
+separates the precious-metal channel from industrial demand, and the
+cross-asset system includes gold/silver confirmation. U.S. Census durable-goods
+releases are also included from the first-party schedule, bringing the official
+calendar ledger to seven source families.
+
+The design deliberately treats keyword algorithms, stop-losses, CTA activity,
+options hedging, and crypto liquidations as possible amplifiers. They are not
+presented as the root cause or as observed private fund orders without direct
+evidence.

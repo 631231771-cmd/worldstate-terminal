@@ -725,6 +725,7 @@ def compose_event_reaction(
         for stamp, row in timed
         if resolved_now - timedelta(hours=18) <= stamp <= resolved_now
     ]
+    past = [(stamp, row) for stamp, row in timed if stamp <= resolved_now]
     future = [(stamp, row) for stamp, row in timed if stamp > resolved_now]
     if recent:
         scheduled, selected = max(recent, key=lambda item: item[0])
@@ -732,6 +733,9 @@ def compose_event_reaction(
     elif future:
         scheduled, selected = min(future, key=lambda item: item[0])
         state = "upcoming"
+    elif past:
+        scheduled, selected = max(past, key=lambda item: item[0])
+        state = "released"
     else:
         return {
             "event_id": None,

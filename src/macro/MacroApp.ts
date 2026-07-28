@@ -678,9 +678,18 @@ export class MacroApp {
     );
     const header = el('div', 'world-reaction-header');
     const identity = el('div');
+    const compactLabel = reaction.state === 'released'
+      ? '刚刚发生'
+      : reaction.state === 'upcoming' ? '接下来最重要' : '等待下一项';
     identity.append(
-      el('div', 'world-section-index', compact ? 'JUST HAPPENED' : 'LATEST EVENT / REACTION PATH'),
-      el('h2', '', compact ? `刚刚发生：${reaction.title}` : reaction.title),
+      el(
+        'div',
+        'world-section-index',
+        compact
+          ? reaction.state === 'released' ? 'JUST HAPPENED' : 'NEXT MARKET EVENT'
+          : 'LATEST EVENT / REACTION PATH',
+      ),
+      el('h2', '', compact ? `${compactLabel}：${reaction.title}` : reaction.title),
       el(
         'p',
         '',

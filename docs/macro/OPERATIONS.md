@@ -1,6 +1,6 @@
 # Macro Terminal operations
 
-Status: Phase 3 world-explanation MVP.
+Status: Phase 9 event-reaction research desk.
 
 ## Windows one-click workflow
 
@@ -62,9 +62,16 @@ status.
 ## Official macro calendar
 
 The **宏观日历** workspace is keyless. It prefers first-party schedules from
-BLS, BEA, the Federal Reserve, ECB, Bank of England, and Bank of Japan. Each
-entry contains a research question, stronger/weaker scenario and the first
-assets to verify.
+BLS, BEA, the U.S. Census Bureau, the Federal Reserve, ECB, Bank of England,
+and Bank of Japan. Each entry contains a research question, stronger/weaker
+scenario and the first assets to verify.
+
+The selected release also opens an event-reaction workbench. Before publication
+it shows an explicitly labelled scenario plan. After publication it uses the
+same six-step path for expectation gap, first-pricing variables, asset-specific
+channels, possible amplifiers, and subsequent validation. Blank Actual,
+Forecast, or Prior fields mean that the values have not been verified; they are
+never inferred from a headline or price move.
 
 BLS sometimes rejects automated calendar reads. In that case the engine uses
 only the explicitly dated major releases copied from the official 2026 annual
