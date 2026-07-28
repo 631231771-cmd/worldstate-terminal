@@ -1,6 +1,6 @@
 ---
 project: World State Terminal
-status: phase-9-event-reaction-desk-complete
+status: phase-10-append-only-research-journal-complete
 updated: 2026-07-28
 branch: feature/world-state-terminal
 phase_1_formal_commit: a458e54d06b32992001693804b49f5f59a1f4019
@@ -12,30 +12,31 @@ phase_6_clawfeed_webmcp_commit: 63b380e3b
 phase_7_agent_reach_commit: c86554868
 phase_8_research_desk_commit: ff6cd0be22232661bb9ed0d06bad29d48a447809
 phase_9_event_reaction_commit: 0864f26ec40efc506f8731dcf439f28008ddb696
-resume_from: phase-10-intraday-values-or-research-journal
+phase_10_research_journal_commit: 93adf9169a97e3b021f1c7110dd3fdab97cad9a3
+resume_from: phase-11-intraday-values-or-source-pools
 ---
 
 # Current continuation point
 
 > [!important] Resume here
-> Phase 9 is complete. World State Terminal is now a seven-workspace global
-> macro research desk with an event-reaction workbench, official calendar,
-> cross-asset system, country and topic lenses, transparent X research calls,
-> reusable event playbooks, and an evidence-bounded AI tutor.
+> Phase 10 is complete. World State Terminal is now a seven-workspace global
+> macro research desk with an event-reaction workbench, append-only local
+> decision journal, official calendar, cross-asset system, transparent X
+> research calls, reusable event playbooks, and an evidence-bounded AI tutor.
 >
 > Continue from intraday event-window measurement, actual-versus-consensus
 > capture, or the persistent research journal. Preserve the core loop:
 > **fact → expectation gap → pricing variable → financial conditions →
 > economy → inflation/profits → policy response → asset confirmation**.
 
-> [!success] Phase 9 completed
-> The macro calendar is now an event research workbench. It preserves the
-> six-step reasoning path before and after a release, distinguishes scenario
-> planning from verified reaction review, and never invents Actual, Forecast,
-> Prior, intraday returns, or private order flow.
+> [!success] Phase 10 completed
+> Every selected calendar event now has a local research journal that separates
+> the primary hypothesis, alternative explanation, disconfirming evidence,
+> unknowns, verified values, post-event review, and transferable lesson. Saves
+> append a timestamped revision instead of overwriting earlier reasoning.
 >
 > Completion checkpoint:
-> `00-checkpoints/2026-07-28-phase-9-event-reaction-desk.md`
+> `00-checkpoints/2026-07-28-phase-10-append-only-research-journal.md`
 
 ## What is running
 
@@ -69,6 +70,11 @@ The terminal has seven URL-backed workspaces:
 - The selected calendar event exposes a six-step preview/reaction path:
   timeline, expectation gap, first pricing variables, asset-specific channels,
   possible amplifiers, and next verification.
+- Every calendar event has a structured local decision journal.
+- Meaningful saves append revisions; unchanged saves do not create duplicates.
+- Journals export as Obsidian-readable Markdown.
+- The native desktop app pins browser storage to
+  `.runtime/desktop-profile`, preserving notes across restarts.
 - The overview uses “接下来最重要” for upcoming events and “刚刚发生” only
   after release.
 - Market evidence includes 1-day, 5-day, and 20-day moves plus 30-day history.
@@ -108,10 +114,11 @@ The terminal has seven URL-backed workspaces:
 - Frontend: `src/macro/MacroApp.ts`, `src/macro/macro-terminal.css`
 - WebMCP: `src/macro/webmcp.ts`
 - Client types: `src/services/macro-client.ts`
-- Phase 8–9 research: `docs/macro/RESEARCH_DESK_2026-07.md`
+- Local journal: `src/macro/research-journal.ts`
+- Phase 8–10 research: `docs/macro/RESEARCH_DESK_2026-07.md`
 - Operations contract: `docs/macro/OPERATIONS.md`
 - Checkpoint:
-  `00-checkpoints/2026-07-28-phase-9-event-reaction-desk.md`
+  `00-checkpoints/2026-07-28-phase-10-append-only-research-journal.md`
 
 ## Verified
 
@@ -131,12 +138,19 @@ The terminal has seven URL-backed workspaces:
   document-level horizontal overflow.
 - Baseline body text is 16 px; the event workbench remains readable at 430 px.
 - Zero moves render as `0.00%`, not signed negative or positive zero.
+- Browser interaction verified first save, second meaningful revision, and
+  duplicate suppression for an unchanged save.
+- The focused append-only journal test passes.
+- Native PySide6 desktop runtime and persistent profile configuration pass
+  syntax, Ruff, and runtime checks.
 
 ## Honest limitations
 
 - Free prices are daily reference evidence, not exchange-grade live ticks.
 - Official dates and scenarios are present, but consensus, actual, revision,
   surprise, and intraday reaction are not yet persisted.
+- Journal entries are local to the active browser profile. Important notes
+  should be exported before browser data or `.runtime` is cleared.
 - X posts are unverified viewpoints, never facts.
 - Private institutional triggers, positioning, and order flow remain
   unknowable without licensed data.
@@ -147,8 +161,8 @@ The terminal has seven URL-backed workspaces:
 
 1. Add intraday release and speech windows with daily fallback.
 2. Persist consensus, actual, revision, surprise, and first market reaction.
-3. Add a local pre-event hypothesis and post-event review journal.
-4. Add user-manageable source pools and topic filters.
+3. Add user-manageable source pools and topic filters.
+4. Add journal overview, search, and optional vault-folder export.
 5. Package a signed desktop installer after the research workflow stabilizes.
 
 ## Guardrails
