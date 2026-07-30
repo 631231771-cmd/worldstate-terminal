@@ -1,18 +1,15 @@
-# World State Terminal — Project Memory
+# WorldState project memory
 
-This directory is an independent Obsidian vault and the durable continuation
-memory for the World State Terminal implementation.
+This folder is a small Obsidian-compatible hand-off vault. Start with
+`CURRENT.md`; it is the only authoritative description of the active product,
+runtime and next work.
 
-Start every resumed work session at [[CURRENT]]. Update `CURRENT.md` before
-stopping, after a phase commit, or whenever the next action materially changes.
-Historical snapshots belong in `00-checkpoints/`; decisions and investigation
-notes remain in the repository's canonical `docs/macro/` directory and are
-linked rather than duplicated here.
+Earlier World Monitor-era checkpoints were removed from the active vault during
+the macro-terminal migration so future sessions do not follow obsolete news,
+map or social-feed directions. They remain recoverable from:
 
-## Reading order
+- tag `world-monitor-legacy-freeze`
+- branch `archive/world-monitor-legacy`
 
-1. [[CURRENT]]
-2. [[00-checkpoints/2026-07-23-phase-1-complete]]
-3. [Implementation plan](../docs/macro/plan/IMPLEMENTATION_PLAN.md)
-4. [Architecture](../docs/macro/ARCHITECTURE.md)
-5. [Decision log](../docs/macro/DECISIONS.md)
+Update `CURRENT.md` whenever architecture, startup steps, database head or the
+next priority changes.

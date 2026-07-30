@@ -5,8 +5,8 @@
   "version": "0.3.0",
   "identifier": "research.worldstate.terminal",
   "build": {
-    "beforeDevCommand": "npm --prefix ../../terminal-ui run dev",
-    "beforeBuildCommand": "npm --prefix ../../terminal-ui run build",
+    "beforeDevCommand": "npm --prefix ../terminal-ui run dev",
+    "beforeBuildCommand": "npm --prefix ../terminal-ui run build",
     "frontendDist": "../../terminal-ui/dist",
     "devUrl": "http://127.0.0.1:4173"
   },

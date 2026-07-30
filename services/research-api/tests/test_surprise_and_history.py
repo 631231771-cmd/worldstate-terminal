@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import cast
 
 import pytest
 
@@ -110,7 +111,8 @@ def test_historical_sample_thresholds(
         historical_cases(count),
         current_returns={"gold_gc:post_5m": 0.2},
     )
-    metric = result["metrics"]["gold_gc:post_5m"]
+    metrics = cast(dict[str, dict[str, object]], result["metrics"])
+    metric = metrics["gold_gc:post_5m"]
     assert result["mode"] == mode
     assert ("up_probability" in metric) is has_probability
     assert ("current_percentile" in metric) is has_probability

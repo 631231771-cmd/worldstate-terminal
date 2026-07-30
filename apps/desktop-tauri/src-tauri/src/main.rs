@@ -1,9 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::fs::{self, OpenOptions};
+use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use keyring::Entry;
 use serde::Serialize;
@@ -53,6 +55,12 @@ fn python_command(service_root: &Path) -> PathBuf {
 }
 
 fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), String> {
+    let api_address: SocketAddr = "127.0.0.1:8000"
+        .parse()
+        .map_err(|error| format!("Invalid local API address: {error}"))?;
+    if TcpStream::connect_timeout(&api_address, Duration::from_millis(250)).is_ok() {
+        return Ok(());
+    }
     let service_root = resolve_service_root(app);
     if !service_root.join("pyproject.toml").exists() {
         return Err(format!(
@@ -60,8 +68,14 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
             service_root.display()
         ));
     }
-    let data_dir = app.path().app_local_data_dir().map_err(|error| error.to_string())?;
-    let log_dir = app.path().app_log_dir().map_err(|error| error.to_string())?;
+    let data_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| error.to_string())?;
+    let log_dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| error.to_string())?;
     fs::create_dir_all(&data_dir).map_err(|error| error.to_string())?;
     fs::create_dir_all(&log_dir).map_err(|error| error.to_string())?;
     let database_path = data_dir.join("worldstate.db");
@@ -71,15 +85,33 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         database_path.to_string_lossy().replace('\\', "/")
     );
     let python = python_command(&service_root);
+    let worldstate_root = service_root
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or_else(|| Path::new(&service_root));
+    let python_path = service_root.join("src");
+    let openai_secret = Entry::new(KEYRING_SERVICE, "OPENAI_API_KEY")
+        .ok()
+        .and_then(|entry| entry.get_password().ok())
+        .filter(|value| !value.trim().is_empty());
 
-    let migration = Command::new(&python)
+    let mut migration_command = Command::new(&python);
+    migration_command
         .args(["-m", "worldstate.cli", "migrate"])
         .current_dir(&service_root)
         .env("WORLDSTATE_DATABASE_URL", &database_url)
+        .env("WORLDSTATE_ROOT", worldstate_root)
+        .env("PYTHONPATH", &python_path);
+    if let Some(secret) = &openai_secret {
+        migration_command.env("OPENAI_API_KEY", secret);
+    }
+    let migration = migration_command
         .status()
         .map_err(|error| format!("Could not start database migration: {error}"))?;
     if !migration.success() {
-        return Err("WorldState database migration failed. Open the desktop log for details.".into());
+        return Err(
+            "WorldState database migration failed. Open the desktop log for details.".into(),
+        );
     }
 
     let stdout = OpenOptions::new()
@@ -88,7 +120,8 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         .open(&log_path)
         .map_err(|error| error.to_string())?;
     let stderr = stdout.try_clone().map_err(|error| error.to_string())?;
-    let child = Command::new(&python)
+    let mut api_command = Command::new(&python);
+    api_command
         .args([
             "-m",
             "worldstate.cli",
@@ -100,13 +133,22 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         ])
         .current_dir(&service_root)
         .env("WORLDSTATE_DATABASE_URL", database_url)
+        .env("WORLDSTATE_ROOT", worldstate_root)
+        .env("PYTHONPATH", python_path)
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr))
+        .stderr(Stdio::from(stderr));
+    if let Some(secret) = openai_secret {
+        api_command.env("OPENAI_API_KEY", secret);
+    }
+    let child = api_command
         .spawn()
         .map_err(|error| format!("Could not start Research API: {error}"))?;
 
-    *state.child.lock().map_err(|_| "Backend state lock failed")? = Some(child);
+    *state
+        .child
+        .lock()
+        .map_err(|_| "Backend state lock failed")? = Some(child);
     *state
         .database_path
         .lock()
@@ -116,12 +158,14 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
 }
 
 #[tauri::command]
-async fn backend_status(state: tauri::State<'_, ResearchApiState>) -> BackendStatus {
+async fn backend_status(
+    state: tauri::State<'_, ResearchApiState>,
+) -> Result<BackendStatus, String> {
     let reachable = reqwest::get(API_URL)
         .await
         .map(|response| response.status().is_success())
         .unwrap_or(false);
-    BackendStatus {
+    Ok(BackendStatus {
         reachable,
         api_url: API_URL,
         database_path: state
@@ -134,7 +178,7 @@ async fn backend_status(state: tauri::State<'_, ResearchApiState>) -> BackendSta
             .lock()
             .ok()
             .and_then(|value| value.as_ref().map(|path| path.display().to_string())),
-    }
+    })
 }
 
 #[tauri::command]
@@ -172,7 +216,7 @@ fn main() {
                     let _ = child.wait();
                 }
                 *guard = None;
-            }
+            };
         }
     });
 }

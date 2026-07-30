@@ -1,5 +1,6 @@
 """Typed settings for the local-first WorldState research service."""
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -8,7 +9,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def repository_root() -> Path:
-    return Path(__file__).resolve().parents[4]
+    override = os.getenv("WORLDSTATE_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "data").is_dir() and (
+            (parent / "services" / "research-api").is_dir()
+            or (parent / "pyproject.toml").is_file()
+        ):
+            return parent
+    return Path.cwd().resolve()
 
 
 def default_catalog_root() -> Path:

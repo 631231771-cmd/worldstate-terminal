@@ -18,14 +18,33 @@ def test_api_v2_bootstraps_complete_vertical_slice(
         release_id = str(release_index[release_type]["id"])
         for suffix in (
             "",
+            "/stages",
+            "/values",
+            "/consensus",
             "/windows",
             "/timeline",
+            "/reactions",
+            "/cross-asset",
             "/historical-matches",
             "/explanations",
+            "/hypotheses",
+            "/report",
             "/evidence-pack",
         ):
             response = client.get(f"/v2/releases/{release_id}{suffix}")
             assert response.status_code == 200, (release_type, suffix, response.text)
+
+    for path in (
+        "/v2/today",
+        "/v2/calendar",
+        "/v2/releases",
+        "/v2/providers",
+        "/v2/provider-runs",
+        "/v2/regime",
+        "/v2/regimes",
+        "/v2/methods",
+    ):
+        assert client.get(path).status_code == 200, path
 
 
 def test_cpi_research_is_evidence_bounded(

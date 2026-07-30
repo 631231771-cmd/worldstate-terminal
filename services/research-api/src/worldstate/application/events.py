@@ -15,6 +15,7 @@ from typing import Any, cast
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from worldstate.config import repository_root
 from worldstate.db.models import (
     AnalysisRun,
     ConsensusSnapshot,
@@ -88,7 +89,7 @@ def _float(value: Decimal | float | None) -> float | None:
 
 
 def _fixture_path() -> Path:
-    return Path(__file__).resolve().parents[5] / "data" / "fixtures" / "macro-research-demos.json"
+    return repository_root() / "data" / "fixtures" / "macro-research-demos.json"
 
 
 def _load_demo_releases() -> list[dict[str, Any]]:
