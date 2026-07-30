@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+
+def test_api_v2_bootstraps_complete_vertical_slice(
+    client: TestClient,
+    release_index: dict[str, dict[str, object]],
+) -> None:
+    assert {"US_CPI", "US_NFP", "FOMC"} <= set(release_index)
+    assert client.get("/v1/health").status_code == 404
+
+    health = client.get("/v2/health")
+    assert health.status_code == 200
+    assert health.json()["api_version"] == "v2"
+
+    for release_type in ("US_CPI", "US_NFP", "FOMC"):
+        release_id = str(release_index[release_type]["id"])
+        for suffix in (
+            "",
+            "/windows",
+            "/timeline",
+            "/historical-matches",
+            "/explanations",
+            "/evidence-pack",
+        ):
+            response = client.get(f"/v2/releases/{release_id}{suffix}")
+            assert response.status_code == 200, (release_type, suffix, response.text)
+
+
+def test_cpi_research_is_evidence_bounded(
+    client: TestClient,
+    release_index: dict[str, dict[str, object]],
+) -> None:
+    release_id = str(release_index["US_CPI"]["id"])
+    detail = client.get(f"/v2/releases/{release_id}").json()
+    historical = client.get(f"/v2/releases/{release_id}/historical-matches").json()
+    evidence = client.get(f"/v2/releases/{release_id}/evidence-pack").json()
+    assistant = client.post(
+        "/v2/research/assistant",
+        json={"release_id": release_id, "question": "黄金为什么这样反应？"},
+    ).json()
+
+    assert detail["bundle"]["classification"]
+    assert {"headline_mom", "headline_yoy", "core_mom", "core_yoy"} <= set(detail["values"])
+    assert historical["filter_recipe"] == "macro-history-v3-fixed"
+    assert historical["pre_filter_count"] >= historical["post_filter_count"]
+    if historical["post_filter_count"] < 15:
+        assert all(
+            metric.get("probability_suppressed") is True
+            for metric in historical["metrics"].values()
+        )
+    assert evidence["schema_version"] == "evidence-pack-v1"
+    assert evidence["constraints"]["no_unique_causality_claim"] is True
+    assert assistant["mode"] == "deterministic"
+    assert assistant["validation"]["valid"] is True
+    for heading in ("已确认事实", "历史关系", "当前推断", "竞争性解释", "无法确认"):
+        assert heading in assistant["answer"]
+
+
+def test_nfp_revision_and_fomc_stage_repricing(
+    client: TestClient,
+    release_index: dict[str, dict[str, object]],
+) -> None:
+    nfp_id = str(release_index["US_NFP"]["id"])
+    nfp = client.get(f"/v2/releases/{nfp_id}").json()
+    assert nfp["bundle"]["revision_dominant"] is True
+    assert nfp["bundle"]["classification"] == "主要变化来自前值修正"
+
+    fomc_id = str(release_index["FOMC"]["id"])
+    rerun = client.post(f"/v2/releases/{fomc_id}/analysis-runs")
+    assert rerun.status_code == 200
+    timeline = client.get(f"/v2/releases/{fomc_id}/timeline").json()
+    windows = client.get(f"/v2/releases/{fomc_id}/windows").json()
+    stage_keys = [stage["key"] for stage in timeline["stages"]]
+    assert stage_keys == ["statement", "press_conference", "key_qa", "press_end"]
+
+    gold_post5 = {
+        (item["stage_key"], item["instrument_key"]): item
+        for item in windows["items"]
+        if item["window_key"] == "post_5m"
+    }
+    statement = gold_post5[("statement", "gold_gc")]
+    press = gold_post5[("press_conference", "gold_gc")]
+    assert statement["return_percent"] > 0
+    assert press["return_percent"] < 0
+    assert press["direction_reversal"] is True
+
+
+def test_quality_proxy_and_methodology_are_explicit(client: TestClient) -> None:
+    instruments = client.get("/v2/instruments").json()
+    proxies = [item for item in instruments if item["is_proxy"]]
+    assert proxies
+    assert all(item["proxy_for"] for item in proxies)
+
+    quality = client.get("/v2/data-quality").json()
+    assert quality["fixture_records"] > 0
+    methodology = client.get("/v2/methodology").json()
+    assert methodology["historical_sample_policy"]["probability_minimum"] == 15
+    assert "No unique deterministic cause" in methodology["causality_policy"]
+
+
+def test_manual_release_consensus_csv_and_analysis_workflow(client: TestClient) -> None:
+    release_payload = {
+        "release_key": "test-us-cpi-2030-01",
+        "release_type": "US_CPI",
+        "title": "测试用美国CPI",
+        "period_label": "2030-01",
+        "scheduled_at": "2030-02-13T13:30:00Z",
+        "released_at": "2030-02-13T13:30:00Z",
+        "source_name": "Test source",
+        "source_url": "https://example.test/cpi",
+        "verified": True,
+        "values": {
+            "headline_mom": {"actual": 0.4, "previous": 0.3, "revised_previous": 0.3},
+            "headline_yoy": {"actual": 3.2, "previous": 3.1, "revised_previous": 3.1},
+            "core_mom": {"actual": 0.3, "previous": 0.2, "revised_previous": 0.2},
+            "core_yoy": {"actual": 3.4, "previous": 3.3, "revised_previous": 3.3},
+        },
+    }
+    created = client.post("/v2/releases", json=release_payload)
+    assert created.status_code == 200, created.text
+    release_id = created.json()["release_id"]
+
+    for indicator_key, value in {
+        "headline_mom": 0.3,
+        "headline_yoy": 3.1,
+        "core_mom": 0.2,
+        "core_yoy": 3.3,
+    }.items():
+        consensus = client.post(
+            f"/v2/releases/{release_id}/consensus",
+            json={
+                "indicator_key": indicator_key,
+                "consensus_value": value,
+                "source_name": "Manual test consensus",
+                "source_url": "https://example.test/consensus",
+                "captured_at": "2030-02-13T12:00:00Z",
+                "quality_grade": "B",
+                "is_manual": True,
+                "verification_notes": "Test-only point-in-time snapshot",
+            },
+        )
+        assert consensus.status_code == 200, consensus.text
+
+    late_consensus = client.post(
+        f"/v2/releases/{release_id}/consensus",
+        json={
+            "indicator_key": "headline_mom",
+            "consensus_value": 0.3,
+            "source_name": "Late source",
+            "captured_at": "2030-02-13T14:00:00Z",
+        },
+    )
+    assert late_consensus.status_code == 400
+
+    csv_text = "\n".join(
+        [
+            "timestamp,instrument_key,open,high,low,close,volume",
+            "2030-02-13T13:29:00Z,gold_gc,2000,2001,1999,2000,100",
+            "2030-02-13T13:30:00Z,gold_gc,2000,2002,1998,1999,150",
+            "2030-02-13T13:31:00Z,gold_gc,1999,2000,1995,1996,180",
+            "2030-02-13T13:35:00Z,gold_gc,1996,1997,1990,1992,170",
+        ]
+    )
+    imported = client.post(
+        f"/v2/releases/{release_id}/market-bars/import",
+        json={
+            "instrument_key": "gold_gc",
+            "csv_text": csv_text,
+            "provider_key": "test_csv",
+            "source_name": "Test CSV",
+            "verified": True,
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    assert imported.json()["inserted"] == 4
+
+    analyzed = client.post(f"/v2/releases/{release_id}/analysis-runs")
+    assert analyzed.status_code == 200, analyzed.text
+    detail = client.get(f"/v2/releases/{release_id}").json()
+    assert detail["bundle"]["classification"] == "全面偏热"
+    assert detail["latest_analysis"]["status"] == "completed"

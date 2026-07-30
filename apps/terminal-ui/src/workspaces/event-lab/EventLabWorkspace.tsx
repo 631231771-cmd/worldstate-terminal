@@ -1,0 +1,390 @@
+import { useEffect, useMemo, useState } from "preact/hooks";
+import { api } from "../../api/client";
+import { CrossAssetChart } from "../../components/CrossAssetChart";
+import { Badge, Meter, Panel, StateMessage } from "../../components/Primitives";
+import type {
+  ExplanationsResponse,
+  HistoricalResponse,
+  ReleaseDetail,
+  ReleaseSummary,
+  TimelineResponse,
+  WindowsResponse,
+} from "../../types";
+
+interface LabData {
+  detail: ReleaseDetail;
+  windows: WindowsResponse;
+  timeline: TimelineResponse;
+  historical: HistoricalResponse;
+  explanations: ExplanationsResponse;
+}
+
+const WINDOW_ORDER = ["post_1m", "post_5m", "post_15m", "post_30m", "post_60m", "post_4h"];
+
+function number(value: number | null | undefined, digits = 2) {
+  return value === null || value === undefined ? "—" : value.toFixed(digits);
+}
+
+function factText(fact: Record<string, unknown> | string) {
+  if (typeof fact === "string") return fact;
+  return String(fact.statement ?? fact.summary ?? fact.fact ?? JSON.stringify(fact));
+}
+
+function evidenceText(value: Record<string, unknown> | string) {
+  if (typeof value === "string") return value;
+  return String(
+    value.statement ??
+      value.summary ??
+      value.falsifier ??
+      value.unknown ??
+      JSON.stringify(value),
+  );
+}
+
+export function EventLabWorkspace({
+  release,
+  onRefresh,
+}: {
+  release: ReleaseSummary | null;
+  onRefresh: () => Promise<void>;
+}) {
+  const [data, setData] = useState<LabData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [stage, setStage] = useState<string>("");
+  const [assistantQuestion, setAssistantQuestion] = useState("请解释这场事件的跨资产传导链与主要不确定性。");
+  const [assistantAnswer, setAssistantAnswer] = useState<string | null>(null);
+  const [assistantBusy, setAssistantBusy] = useState(false);
+
+  useEffect(() => {
+    if (!release) return;
+    setLoading(true);
+    setError(null);
+    setData(null);
+    setAssistantAnswer(null);
+    Promise.all([
+      api.release(release.id),
+      api.windows(release.id),
+      api.timeline(release.id),
+      api.historical(release.id),
+      api.explanations(release.id),
+    ])
+      .then(([detail, windows, timeline, historical, explanations]) => {
+        setData({ detail, windows, timeline, historical, explanations });
+        setStage(detail.stages[0]?.key ?? "");
+      })
+      .catch((reason) => setError(reason instanceof Error ? reason.message : "事件研究读取失败。"))
+      .finally(() => setLoading(false));
+  }, [release?.id]);
+
+  const selectedWindows = useMemo(
+    () => data?.windows.items.filter((item) => item.stage_key === stage) ?? [],
+    [data, stage],
+  );
+  const windowMap = useMemo(
+    () =>
+      new Map(
+        selectedWindows.map((item) => [`${item.instrument_key}:${item.window_key}`, item] as const),
+      ),
+    [selectedWindows],
+  );
+  const instruments = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          selectedWindows.map((item) => [
+            item.instrument_key,
+            {
+              key: item.instrument_key,
+              title: item.instrument_title,
+              symbol: item.symbol,
+              isProxy: item.is_proxy,
+            },
+          ]),
+        ).values(),
+      ),
+    [selectedWindows],
+  );
+
+  if (!release) {
+    return <StateMessage title="还没有可研究的事件" detail="先导入或建立一场宏观发布。" />;
+  }
+  if (loading || !data) {
+    return (
+      <StateMessage
+        title={error ? "事件研究读取失败" : "正在重建事件链"}
+        detail={error ?? "组合发布值、阶段窗口、历史样本和候选解释。"}
+      />
+    );
+  }
+
+  const { detail, timeline, historical, explanations } = data;
+  const confidence = detail.latest_analysis?.confidence ?? explanations.confidence ?? 0;
+  const runId = detail.latest_analysis?.id ?? "—";
+
+  const askAssistant = async () => {
+    setAssistantBusy(true);
+    try {
+      const result = await api.assistant(detail.id, assistantQuestion);
+      setAssistantAnswer(result.answer);
+    } catch (reason) {
+      setAssistantAnswer(reason instanceof Error ? reason.message : "研究助手暂时不可用。");
+    } finally {
+      setAssistantBusy(false);
+    }
+  };
+
+  return (
+    <div class="workspace">
+      <section class="event-hero">
+        <div>
+          <div class="event-hero__meta">
+            <Badge tone="info">{detail.release_type}</Badge>
+            <span>{detail.period_label}</span>
+            <span>{new Date(detail.released_at ?? detail.scheduled_at).toLocaleString("zh-CN")}</span>
+          </div>
+          <h1>{detail.title}</h1>
+          <p class="event-hero__classification">{detail.bundle.classification}</p>
+          <div class="badge-row">
+            {detail.source?.is_fixture ? <Badge tone="warn">FIXTURE 演示数据</Badge> : null}
+            <Badge tone={detail.contamination.clean_window ? "good" : "bad"}>
+              {detail.contamination.clean_window ? "清洁事件窗口" : "窗口受到污染"}
+            </Badge>
+            <Badge tone="neutral">分析运行 {runId.slice(0, 8)}</Badge>
+          </div>
+        </div>
+        <div class="confidence-card">
+          <span>解释置信度</span>
+          <strong>{Math.round(confidence * 100)}%</strong>
+          <Meter value={confidence} />
+          <p>综合数据质量、事件污染、跨资产确认和历史样本。</p>
+        </div>
+      </section>
+
+      <Panel
+        title="发布值与预期差"
+        eyebrow="ACTUAL / CONSENSUS / PREVIOUS / REVISION"
+        aside={
+          <div class="composite-score">
+            <span>综合惊喜</span>
+            <strong>{number(detail.bundle.score)}</strong>
+          </div>
+        }
+      >
+        <div class="value-grid">
+          {Object.entries(detail.values).map(([key, value]) => (
+            <article class="value-card" key={key}>
+              <header>
+                <span>{value.name}</span>
+                <Badge
+                  tone={
+                    value.surprise?.direction === "hot"
+                      ? "bad"
+                      : value.surprise?.direction === "cold"
+                        ? "good"
+                        : "neutral"
+                  }
+                >
+                  {value.surprise?.direction ?? "未计算"}
+                </Badge>
+              </header>
+              <div class="value-card__primary">
+                <strong>{number(value.actual)}</strong><small>{value.unit}</small>
+              </div>
+              <dl>
+                <div><dt>市场共识</dt><dd>{number(value.consensus)}</dd></div>
+                <div><dt>前值</dt><dd>{number(value.previous)}</dd></div>
+                <div><dt>修正前值</dt><dd>{number(value.revised_previous)}</dd></div>
+                <div><dt>原始惊喜</dt><dd>{number(value.surprise?.raw)}</dd></div>
+                <div><dt>标准化</dt><dd>{number(value.surprise?.standardized)}</dd></div>
+              </dl>
+              <p>共识快照：{value.consensus_captured_at ? new Date(value.consensus_captured_at).toLocaleString("zh-CN") : "缺失"}</p>
+            </article>
+          ))}
+        </div>
+        <div class="reason-strip">
+          {detail.bundle.reasons.map((reason) => <span key={reason}>{reason}</span>)}
+        </div>
+      </Panel>
+
+      <Panel title="分阶段跨资产反应" eyebrow="RELEASE STAGES">
+        <div class="stage-selector">
+          {detail.stages.map((item) => (
+            <button
+              type="button"
+              class={stage === item.key ? "active" : ""}
+              onClick={() => setStage(item.key)}
+              key={item.id}
+            >
+              <span>T{item.sequence}</span>
+              <strong>{item.title}</strong>
+              <small>{new Date(item.released_at ?? item.scheduled_at).toLocaleTimeString("zh-CN")}</small>
+            </button>
+          ))}
+        </div>
+        <CrossAssetChart timeline={timeline} />
+      </Panel>
+
+      <Panel title="多窗口反应矩阵" eyebrow="EVENT WINDOWS">
+        <div class="table-wrap">
+          <table class="matrix-table">
+            <thead>
+              <tr>
+                <th>资产</th>
+                {WINDOW_ORDER.map((key) => (
+                  <th key={key}>{windowMap.get(`${instruments[0]?.key}:${key}`)?.window_label ?? key}</th>
+                ))}
+                <th>覆盖</th>
+              </tr>
+            </thead>
+            <tbody>
+              {instruments.map((instrument) => (
+                <tr key={instrument.key}>
+                  <td>
+                    <strong>{instrument.title}</strong>
+                    <span>{instrument.symbol} {instrument.isProxy ? "· 代理" : ""}</span>
+                  </td>
+                  {WINDOW_ORDER.map((key) => {
+                    const item = windowMap.get(`${instrument.key}:${key}`);
+                    const value = item?.return_percent;
+                    return (
+                      <td
+                        key={key}
+                        class={value === null || value === undefined ? "" : value > 0 ? "positive" : "negative"}
+                      >
+                        {number(value)}%
+                        {item?.direction_reversal ? <b title="阶段间方向反转">↺</b> : null}
+                        {item?.spike_fade ? <b title="冲高回落">↘</b> : null}
+                      </td>
+                    );
+                  })}
+                  <td>{Math.round((selectedWindows.find((item) => item.instrument_key === instrument.key)?.coverage_ratio ?? 0) * 100)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p class="method-note">
+          方向与反转按当前阶段 T0 计算；代理资产和 60 秒粒度限制在每条结果中保留。
+        </p>
+      </Panel>
+
+      <div class="two-column two-column--research">
+        <Panel title="确定性事实" eyebrow="COMPUTED FACTS">
+          <ul class="fact-list">
+            {explanations.facts.map((fact, index) => (
+              <li key={`${index}-${factText(fact)}`}><span>{String(index + 1).padStart(2, "0")}</span>{factText(fact)}</li>
+            ))}
+          </ul>
+        </Panel>
+        <Panel title="历史样本" eyebrow="FIXED-RECIPE MATCHING">
+          <div class="historical-summary">
+            <div><span>模式</span><strong>{historical.mode}</strong></div>
+            <div><span>过滤前</span><strong>{historical.pre_filter_count}</strong></div>
+            <div><span>过滤后</span><strong>{historical.post_filter_count}</strong></div>
+            <div><span>可靠性</span><strong>{historical.reliability}</strong></div>
+          </div>
+          {historical.warning ? <div class="inline-warning">{historical.warning}</div> : null}
+          <ol class="filter-chain">
+            {historical.filters.map((item) => (
+              <li key={item.condition}>
+                <span>{item.before} → {item.after}</span>
+                <p>{item.condition}</p>
+              </li>
+            ))}
+          </ol>
+        </Panel>
+      </div>
+
+      <Panel title="候选传导解释" eyebrow="ATTRIBUTION HYPOTHESES">
+        <div class="hypothesis-grid">
+          {explanations.explanations.map((item, index) => (
+            <article class={index === 0 ? "hypothesis hypothesis--primary" : "hypothesis"} key={item.rule_key}>
+              <header>
+                <div>
+                  <span>{index === 0 ? "主候选" : "竞争解释"} · {item.kind}</span>
+                  <h3>{item.title}</h3>
+                </div>
+                <strong>{Math.round(item.confidence * 100)}%</strong>
+              </header>
+              <p>{item.summary}</p>
+              <ol>
+                {item.mechanism_steps.map((step) => <li key={step}>{step}</li>)}
+              </ol>
+              <div class="evidence-columns">
+                <div>
+                  <span>支持</span>
+                  {item.confirming_evidence.map((line) => (
+                    <p key={evidenceText(line)}>+ {evidenceText(line)}</p>
+                  ))}
+                </div>
+                <div>
+                  <span>反对 / Falsifier</span>
+                  {[...item.contradicting_evidence, ...item.unresolved].map((line) => (
+                    <p key={evidenceText(line)}>− {evidenceText(line)}</p>
+                  ))}
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </Panel>
+
+      <div class="two-column">
+        <Panel title="数据质量与来源" eyebrow="PROVENANCE">
+          <div class="quality-list">
+            {detail.data_quality.slice(0, 10).map((item, index) => (
+              <article key={item.id ?? `${item.source_name}-${index}`}>
+                <Badge tone={item.quality_grade === "A" || item.quality_grade === "B" ? "good" : "warn"}>
+                  {item.quality_grade}
+                </Badge>
+                <div><strong>{item.source_name}</strong><p>{item.verification_notes ?? item.source_type}</p></div>
+                <div class="badge-row">
+                  {item.is_fixture ? <Badge tone="warn">FIXTURE</Badge> : null}
+                  {item.is_proxy ? <Badge tone="warn">代理</Badge> : null}
+                  {item.is_manual ? <Badge tone="info">手工</Badge> : null}
+                </div>
+              </article>
+            ))}
+          </div>
+          {detail.source ? (
+            <a class="source-link" href={detail.source.url} target="_blank" rel="noreferrer">
+              查看来源：{detail.source.title} ↗
+            </a>
+          ) : null}
+        </Panel>
+        <Panel title="污染与未知项" eyebrow="LIMITATIONS">
+          <div class="contamination-card">
+            <strong>{detail.contamination.level.toUpperCase()}</strong>
+            <p>{detail.contamination.clean_window ? "没有登记明显重叠事件。" : "分析窗口可能受到其他信息干扰。"}</p>
+          </div>
+          <ul class="boundary-list">
+            {[...detail.contamination.confounding_notes, ...explanations.data_gaps].map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </Panel>
+      </div>
+
+      <Panel title="AI 研究侧栏" eyebrow="EVIDENCEPACK ONLY">
+        <div class="assistant">
+          <div>
+            <textarea
+              value={assistantQuestion}
+              onInput={(event) => setAssistantQuestion((event.currentTarget as HTMLTextAreaElement).value)}
+              aria-label="向研究助手提问"
+            />
+            <button type="button" class="primary-button" disabled={assistantBusy} onClick={() => void askAssistant()}>
+              {assistantBusy ? "正在核对证据…" : "生成有证据约束的解释"}
+            </button>
+            <p class="method-note">未配置 AI 时仍会生成完整模板报告；AI 不能修改确定性计算。</p>
+          </div>
+          <article class="assistant__answer">
+            <div class="eyebrow">RESEARCH REPORT</div>
+            <pre>{assistantAnswer ?? explanations.report}</pre>
+          </article>
+        </div>
+      </Panel>
+    </div>
+  );
+}
