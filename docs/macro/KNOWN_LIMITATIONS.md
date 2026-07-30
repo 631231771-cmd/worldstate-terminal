@@ -1,5 +1,33 @@
 # Known limitations
 
+## CPI Event Lab limits
+
+- The February 2024 actual CPI values and archived consensus source are
+  traceable, but bundled GC/SI/DXY/ES/NQ/ZT/ZN minute bars are deterministic
+  fixtures. They prove the workflow and are not historical exchange records.
+- ZT and ZN are Treasury-futures prices used as directional yield proxies.
+  They are never displayed as cash 2-year or 10-year yields.
+- The minute-bar detector reports the earliest **observed** significant,
+  consecutively confirmed response. It cannot establish ordering within one
+  bar or replace tick data.
+- U.S. cash close, next close, and five-trading-day windows remain incomplete
+  until a CSV/provider supplies session-aware coverage. Partial results carry a
+  missing/coverage flag.
+- The first historical set is small. Probability and percentile output appears
+  only when a fixed, declared filter retains at least five observations;
+  otherwise the API exposes case studies without statistical claims.
+- Consensus is not freely and reliably available from one official source.
+  Manual, CSV, and replaceable provider entry are supported and permanently
+  timestamped, but operator verification remains necessary.
+- Contamination detection includes registered overlapping events and notes. It
+  cannot guarantee that every contemporaneous headline, positioning flow, or
+  private order was observed.
+- Deterministic rules compare multiple explanations. They do not prove unique
+  causality. An AI layer may summarize these structured results but must not add
+  missing facts.
+- Automatic BLS/BEA/Fed release ingestion, licensed minute feeds, nonfarm
+  payroll bundles, and multi-stage FOMC analysis are subsequent slices.
+
 ## Phase 3 world-explanation limits
 
 - Free news and market endpoints can be delayed, rate-limited, regionally

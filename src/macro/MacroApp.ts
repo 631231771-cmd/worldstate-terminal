@@ -1,8 +1,14 @@
 import { initI18n } from '@/services/i18n';
 import {
   askWorldTutor,
+  getCpiEventDetail,
+  getCpiEventLabStatus,
+  getCpiEvents,
   getWorldBriefing,
   MacroApiError,
+  type CpiEventDetail,
+  type CpiEventLabStatus,
+  type CpiEventListItem,
   type TutorAnswer,
   type TutorMessage,
   type TutorMode,
@@ -25,6 +31,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 type WorldView =
   | 'overview'
   | 'events'
+  | 'lab'
   | 'calendar'
   | 'markets'
   | 'themes'
@@ -38,6 +45,7 @@ const WORLD_VIEWS: ReadonlyArray<{
 }> = [
   { key: 'overview', label: '今日桌面', shortLabel: '今日' },
   { key: 'events', label: '事件雷达', shortLabel: '事件' },
+  { key: 'lab', label: '事件实验室', shortLabel: '实验室' },
   { key: 'calendar', label: '宏观日历', shortLabel: '日历' },
   { key: 'markets', label: '资产地图', shortLabel: '市场' },
   { key: 'themes', label: '国家与主题', shortLabel: '主题' },
@@ -140,10 +148,17 @@ export class MacroApp {
   private tutorEntries: TutorEntry[] = [];
   private tutorBusy = false;
   private refreshTimer: number | null = null;
+  private labController: AbortController | null = null;
+  private cpiEvents: CpiEventListItem[] | null = null;
+  private cpiDetail: CpiEventDetail | null = null;
+  private cpiLabStatus: CpiEventLabStatus | null = null;
+  private cpiLabLoading = false;
+  private cpiLabError: string | null = null;
   private currentView: WorldView = readWorldView();
   private readonly handlePopState = (): void => {
     this.currentView = readWorldView();
     this.render();
+    if (this.currentView === 'lab') void this.loadCpiEventLab();
   };
 
   constructor(rootId: string) {
@@ -160,6 +175,7 @@ export class MacroApp {
     document.title = '世界状态终端 · 每日世界解释';
     this.renderLoading();
     await this.refresh(false);
+    if (this.currentView === 'lab') await this.loadCpiEventLab();
     this.refreshTimer = window.setInterval(() => void this.refresh(false), 5 * 60_000);
   }
 
@@ -292,12 +308,20 @@ export class MacroApp {
 
   private navigate(
     view: WorldView,
-    selection: { event?: string; market?: string; release?: string; topic?: string } = {},
+    selection: {
+      event?: string;
+      labEvent?: string;
+      market?: string;
+      release?: string;
+      topic?: string;
+    } = {},
   ): void {
     const url = new URL(window.location.href);
     url.searchParams.set('view', view);
     if (selection.event) url.searchParams.set('event', selection.event);
     else if (view !== 'events') url.searchParams.delete('event');
+    if (selection.labEvent) url.searchParams.set('labEvent', selection.labEvent);
+    else if (view !== 'lab') url.searchParams.delete('labEvent');
     if (selection.market) url.searchParams.set('market', selection.market);
     else if (view !== 'markets') url.searchParams.delete('market');
     if (selection.release) url.searchParams.set('release', selection.release);
@@ -307,6 +331,7 @@ export class MacroApp {
     history.pushState({ view }, '', url);
     this.currentView = view;
     this.render();
+    if (view === 'lab') void this.loadCpiEventLab(selection.labEvent);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -318,6 +343,14 @@ export class MacroApp {
         '事件雷达与完整传导',
         '从事实、预期差、传导机制到跨资产验证，把一条新闻真正理解清楚。',
       ), this.renderEventResearch());
+      return page;
+    }
+    if (this.currentView === 'lab') {
+      page.append(this.renderViewHeading(
+        'CPI EVENT LAB',
+        '美国 CPI 事件实验室',
+        '把一组同时公布的通胀数据、跨资产分钟反应、竞争解释与历史样本放在同一张研究桌上。',
+      ), this.renderCpiEventLab());
       return page;
     }
     if (this.currentView === 'markets') {
@@ -380,6 +413,466 @@ export class MacroApp {
       el('p', '', description),
     );
     return heading;
+  }
+
+  private async loadCpiEventLab(preferredEventId?: string): Promise<void> {
+    this.labController?.abort();
+    this.labController = new AbortController();
+    const signal = this.labController.signal;
+    this.cpiLabLoading = true;
+    this.cpiLabError = null;
+    this.render();
+    try {
+      const [status, events] = await Promise.all([
+        getCpiEventLabStatus(signal),
+        getCpiEvents(signal),
+      ]);
+      const requested = preferredEventId
+        ?? new URL(window.location.href).searchParams.get('labEvent')
+        ?? status.demo_event_id;
+      const selected = events.find((item) => item.id === requested) ?? events[0];
+      this.cpiLabStatus = status;
+      this.cpiEvents = events;
+      this.cpiDetail = selected ? await getCpiEventDetail(selected.id, signal) : null;
+      if (selected) {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('labEvent') !== selected.id) {
+          url.searchParams.set('labEvent', selected.id);
+          history.replaceState(history.state, '', url);
+        }
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      this.cpiLabError = error instanceof Error ? error.message : '事件实验室暂时不可用';
+    } finally {
+      if (this.labController?.signal === signal) {
+        this.cpiLabLoading = false;
+        this.render();
+      }
+    }
+  }
+
+  private renderCpiEventLab(): HTMLElement {
+    const section = el('section', 'cpi-lab');
+    if (this.cpiLabLoading && !this.cpiEvents) {
+      section.appendChild(el('div', 'cpi-lab-state', '正在生成 CPI 事件窗口、历史样本与解释链…'));
+      return section;
+    }
+    if (this.cpiLabError) {
+      const error = el('div', 'cpi-lab-state is-error');
+      error.append(el('strong', '', 'CPI 事件实验室未能载入'), el('p', '', this.cpiLabError));
+      const retry = el('button', 'world-primary-button', '重新载入');
+      retry.type = 'button';
+      retry.addEventListener('click', () => void this.loadCpiEventLab());
+      error.appendChild(retry);
+      section.appendChild(error);
+      return section;
+    }
+    if (!this.cpiEvents?.length || !this.cpiDetail) {
+      section.appendChild(el('div', 'cpi-lab-state', '尚无可分析的 CPI 事件。'));
+      return section;
+    }
+
+    if (this.cpiLabStatus) {
+      const status = el('div', 'cpi-lab-status');
+      status.append(
+        el('span', 'cpi-lab-status-live', '可运行垂直切片'),
+        el('span', '', `${this.cpiLabStatus.events} 个事件`),
+        el('span', '', `${this.cpiLabStatus.market_bars.toLocaleString()} 根分钟 bar`),
+        el('span', '', `${this.cpiLabStatus.window_metrics} 个窗口结果`),
+        el('span', '', this.cpiLabStatus.methodology_version),
+      );
+      section.appendChild(status);
+    }
+
+    const layout = el('div', 'cpi-lab-layout');
+    const eventList = el('aside', 'cpi-event-list');
+    eventList.append(
+      el('div', 'world-kicker', 'EVENT ARCHIVE'),
+      el('h2', '', '历史 CPI'),
+      el('p', 'cpi-event-list-note', '固定方法逐期复盘，不为当前结果临时改变筛选条件。'),
+    );
+    for (const event of this.cpiEvents) {
+      const button = el('button', `cpi-event-row${event.id === this.cpiDetail.id ? ' is-active' : ''}`);
+      button.type = 'button';
+      const top = el('span', 'cpi-event-row-top');
+      top.append(
+        el('time', '', formatDate(event.release_at, false)),
+        el('span', `cpi-direction cpi-direction-${event.classification.includes('热') ? 'hot' : event.classification.includes('冷') ? 'cold' : 'mixed'}`, event.classification),
+      );
+      const values = event.indicators
+        .map((item) => `${item.key.replace('_', ' ')} ${item.actual ?? '—'}/${item.consensus ?? '—'}`)
+        .join(' · ');
+      button.append(
+        top,
+        el('strong', '', event.period_label),
+        el('span', 'cpi-event-row-values', values),
+        el(
+          'span',
+          'cpi-event-row-meta',
+          `${Math.round(event.confidence * 100)}% 置信度 · ${event.clean_window ? '窗口较干净' : '存在污染'}`,
+        ),
+      );
+      button.addEventListener('click', () => this.navigate('lab', { labEvent: event.id }));
+      eventList.appendChild(button);
+    }
+
+    const detail = this.renderCpiEventDetail(this.cpiDetail);
+    layout.append(eventList, detail);
+    section.appendChild(layout);
+    return section;
+  }
+
+  private renderCpiEventDetail(detail: CpiEventDetail): HTMLElement {
+    const article = el('article', 'cpi-event-detail');
+    const hero = el('header', 'cpi-detail-hero');
+    const heroCopy = el('div');
+    heroCopy.append(
+      el('div', 'world-kicker', `${detail.period_label} / ${formatDate(detail.release_at)}`),
+      el('h2', '', detail.bundle.classification),
+      el('p', '', detail.report),
+    );
+    const confidence = el('div', 'cpi-confidence');
+    confidence.append(
+      el('span', '', '解释置信度'),
+      el('strong', '', `${Math.round(detail.confidence * 100)}%`),
+      el('small', '', detail.contamination.clean_window ? '未登记显著同窗事件' : '受事件污染降级'),
+    );
+    hero.append(heroCopy, confidence);
+    article.appendChild(hero);
+
+    const notices = el('div', 'cpi-evidence-notices');
+    notices.append(
+      el(
+        'span',
+        detail.data_mode === 'observed' ? 'is-observed' : 'is-fixture',
+        detail.data_mode === 'observed' ? '观察数据' : '实际 CPI + 明示 fixture 行情',
+      ),
+      el('span', detail.contamination.clean_window ? 'is-observed' : 'is-warning', `污染：${detail.contamination.level}`),
+      el('span', '', `方法：${detail.bundle.methodology_version}`),
+    );
+    article.appendChild(notices);
+
+    const indicators = el('section', 'cpi-indicator-grid');
+    for (const item of detail.indicators) {
+      const card = el('article', `cpi-indicator-card cpi-direction-${item.surprise_direction}`);
+      const label = item.title
+        .replace('Headline', '总体')
+        .replace('Core', '核心')
+        .replace('MoM', '月率')
+        .replace('YoY', '年率');
+      card.append(
+        el('span', 'cpi-indicator-title', label),
+        el('strong', '', item.actual === null ? '—' : `${item.actual.toFixed(1)}%`),
+      );
+      const comparison = el('div', 'cpi-indicator-comparison');
+      comparison.append(
+        el('span', '', `共识 ${item.consensus ?? '—'}%`),
+        el('span', '', `前值 ${item.previous ?? '—'}%`),
+        el('span', '', `惊喜 ${item.raw_surprise === null ? '—' : `${item.raw_surprise > 0 ? '+' : ''}${item.raw_surprise.toFixed(2)}`}`),
+      );
+      card.appendChild(comparison);
+      const quality = item.actual_quality;
+      card.appendChild(el(
+        'small',
+        '',
+        quality
+          ? `${quality.source_name} · 质量 ${quality.quality_grade}${quality.is_verified ? ' · 已核验' : ''}`
+          : '来源质量待确认',
+      ));
+      indicators.appendChild(card);
+    }
+    article.appendChild(indicators);
+
+    article.append(
+      this.renderCpiCrossAssetChart(detail),
+      this.renderCpiReactionTable(detail),
+      this.renderCpiReasoning(detail),
+      this.renderCpiHistory(detail),
+      this.renderCpiDataAudit(detail),
+    );
+    return article;
+  }
+
+  private renderCpiCrossAssetChart(detail: CpiEventDetail): HTMLElement {
+    const section = el('section', 'cpi-research-panel cpi-chart-panel');
+    section.append(
+      el('div', 'world-kicker', 'CROSS-ASSET TIMELINE'),
+      el('h3', '', '事件前后 60 分钟：统一归一化为百分比'),
+      el('p', 'cpi-panel-intro', '竖线为 T0。领先顺序仅表示分钟数据中最早观察到的显著反应，不代表逐笔市场领先。'),
+    );
+    const palette: Record<string, { color: string; label: string }> = {
+      gold_gc: { color: '#f5bd42', label: '黄金 GC' },
+      silver_si: { color: '#c4ccd8', label: '白银 SI' },
+      dollar_dxy: { color: '#5be0a4', label: '美元 DXY' },
+      sp500_es: { color: '#60a5fa', label: '标普 ES' },
+      nasdaq_nq: { color: '#a78bfa', label: '纳指 NQ' },
+      ust2y_zt: { color: '#fb7185', label: '2Y 代理 ZT' },
+      ust10y_zn: { color: '#f97316', label: '10Y 代理 ZN' },
+    };
+    const series = Object.entries(detail.timeline)
+      .filter(([key]) => palette[key])
+      .map(([key, rows]) => ({
+        key,
+        rows: rows.filter((row) => row.normalized_percent !== null),
+      }))
+      .filter((item) => item.rows.length > 1);
+    const allRows = series.flatMap((item) => item.rows);
+    if (!allRows.length) {
+      section.appendChild(el('div', 'cpi-lab-state', '当前没有足够的分钟行情绘图。'));
+      return section;
+    }
+    const times = allRows.map((row) => new Date(row.timestamp).getTime());
+    const minTime = Math.min(...times);
+    const maxTime = Math.max(...times);
+    const maxAbs = Math.max(
+      0.1,
+      ...allRows.map((row) => Math.abs(row.normalized_percent ?? 0)),
+    );
+    const width = 900;
+    const height = 330;
+    const padding = { left: 58, right: 20, top: 24, bottom: 38 };
+    const plotWidth = width - padding.left - padding.right;
+    const plotHeight = height - padding.top - padding.bottom;
+    const x = (time: number): number => padding.left
+      + ((time - minTime) / Math.max(1, maxTime - minTime)) * plotWidth;
+    const y = (value: number): number => padding.top
+      + ((maxAbs - value) / (maxAbs * 2)) * plotHeight;
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', 'cpi-cross-asset-chart');
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', 'CPI 公布前后跨资产归一化表现');
+
+    for (const value of [-maxAbs, 0, maxAbs]) {
+      const line = document.createElementNS(SVG_NS, 'line');
+      line.setAttribute('x1', String(padding.left));
+      line.setAttribute('x2', String(width - padding.right));
+      line.setAttribute('y1', String(y(value)));
+      line.setAttribute('y2', String(y(value)));
+      line.setAttribute('class', value === 0 ? 'cpi-chart-zero' : 'cpi-chart-grid');
+      svg.appendChild(line);
+      const label = document.createElementNS(SVG_NS, 'text');
+      label.setAttribute('x', '4');
+      label.setAttribute('y', String(y(value) + 4));
+      label.textContent = `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+      svg.appendChild(label);
+    }
+    const releaseTime = new Date(detail.release_at).getTime();
+    const eventLine = document.createElementNS(SVG_NS, 'line');
+    eventLine.setAttribute('x1', String(x(releaseTime)));
+    eventLine.setAttribute('x2', String(x(releaseTime)));
+    eventLine.setAttribute('y1', String(padding.top));
+    eventLine.setAttribute('y2', String(height - padding.bottom));
+    eventLine.setAttribute('class', 'cpi-chart-event-line');
+    svg.appendChild(eventLine);
+    const eventLabel = document.createElementNS(SVG_NS, 'text');
+    eventLabel.setAttribute('x', String(x(releaseTime) + 6));
+    eventLabel.setAttribute('y', String(padding.top + 13));
+    eventLabel.setAttribute('class', 'cpi-chart-event-label');
+    eventLabel.textContent = 'T0 / CPI';
+    svg.appendChild(eventLabel);
+
+    for (const item of series) {
+      const style = palette[item.key];
+      if (!style) continue;
+      const line = document.createElementNS(SVG_NS, 'polyline');
+      line.setAttribute(
+        'points',
+        item.rows
+          .map((row) => `${x(new Date(row.timestamp).getTime()).toFixed(1)},${y(row.normalized_percent ?? 0).toFixed(1)}`)
+          .join(' '),
+      );
+      line.setAttribute('fill', 'none');
+      line.setAttribute('stroke', style.color);
+      line.setAttribute('class', 'cpi-chart-series');
+      svg.appendChild(line);
+    }
+    section.appendChild(svg);
+    const legend = el('div', 'cpi-chart-legend');
+    for (const item of series) {
+      const style = palette[item.key];
+      if (!style) continue;
+      const label = el('span');
+      const swatch = el('i');
+      swatch.style.backgroundColor = style.color;
+      label.append(swatch, document.createTextNode(style.label));
+      legend.appendChild(label);
+    }
+    section.appendChild(legend);
+
+    const [first] = detail.earliest_reactions;
+    if (first) {
+      section.appendChild(el(
+        'p',
+        'cpi-earliest-note',
+        `最早观察：${palette[first.instrument_key]?.label ?? first.instrument_key}，T+${first.lag_seconds} 秒，阈值 ${first.threshold_percent.toFixed(3)}%，需 ${first.confirmation_bars} 根 bar 连续确认。`,
+      ));
+    }
+    return section;
+  }
+
+  private renderCpiReactionTable(detail: CpiEventDetail): HTMLElement {
+    const section = el('section', 'cpi-research-panel');
+    section.append(
+      el('div', 'world-kicker', 'REACTION WINDOWS'),
+      el('h3', '', '跨资产分阶段反应'),
+      el('p', 'cpi-panel-intro', '期货价格与收益率方向不同：ZT、ZN 下跌通常对应收益率上行，页面始终标记为代理。'),
+    );
+    const table = el('div', 'cpi-reaction-table');
+    const header = el('div', 'cpi-reaction-row is-header');
+    ['资产', 'T+1m', 'T+5m', 'T+15m', 'T+60m', '形态 / 质量'].forEach((label) => {
+      header.appendChild(el('span', '', label));
+    });
+    table.appendChild(header);
+    for (const asset of detail.assets) {
+      const row = el('div', 'cpi-reaction-row');
+      const assetCell = el('span', 'cpi-reaction-asset');
+      assetCell.append(
+        el('strong', '', `${asset.symbol}${asset.is_proxy ? ' · 代理' : ''}`),
+        el('small', '', asset.title),
+      );
+      row.appendChild(assetCell);
+      for (const windowKey of ['post_1m', 'post_5m', 'post_15m', 'post_60m']) {
+        const window = asset.windows.find((item) => item.key === windowKey);
+        row.appendChild(el(
+          'span',
+          `cpi-window-move cpi-window-${window?.direction ?? 'missing'}`,
+          window?.return_percent === null || window?.return_percent === undefined
+            ? '—'
+            : `${window.return_percent > 0 ? '+' : ''}${window.return_percent.toFixed(2)}%`,
+        ));
+      }
+      const five = asset.windows.find((item) => item.key === 'post_5m');
+      const flags = [
+        five?.spike_fade ? '冲高回落' : '',
+        five?.dip_recovery ? '探底回升' : '',
+        asset.windows.some((item) => item.direction_reversal) ? '方向反转' : '',
+      ].filter(Boolean);
+      const audit = el('span', 'cpi-window-audit');
+      audit.append(
+        el('strong', '', flags.join(' · ') || '方向延续'),
+        el('small', '', `质量 ${five?.quality_grade ?? '—'} · 覆盖 ${Math.round((five?.coverage_ratio ?? 0) * 100)}%`),
+      );
+      row.appendChild(audit);
+      table.appendChild(row);
+    }
+    section.appendChild(table);
+    return section;
+  }
+
+  private renderCpiReasoning(detail: CpiEventDetail): HTMLElement {
+    const section = el('section', 'cpi-research-panel');
+    section.append(
+      el('div', 'world-kicker', 'FACT → RULE → COMPETITION'),
+      el('h3', '', '从确定事实到有边界的解释'),
+    );
+    const columns = el('div', 'cpi-reasoning-grid');
+    const facts = el('div', 'cpi-reasoning-column');
+    facts.append(el('h4', '', '已确认事实'), el('p', '', '由数据和程序直接计算。'));
+    detail.facts.slice(0, 9).forEach((fact) => {
+      const item = el('article');
+      item.append(el('strong', '', fact.statement), el('small', '', `事实置信 ${Math.round(fact.confidence * 100)}%`));
+      facts.appendChild(item);
+    });
+    const rules = el('div', 'cpi-reasoning-column');
+    rules.append(el('h4', '', '传导与竞争解释'), el('p', '', '关系、推断和限制分开表达。'));
+    detail.explanations.forEach((explanation) => {
+      const item = el('article', explanation.kind === 'competing_explanation' ? 'is-competing' : '');
+      item.append(
+        el('span', 'cpi-rule-status', explanation.kind === 'competing_explanation' ? '竞争解释' : '主要规则'),
+        el('strong', '', explanation.label),
+        el('p', '', explanation.inference),
+      );
+      const evidence = el('ul');
+      explanation.evidence.forEach((text) => evidence.appendChild(el('li', '', text)));
+      item.append(evidence, el('small', '', `表述等级：${explanation.certainty}`));
+      rules.appendChild(item);
+    });
+    columns.append(facts, rules);
+    section.appendChild(columns);
+    return section;
+  }
+
+  private renderCpiHistory(detail: CpiEventDetail): HTMLElement {
+    const historyData = detail.historical;
+    const section = el('section', 'cpi-research-panel');
+    section.append(
+      el('div', 'world-kicker', 'HISTORICAL COMPARISON'),
+      el('h3', '', historyData.mode === 'statistics' ? '固定样本历史统计' : '历史案例展示'),
+      el(
+        'p',
+        'cpi-panel-intro',
+        `筛选前 ${historyData.pre_filter_count} 个，筛选后 ${historyData.post_filter_count} 个；最低统计样本 ${historyData.minimum_sample} 个。`,
+      ),
+    );
+    const filters = el('div', 'cpi-history-filters');
+    historyData.filters.forEach((filter) => {
+      filters.appendChild(el('span', '', `${filter.condition} · ${filter.before}→${filter.after}`));
+    });
+    section.appendChild(filters);
+    const cards = el('div', 'cpi-history-metrics');
+    const metricLabels: Record<string, string> = {
+      'gold_gc:post_5m': '黄金 5m',
+      'silver_si:post_5m': '白银 5m',
+      'dollar_dxy:post_5m': '美元 5m',
+      'sp500_es:post_5m': 'ES 5m',
+      'nasdaq_nq:post_5m': 'NQ 5m',
+      'ust2y_zt:post_5m': 'ZT 5m',
+      'ust10y_zn:post_5m': 'ZN 5m',
+    };
+    Object.entries(historyData.metrics).forEach(([key, metric]) => {
+      const card = el('article');
+      card.append(el('span', '', metricLabels[key] ?? key), el('strong', '', `${metric.sample_size} 个样本`));
+      if (metric.reliable) {
+        card.append(
+          el('small', '', `均值 ${formatMove(metric.mean)}`),
+          el('small', '', `上涨概率 ${Math.round((metric.up_probability ?? 0) * 100)}%`),
+          el('small', '', `本次百分位 ${metric.current_percentile?.toFixed(0) ?? '—'}`),
+        );
+      } else {
+        card.appendChild(el('small', 'is-warning', '样本不足，不输出概率或百分位'));
+      }
+      cards.appendChild(card);
+    });
+    section.appendChild(cards);
+    if (historyData.warning) section.appendChild(el('p', 'cpi-history-warning', historyData.warning));
+    return section;
+  }
+
+  private renderCpiDataAudit(detail: CpiEventDetail): HTMLElement {
+    const section = el('section', 'cpi-research-panel cpi-audit-panel');
+    section.append(
+      el('div', 'world-kicker', 'DATA QUALITY & PROVENANCE'),
+      el('h3', '', '数据缺口与来源追踪'),
+    );
+    const layout = el('div', 'cpi-audit-grid');
+    const gaps = el('div');
+    gaps.appendChild(el('h4', '', '本次仍不能确认'));
+    const gapList = el('ul');
+    detail.data_gaps.forEach((gap) => gapList.appendChild(el('li', '', gap)));
+    detail.contamination.confounding_notes.forEach((note) => gapList.appendChild(el('li', '', note)));
+    gaps.appendChild(gapList);
+    const sources = el('div');
+    sources.appendChild(el('h4', '', '来源记录'));
+    const unique = detail.data_quality.filter(
+      (quality, index, rows) => rows.findIndex((item) =>
+        item.source_name === quality.source_name
+        && item.source_type === quality.source_type
+        && item.quality_grade === quality.quality_grade) === index,
+    );
+    unique.slice(0, 8).forEach((quality) => {
+      const row = el('article', 'cpi-source-row');
+      row.append(
+        el('strong', '', quality.source_name),
+        el('span', '', `等级 ${quality.quality_grade} · ${quality.is_fixture ? 'fixture' : quality.is_manual ? '人工录入' : 'provider'}`),
+      );
+      if (quality.source_url) row.appendChild(externalLink('查看原始来源 ↗', quality.source_url));
+      sources.appendChild(row);
+    });
+    layout.append(gaps, sources);
+    section.appendChild(layout);
+    return section;
   }
 
   private renderMarketTicker(): HTMLElement {
@@ -2227,6 +2720,11 @@ export class MacroApp {
           '把主事件的完整传导链讲清楚。',
           '哪种替代解释最可能推翻当前主线？',
           '算法交易在消息发布后扮演什么角色？',
+        ],
+        lab: [
+          '这次 CPI 的四项数据怎样合成一个整体信号？',
+          '为什么 ZT、美元和黄金会形成这条传导链？',
+          '本次反应和历史样本相比异常在哪里？',
         ],
         calendar: [
           '下一项高影响数据可能怎样影响黄金和美债？',

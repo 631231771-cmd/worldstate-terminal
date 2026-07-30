@@ -603,6 +603,221 @@ export interface TutorMessage {
   content: string;
 }
 
+export interface CpiEventListItem {
+  id: string;
+  event_key: string;
+  event_type: 'US_CPI';
+  title: string;
+  period_label: string;
+  release_at: string;
+  status: string;
+  classification: string;
+  surprise_score: number | null;
+  impact: string;
+  analysis_status: string;
+  confidence: number;
+  is_fixture: boolean;
+  clean_window: boolean;
+  contamination_level: string;
+  indicators: Array<{
+    key: string;
+    actual: number | null;
+    consensus: number | null;
+    previous: number | null;
+    revised_previous: number | null;
+    surprise: number | null;
+    direction: string;
+  }>;
+}
+
+export interface CpiEventDetail {
+  id: string;
+  event_key: string;
+  event_type: 'US_CPI';
+  title: string;
+  country: string;
+  period_label: string;
+  release_at: string;
+  source_timezone: string;
+  status: string;
+  source_url: string;
+  data_version: string;
+  data_mode: 'mixed_real_and_fixture' | 'observed';
+  bundle: {
+    classification: string;
+    score: number | null;
+    direction: string;
+    core_direction: string;
+    methodology_version: string;
+  };
+  indicators: Array<{
+    key: string;
+    title: string;
+    unit: string;
+    actual: number | null;
+    consensus: number | null;
+    previous: number | null;
+    revised_previous: number | null;
+    first_release: number | null;
+    raw_surprise: number | null;
+    relative_surprise: number | null;
+    standardized_surprise: number | null;
+    surprise_direction: string;
+    actual_quality: CpiDataQuality | null;
+    latest_consensus_quality: CpiDataQuality | null;
+  }>;
+  consensus_history: Array<{
+    indicator_key: string;
+    value: number | null;
+    source: string;
+    source_url: string | null;
+    captured_at: string;
+    quality: string;
+    is_manual: boolean;
+    verification_notes: string | null;
+  }>;
+  contamination: {
+    level: string;
+    clean_window: boolean;
+    overlapping_events: Array<Record<string, string>>;
+    confounding_notes: string[];
+    causal_language: string;
+  };
+  assets: Array<{
+    key: string;
+    title: string;
+    symbol: string;
+    contract_code: string | null;
+    exchange: string;
+    quote_unit: string;
+    measurement_type: string;
+    is_proxy: boolean;
+    proxy_for: string | null;
+    provider_key: string | null;
+    windows: Array<{
+      key: string;
+      label: string;
+      start_at: string;
+      end_at: string;
+      start_value: number | null;
+      end_value: number | null;
+      change_absolute: number | null;
+      return_percent: number | null;
+      max_up_percent: number | null;
+      max_down_percent: number | null;
+      realized_volatility: number | null;
+      volume_change_percent: number | null;
+      coverage_ratio: number;
+      direction: string;
+      spike_fade: boolean;
+      dip_recovery: boolean;
+      direction_reversal: boolean;
+      granularity_seconds: number;
+      quality_grade: string;
+      missing_reason: string | null;
+    }>;
+  }>;
+  timeline: Record<string, Array<{
+    timestamp: string;
+    value: number | null;
+    normalized_percent: number | null;
+    volume: number | null;
+  }>>;
+  facts: Array<{
+    kind: string;
+    key: string;
+    statement: string;
+    confidence: number;
+    limitation?: string;
+  }>;
+  earliest_reactions: Array<{
+    instrument_key: string;
+    detected_at: string;
+    lag_seconds: number;
+    move_percent: number;
+    direction: string;
+    threshold_percent: number;
+    pre_event_volatility: number;
+    granularity_seconds: number;
+    confirmation_bars: number;
+    limitation: string;
+  }>;
+  explanations: Array<{
+    kind: string;
+    rule: string;
+    label: string;
+    status: string;
+    evidence: string[];
+    inference: string;
+    certainty: string;
+  }>;
+  historical: {
+    mode: 'statistics' | 'case_studies';
+    reliable: boolean;
+    minimum_sample: number;
+    pre_filter_count: number;
+    post_filter_count: number;
+    filter_recipe: string;
+    filters: Array<{ condition: string; before: number; after: number }>;
+    metrics: Record<string, {
+      sample_size: number;
+      reliable: boolean;
+      reason?: string;
+      mean?: number;
+      median?: number;
+      up_probability?: number;
+      current_percentile?: number | null;
+    }>;
+    similar_cases: Array<{
+      event_id: string;
+      release_at: string;
+      classification: string;
+      similarity: number;
+      clean_window: boolean;
+      contamination_level: string;
+      returns: Record<string, number | null>;
+    }>;
+    warning: string | null;
+  };
+  confidence: number;
+  data_gaps: string[];
+  report: string;
+  generated_at: string | null;
+  data_quality: CpiDataQuality[];
+  integrations: Record<string, unknown>;
+}
+
+export interface CpiDataQuality {
+  id: string;
+  source_name: string;
+  source_url: string | null;
+  source_type: string;
+  acquired_at: string;
+  is_manual: boolean;
+  is_verified: boolean;
+  is_fixture: boolean;
+  is_proxy: boolean;
+  latency_seconds: number | null;
+  granularity_seconds: number | null;
+  missing_reason: string | null;
+  quality_grade: string;
+  verification_notes: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface CpiEventLabStatus {
+  state: string;
+  methodology_version: string;
+  demo_event_id: string;
+  events: number;
+  market_bars: number;
+  window_metrics: number;
+  analyses: number;
+  required_indicators: string[];
+  supported_instruments: string[];
+  warnings: string[];
+}
+
 const DEFAULT_API_URL = 'http://127.0.0.1:8000';
 const SNAPSHOT_CACHE_MS = 5_000;
 
@@ -733,4 +948,19 @@ export function askWorldTutor(
     },
     signal,
   );
+}
+
+export function getCpiEventLabStatus(signal?: AbortSignal): Promise<CpiEventLabStatus> {
+  return getJson<CpiEventLabStatus>('/v1/events/lab/status', signal);
+}
+
+export function getCpiEvents(signal?: AbortSignal): Promise<CpiEventListItem[]> {
+  return getJson<CpiEventListItem[]>('/v1/events?event_type=US_CPI', signal);
+}
+
+export function getCpiEventDetail(
+  eventId: string,
+  signal?: AbortSignal,
+): Promise<CpiEventDetail> {
+  return getJson<CpiEventDetail>(`/v1/events/${encodeURIComponent(eventId)}`, signal);
 }

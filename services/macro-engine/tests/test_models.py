@@ -22,6 +22,14 @@ def test_initial_schema_contains_required_entities_and_indexes() -> None:
         "thesis_conditions",
         "thesis_evidence",
         "thesis_snapshots",
+        "data_quality_records",
+        "macro_events",
+        "event_indicators",
+        "consensus_snapshots",
+        "market_instruments",
+        "market_bars",
+        "event_window_metrics",
+        "event_analyses",
     }
 
     assert required == set(Base.metadata.tables)

@@ -391,3 +391,299 @@ class ThesisSnapshot(Base):
     )
     world_state: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
     source_snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class DataQualityRecord(Base):
+    """Traceable quality metadata shared by event values and market bars."""
+
+    __tablename__ = "data_quality_records"
+    __table_args__ = (
+        CheckConstraint(
+            "quality_grade IN ('A','B','C','D','UNKNOWN')",
+            name="ck_data_quality_grade",
+        ),
+        Index("ix_data_quality_source_acquired", "source_name", "acquired_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    source_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_url: Mapped[str | None] = mapped_column(String(2048))
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_manual: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_fixture: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_proxy: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    latency_seconds: Mapped[int | None] = mapped_column(Integer)
+    granularity_seconds: Mapped[int | None] = mapped_column(Integer)
+    missing_reason: Mapped[str | None] = mapped_column(Text)
+    quality_grade: Mapped[str] = mapped_column(String(16), nullable=False)
+    verification_notes: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class MacroEvent(TimestampMixin, Base):
+    """A point-in-time macro release that may contain multiple indicators."""
+
+    __tablename__ = "macro_events"
+    __table_args__ = (
+        UniqueConstraint("event_type", "release_at", name="uq_macro_events_type_release"),
+        Index("ix_macro_events_release", "release_at", "event_type"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    event_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    country: Mapped[str] = mapped_column(String(3), nullable=False)
+    period_label: Mapped[str] = mapped_column(String(64), nullable=False)
+    release_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_timezone: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    data_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_fixture: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    contamination_level: Mapped[str] = mapped_column(String(32), default="none", nullable=False)
+    clean_window: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    overlapping_events: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    confounding_notes: Mapped[list[str]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    primary_quality_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("data_quality_records.id")
+    )
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+
+
+class EventIndicator(Base):
+    """One component of a simultaneous macro release bundle."""
+
+    __tablename__ = "event_indicators"
+    __table_args__ = (
+        UniqueConstraint("event_id", "indicator_key", name="uq_event_indicator_key"),
+        Index("ix_event_indicators_event", "event_id", "indicator_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("macro_events.id", ondelete="CASCADE"), nullable=False
+    )
+    indicator_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    actual_value: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    previous_value: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    revised_previous_value: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    first_release_value: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    data_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    hotter_when_higher: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    bundle_weight: Mapped[float] = mapped_column(Float, nullable=False)
+    raw_surprise: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    relative_surprise: Mapped[float | None] = mapped_column(Float)
+    standardized_surprise: Mapped[float | None] = mapped_column(Float)
+    surprise_direction: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    actual_quality_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("data_quality_records.id")
+    )
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+
+
+class ConsensusSnapshot(Base):
+    """Append-only consensus capture made before an event release."""
+
+    __tablename__ = "consensus_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id",
+            "indicator_key",
+            "consensus_captured_at",
+            "consensus_source",
+            name="uq_consensus_capture",
+        ),
+        Index(
+            "ix_consensus_event_indicator_captured",
+            "event_id",
+            "indicator_key",
+            "consensus_captured_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("macro_events.id", ondelete="CASCADE"), nullable=False
+    )
+    indicator_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    consensus_value: Mapped[Decimal] = mapped_column(DECIMAL_VALUE, nullable=False)
+    consensus_source: Mapped[str] = mapped_column(String(255), nullable=False)
+    consensus_source_url: Mapped[str | None] = mapped_column(String(2048))
+    consensus_captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consensus_quality: Mapped[str] = mapped_column(String(32), nullable=False)
+    consensus_is_manual: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    verification_notes: Mapped[str | None] = mapped_column(Text)
+    quality_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("data_quality_records.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class MarketInstrument(TimestampMixin, Base):
+    """A quoted instrument or explicitly labelled proxy used around events."""
+
+    __tablename__ = "market_instruments"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    canonical_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    symbol: Mapped[str] = mapped_column(String(64), nullable=False)
+    root_symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    contract_code: Mapped[str | None] = mapped_column(String(64))
+    exchange: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    asset_class: Mapped[str] = mapped_column(String(64), nullable=False)
+    quote_unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    measurement_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_timezone: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_proxy: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    proxy_for: Mapped[str | None] = mapped_column(String(255))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+
+
+class MarketBar(Base):
+    """Normalized OHLCV bar with provider and quality provenance."""
+
+    __tablename__ = "market_bars"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id",
+            "timestamp",
+            "interval_seconds",
+            "provider_key",
+            name="uq_market_bar_provider_time",
+        ),
+        Index(
+            "ix_market_bars_instrument_time",
+            "instrument_id",
+            "timestamp",
+            "interval_seconds",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(IDENTITY_INTEGER, primary_key=True, autoincrement=True)
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("market_instruments.id"), nullable=False
+    )
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    open_value: Mapped[Decimal] = mapped_column(DECIMAL_VALUE, nullable=False)
+    high_value: Mapped[Decimal] = mapped_column(DECIMAL_VALUE, nullable=False)
+    low_value: Mapped[Decimal] = mapped_column(DECIMAL_VALUE, nullable=False)
+    close_value: Mapped[Decimal] = mapped_column(DECIMAL_VALUE, nullable=False)
+    volume: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_symbol: Mapped[str] = mapped_column(String(128), nullable=False)
+    contract_code: Mapped[str | None] = mapped_column(String(64))
+    quality_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("data_quality_records.id"))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+
+
+class EventWindowMetric(Base):
+    """Computed response of one instrument over one event-relative window."""
+
+    __tablename__ = "event_window_metrics"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id",
+            "instrument_id",
+            "window_key",
+            name="uq_event_window_instrument",
+        ),
+        Index("ix_event_windows_event", "event_id", "window_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("macro_events.id", ondelete="CASCADE"), nullable=False
+    )
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("market_instruments.id"), nullable=False
+    )
+    window_key: Mapped[str] = mapped_column(String(32), nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    start_value: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    end_value: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    change_absolute: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    return_percent: Mapped[float | None] = mapped_column(Float)
+    max_up_percent: Mapped[float | None] = mapped_column(Float)
+    max_down_percent: Mapped[float | None] = mapped_column(Float)
+    realized_volatility: Mapped[float | None] = mapped_column(Float)
+    volume_change_percent: Mapped[float | None] = mapped_column(Float)
+    coverage_ratio: Mapped[float] = mapped_column(Float, nullable=False)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False)
+    spike_fade: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    dip_recovery: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    direction_reversal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    granularity_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    quality_grade: Mapped[str] = mapped_column(String(16), nullable=False)
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+
+
+class EventAnalysis(Base):
+    """Structured facts and bounded explanations for one methodology version."""
+
+    __tablename__ = "event_analyses"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id",
+            "methodology_version",
+            name="uq_event_analysis_methodology",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("macro_events.id", ondelete="CASCADE"), nullable=False
+    )
+    methodology_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    composite_classification: Mapped[str] = mapped_column(String(128), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    facts_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    explanations_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    historical_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    earliest_reactions_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    data_gaps_json: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    report_text: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

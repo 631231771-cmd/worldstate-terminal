@@ -1,6 +1,6 @@
 # Macro Terminal operations
 
-Status: Phase 10 event-reaction research desk and local learning journal.
+Status: Phase 11 CPI Event Lab.
 
 ## Windows one-click workflow
 
@@ -88,6 +88,30 @@ only the explicitly dated major releases copied from the official 2026 annual
 schedule and marks the row `bundled_official_schedule`. It never silently
 substitutes an unofficial date. The calendar source ledger is visible under
 **观点与证据**.
+
+## CPI Event Lab
+
+Open **事件实验室** or navigate to:
+
+```text
+http://127.0.0.1:4173/?lang=zh&view=lab
+```
+
+The first lab request idempotently loads the bundled February 2024 CPI
+demonstration and historical comparison cases. The BLS actual values and
+archived consensus source are retained with their URLs. The bundled minute bars
+are deterministic fixtures and are always marked as such. They are safe for
+workflow verification, not market-history research.
+
+To replace a fixture instrument with a minute CSV, send it through
+`POST /v1/events/{event_id}/market-bars/import`. Required columns:
+`timestamp,instrument_key,open,high,low,close`; optional columns:
+`volume,interval_seconds,source_symbol,contract_code`. Use timezone-aware ISO
+timestamps. The import appends a quality record, updates the selected provider
+for the event/instrument windows, and reruns the complete report.
+
+Consensus snapshots are append-only and must have a capture timestamp before
+the release. Updating an event does not erase earlier snapshots.
 
 ## Connect an optional ClawFeed instance
 
@@ -203,6 +227,8 @@ npm run build:macro
 | one series fails | inspect sync warnings; remaining series continue |
 | port already in use | stop the owning application; WorldState never kills an unowned process |
 | migration error | back up `.runtime/worldstate.db`, then inspect engine logs |
+| Event Lab shows fixture | import licensed/verified minute CSV; fixture never silently becomes live |
+| historical probability is absent | the fixed filters left fewer than five samples, so the engine downgraded to cases |
 
 SQLite backup is a copy of `worldstate.db` made while WorldState is stopped.
 PostgreSQL deployments should use native database backup tooling.

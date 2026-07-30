@@ -31,6 +31,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+analytics = ["macrosynergy>=1.8,<2"]
 openbb = ["openbb==4.7.2"]
 
 [dependency-groups]
@@ -67,6 +68,8 @@ ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
 "migrations/versions/*.py" = ["E501", "N999"]
+"src/macro_engine/event_lab/*.py" = ["RUF001"]
+"src/macro_engine/event_lab/fixtures.py" = ["RUF001", "S311"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -77,6 +77,55 @@ source metadata, and revision count.
 
 Prometheus ASGI endpoint and FastAPI OpenAPI UI.
 
+## CPI Event Lab endpoints
+
+### `GET /v1/events/lab/status`
+
+Returns the CPI vertical-slice state, methodology version, demonstration event
+ID, event/bar/window/analysis counts, supported indicators and instruments,
+and explicit fixture/proxy warnings.
+
+### `GET /v1/events?event_type=US_CPI`
+
+Lists CPI releases with all four indicator values, latest pre-release consensus
+snapshot, previous and revised-previous values, surprise, composite
+classification, contamination state, confidence, and analysis status.
+
+### `GET /v1/events/{event_id}`
+
+Returns one complete CPI research packet:
+
+- four-indicator EventBundle and point-in-time consensus history;
+- normalized cross-asset minute timeline;
+- T-60/T-15 and T+1/T+5/T+15/T+30/T+60/T+4h window metrics;
+- explicitly incomplete U.S. close, next-close, and five-day windows when the
+  imported data does not cover those sessions;
+- first volatility-adjusted, consecutively confirmed reaction observable at
+  the source granularity;
+- spike-fade, dip-recovery, and direction-reversal flags;
+- confirmed facts, primary rules, competing explanations, contamination
+  constraints, confidence, and data gaps;
+- fixed-filter historical statistics or a sample-safe case-study downgrade;
+- source, acquisition, manual/verified/fixture/proxy, granularity, latency,
+  missing-reason, and quality-grade metadata.
+
+### Controlled write endpoints
+
+- `POST /v1/events/cpi` creates or updates a complete four-indicator CPI bundle.
+- `POST /v1/events/{event_id}/consensus` appends a pre-release consensus
+  snapshot. A snapshot at or after release time is rejected.
+- `POST /v1/events/{event_id}/market-bars/import` imports normalized CSV bars
+  for GC, SI, DXY, ES, NQ, ZT, or ZN through the provider boundary.
+- `POST /v1/events/{event_id}/analyze` deterministically reruns the analysis.
+
+The CSV fields are `timestamp`, `instrument_key`, `open`, `high`, `low`,
+`close`, with optional `volume`, `interval_seconds`, `source_symbol`, and
+`contract_code`. Timestamps must include a timezone.
+
+Loopback desktop requests from the configured frontend origins may write
+without placing a secret in browser code. Non-local writes require
+`MACRO_ENABLE_WRITES=true` and a matching bearer or `X-Write-Token`.
+
 ## Tutor endpoint
 
 ### `POST /v1/world/ask`

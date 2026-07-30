@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 from prometheus_client import make_asgi_app
 
 from macro_engine import __version__
+from macro_engine.api.events import router as events_router
 from macro_engine.api.health import router as health_router
 from macro_engine.api.terminal import router as terminal_router
 from macro_engine.api.world import router as world_router
@@ -81,6 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(terminal_router)
     app.include_router(world_router)
+    app.include_router(events_router)
     app.mount("/metrics", make_asgi_app())
     return app
 
