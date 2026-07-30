@@ -1,7 +1,7 @@
 ---
 project: World State Terminal
-status: phase-10-append-only-research-journal-complete
-updated: 2026-07-28
+status: phase-11-cpi-event-lab-complete
+updated: 2026-07-30
 branch: feature/world-state-terminal
 phase_1_formal_commit: a458e54d06b32992001693804b49f5f59a1f4019
 phase_2_formal_commit: d144c96a6afcf674e854e80feefbfa66cdbf8549
@@ -13,164 +13,147 @@ phase_7_agent_reach_commit: c86554868
 phase_8_research_desk_commit: ff6cd0be22232661bb9ed0d06bad29d48a447809
 phase_9_event_reaction_commit: 0864f26ec40efc506f8731dcf439f28008ddb696
 phase_10_research_journal_commit: 93adf9169a97e3b021f1c7110dd3fdab97cad9a3
-resume_from: phase-11-intraday-values-or-source-pools
+phase_11_open_source_audit_commit: 79cf4d371
+phase_11_cpi_event_lab_commit: 2984f7e1e
+resume_from: phase-12-nonfarm-payroll-event-bundle
 ---
 
 # Current continuation point
 
 > [!important] Resume here
-> Phase 10 is complete. World State Terminal is now a seven-workspace global
-> macro research desk with an event-reaction workbench, append-only local
-> decision journal, official calendar, cross-asset system, transparent X
-> research calls, reusable event playbooks, and an evidence-bounded AI tutor.
+> Phase 11 is complete. World State Terminal now has a running US CPI Event
+> Lab that separates verified release values, pre-release consensus snapshots,
+> illustrative or imported market bars, deterministic facts, competing macro
+> explanations, historical comparison, contamination, and data limitations.
 >
-> Continue from intraday event-window measurement, actual-versus-consensus
-> capture, or the persistent research journal. Preserve the core loop:
-> **fact → expectation gap → pricing variable → financial conditions →
-> economy → inflation/profits → policy response → asset confirmation**.
+> Continue with the nonfarm-payroll bundle, then the multi-stage FOMC event
+> model. Do not weaken the point-in-time, provenance, proxy-label, contamination,
+> minimum-sample, or bounded-language rules added in Phase 11.
 
-> [!success] Phase 10 completed
-> Every selected calendar event now has a local research journal that separates
-> the primary hypothesis, alternative explanation, disconfirming evidence,
-> unknowns, verified values, post-event review, and transferable lesson. Saves
-> append a timestamped revision instead of overwriting earlier reasoning.
->
-> Completion checkpoint:
-> `00-checkpoints/2026-07-28-phase-10-append-only-research-journal.md`
+Completion checkpoint:
+`00-checkpoints/2026-07-30-phase-11-cpi-event-lab.md`
 
 ## What is running
 
-- `WorldStateApp.bat` opens the terminal in a native PySide6 desktop window.
-- `WorldState.bat` remains the operations launcher.
-- Commands: `start`, `stop`, `restart`, `status`, `sync`, `doctor`, and `logs`.
-- Launcher-managed services are running on ports `8000` and `4173`.
-- The current browser preview is
-  `http://127.0.0.1:4173/?lang=zh&view=overview`.
+- `WorldStateApp.bat` opens the native desktop shell.
+- `WorldState.bat` controls the API and frontend with `start`, `stop`,
+  `restart`, `status`, `sync`, `doctor`, and `logs`.
+- The API runs at `http://127.0.0.1:8000`.
+- The frontend runs at `http://127.0.0.1:4173`.
+- CPI Event Lab:
+  `http://127.0.0.1:4173/?lang=zh&view=lab&labEvent=0525dad4-8d45-45ed-8e76-f47d22f3ad90`
 
 ## Product structure
 
-The terminal has seven URL-backed workspaces:
+The terminal has eight URL-backed workspaces:
 
-1. `overview` — 今日桌面：核心问题、市场状态、跨资产确认和今日主线。
-2. `events` — 事件雷达：事实、预期差、完整传导、替代解释和反证。
-3. `calendar` — 事件研究工作台：事前预案、预期差、定价变量、资产分化、
-   放大机制和后续验证。
-4. `markets` — 资产地图：十二类资产、1/5/20 日视角、历史与相关性。
-5. `themes` — 国家与主题：八个主题和七个国家或地区研究入口。
-6. `signals` — 观点与证据：研究管线、来源调用、相关性和证据边界。
-7. `library` — 学习与复盘：六类事件模板、框架、课程和 AI 导师。
+1. `overview` — 今日桌面；
+2. `events` — 事件雷达；
+3. `calendar` — 事件研究工作台；
+4. `lab` — CPI 事件实验室；
+5. `markets` — 资产地图；
+6. `themes` — 国家与主题；
+7. `signals` — 观点与证据；
+8. `library` — 学习、复盘与 AI 导师。
 
-## Delivered state
+## Phase 11 delivered state
 
-- Eight prioritized world events and twelve tracked markets, including silver.
-- Twenty-two official macro events from BLS, BEA, Census, Federal Reserve, ECB,
-  Bank of Japan, and Bank of England.
-- Every calendar event includes provenance, impact, a research question, two
-  scenarios, first-pricing variables, and assets to watch.
-- The selected calendar event exposes a six-step preview/reaction path:
-  timeline, expectation gap, first pricing variables, asset-specific channels,
-  possible amplifiers, and next verification.
-- Every calendar event has a structured local decision journal.
-- Meaningful saves append revisions; unchanged saves do not create duplicates.
-- Journals export as Obsidian-readable Markdown.
-- The native desktop app pins browser storage to
-  `.runtime/desktop-profile`, preserving notes across restarts.
-- The overview uses “接下来最重要” for upcoming events and “刚刚发生” only
-  after release.
-- Market evidence includes 1-day, 5-day, and 20-day moves plus 30-day history.
-- Four market regimes and eight explicit cross-asset relationships, including
-  gold/silver.
-- Eight topic lenses, seven region lenses, and six reusable event archetypes.
-- A seven-stage research pipeline keeps facts, news, viewpoints, official
-  calendars, macro regimes, market confirmation, and AI explanation separate.
-- Agent Reach reads twelve bounded X sources with three items per source.
-- Live source ledger: twelve successful calls and thirty-six public items.
-- External viewpoints carry a relevance score, label, reason, related event,
-  mechanism lens, test variables, and caveat.
-- Core explanations use a strict relevance threshold. Empty debate is allowed;
-  unrelated debate is not.
-- The AI tutor supports OpenAI Responses API, Ollama, compatible providers,
-  and a deterministic no-key evidence mode.
-- WebMCP exposes seven read-only tools for daily briefing, markets,
-  viewpoints, call inspection, calendar, market system, and section navigation.
-- Typography and responsive layout were rebuilt for comfortable reading.
-- Cookie values stay only in the user's Agent Reach configuration and temporary
-  child-process environment. They do not enter the API, frontend, database,
-  logs, command arguments, Git, or this memory.
+- CPI is an event bundle with headline/core MoM and YoY indicators.
+- Each indicator stores actual, consensus, previous, revised previous, unit,
+  source, capture time, version, and point-in-time metadata.
+- Consensus snapshots are append-only and reject snapshots captured after the
+  release time.
+- Surprise analysis covers raw, relative, standardized, direction, composite
+  classification, core/headline conflict, MoM/YoY conflict, and revisions.
+- Market-data contracts support CSV, deterministic fixture, and ordered
+  provider waterfall.
+- Seven instruments are available: GC, SI, DXY, ES, NQ, ZT, and ZN.
+- ZT and ZN are explicitly labelled Treasury-futures price proxies; they are
+  never presented as direct yield observations.
+- Event windows cover T-60, T-15, T+1/5/15/30/60, T+4h, same-day close,
+  next-day close, and day 5, with missing coverage preserved.
+- Earliest significant reaction uses pre-event volatility, normal-minute
+  distribution, per-instrument floors, and two consecutive bars.
+- Reversal, spike-fade, and dip-recovery require adequate window coverage.
+- Historical matching declares the recipe, reports before/after counts, and
+  needs at least five retained samples before probability or percentile output.
+- Facts, historical rules, plausible inference, competing explanations, and
+  unknowns remain separate in the report.
+- Contamination reduces confidence and disables strong causal language.
+- AI is not used to manufacture facts; the shipped report is deterministic.
+- The Event Lab frontend includes an archive, surprise cards, normalized
+  cross-asset chart, reaction table, explanation columns, history, quality,
+  provenance, gaps, contamination, confidence, and a readable review report.
+
+## Demonstration state
+
+- Verified release: US CPI published on 2024-02-13 at 08:30 America/New_York.
+- Official actuals: headline 0.3% MoM / 3.1% YoY and core 0.4% MoM / 3.9% YoY.
+- Archived consensus: 0.2% / 2.9% / 0.3% / 3.7%.
+- Classification: `全面偏热`.
+- Runtime fixture store: 9 CPI events, 18,963 minute bars, 693 window metrics,
+  and 9 analyses.
+- Historical comparison retains 5 fixed-recipe samples and runs in statistics
+  mode.
+- Confidence is capped at 0.55 because bundled minute paths are labelled
+  deterministic fixtures rather than verified exchange records.
+
+## Verification
+
+- Backend: 58 tests passed, 85.43% coverage.
+- Ruff, strict mypy, TypeScript, focused Biome, safe-HTML guard: passed.
+- Alembic clean migration through revision `0002`: passed for SQLite and
+  PostgreSQL offline SQL generation.
+- Macro production build: passed.
+- Browser: desktop and 430-pixel mobile layouts passed with no document-level
+  horizontal overflow.
+- Runtime: API and frontend launcher services healthy.
+
+## Important boundaries
+
+- The bundled CPI actuals and consensus references are traceable; bundled
+  market bars and most comparison cases remain clearly labelled fixtures.
+- Minute bars support only “earliest observed significant reaction”, not
+  exchange-level causal or order-flow precedence.
+- Long-horizon windows remain missing until imported data covers the required
+  session and future trading days.
+- Consensus is currently manual/API/CSV-capable; no paid automatic consensus
+  feed is bundled.
+- Event pollution can be recorded and penalized, but automatic news-overlap
+  detection is not yet comprehensive.
+- Futures rollover, full holiday calendars, and verified session-aware
+  continuous contracts remain future provider work.
+- Macrosynergy is an optional adapter dependency. OpenBB is not required.
+- OpenTerminalUI was used as an architecture reference only. Fincept source and
+  visual identity were not copied.
 
 ## Key files
 
-- Desktop: `WorldStateApp.bat`, `scripts/worldstate_desktop.py`
-- Operations: `WorldState.bat`, `scripts/worldstate.ps1`
-- Official calendar:
-  `services/macro-engine/src/macro_engine/providers/official_calendar.py`
-- Public markets and news:
-  `services/macro-engine/src/macro_engine/providers/public_intelligence.py`
-- Agent Reach:
-  `services/macro-engine/src/macro_engine/providers/agent_reach_x.py`
-- Research system:
-  `services/macro-engine/src/macro_engine/services/world_briefing.py`
-- AI tutor: `services/macro-engine/src/macro_engine/services/ai_tutor.py`
-- Frontend: `src/macro/MacroApp.ts`, `src/macro/macro-terminal.css`
-- WebMCP: `src/macro/webmcp.ts`
-- Client types: `src/services/macro-client.ts`
-- Local journal: `src/macro/research-journal.ts`
-- Phase 8–10 research: `docs/macro/RESEARCH_DESK_2026-07.md`
-- Operations contract: `docs/macro/OPERATIONS.md`
-- Checkpoint:
-  `00-checkpoints/2026-07-28-phase-10-append-only-research-journal.md`
-
-## Verified
-
-- Live briefing: eight events, twelve markets, and twenty-two official events.
-- July FOMC is present.
-- Seven of seven official calendar source adapters are represented.
-- Four regimes, eight correlations, eight topics, seven countries, six event
-  archetypes, and seven research stages are returned.
-- The reaction contract returns six reasoning steps and selects the next event
-  when no recent release exists.
-- Twelve of twelve Agent Reach calls succeed; thirty-six items total; no call
-  returns more than three items.
-- Forty-three backend tests pass at 87.82% coverage.
-- Ruff, mypy, TypeScript, Biome, Markdown lint, and direct Vite production
-  build pass.
-- The calendar and overview load in the browser at 1280 px and 430 px without
-  document-level horizontal overflow.
-- Baseline body text is 16 px; the event workbench remains readable at 430 px.
-- Zero moves render as `0.00%`, not signed negative or positive zero.
-- Browser interaction verified first save, second meaningful revision, and
-  duplicate suppression for an unchanged save.
-- The focused append-only journal test passes.
-- Native PySide6 desktop runtime and persistent profile configuration pass
-  syntax, Ruff, and runtime checks.
-
-## Honest limitations
-
-- Free prices are daily reference evidence, not exchange-grade live ticks.
-- Official dates and scenarios are present, but consensus, actual, revision,
-  surprise, and intraday reaction are not yet persisted.
-- Journal entries are local to the active browser profile. Important notes
-  should be exported before browser data or `.runtime` is cleared.
-- X posts are unverified viewpoints, never facts.
-- Private institutional triggers, positioning, and order flow remain
-  unknowable without licensed data.
-- AI causal explanations remain hypotheses and are not investment advice.
-- The native desktop window is not yet a signed standalone installer.
+- Phase progress: `docs/macro/progress/phase-11-cpi-event-lab.md`
+- Open-source audit: `docs/macro/open-source-adoption.md`
+- Third-party notices: `THIRD_PARTY_NOTICES.md`
+- Database models: `services/macro-engine/src/macro_engine/db/models.py`
+- Migration: `services/macro-engine/migrations/versions/0002_cpi_event_lab.py`
+- Event service: `services/macro-engine/src/macro_engine/event_lab/service.py`
+- Surprise engine: `services/macro-engine/src/macro_engine/event_lab/surprise.py`
+- Window engine: `services/macro-engine/src/macro_engine/event_lab/windows.py`
+- Historical matcher: `services/macro-engine/src/macro_engine/event_lab/history.py`
+- Explanation engine:
+  `services/macro-engine/src/macro_engine/event_lab/explanation.py`
+- Market providers:
+  `services/macro-engine/src/macro_engine/market_data/providers.py`
+- API: `services/macro-engine/src/macro_engine/api/events.py`
+- Frontend: `src/macro/MacroApp.ts`
+- Frontend styles: `src/macro/macro-terminal.css`
 
 ## Next priorities
 
-1. Add intraday release and speech windows with daily fallback.
-2. Persist consensus, actual, revision, surprise, and first market reaction.
-3. Add user-manageable source pools and topic filters.
-4. Add journal overview, search, and optional vault-folder export.
-5. Package a signed desktop installer after the research workflow stabilizes.
-
-## Guardrails
-
-- Keep credentials backend-only and out of Vite variables, browser storage,
-  Git, logs, and project memory.
-- Never present a causal interpretation as an observed fact.
-- Never claim knowledge of private fund positioning or order flow.
-- Preserve citations, timestamps, provider state, and partial-failure behavior.
-- Compute numerical market facts in code; use AI only for bounded explanation.
-- `WorldState stop` must manage only verified PIDs owned by this checkout.
+1. Reuse EventBundle primitives for nonfarm payrolls: payroll growth,
+   unemployment rate, average hourly earnings MoM/YoY, participation rate, and
+   previous revisions.
+2. Add FOMC stages for statement, press conference start, important Q&A, and
+   end, with stage-specific reaction and changing explanations.
+3. Import verified historical minute bars with session calendars, roll
+   metadata, and real yield observations where licensing permits.
+4. Add official-release ingestion, consensus snapshot workflow, contamination
+   candidates, backfill, and scheduled analysis.
