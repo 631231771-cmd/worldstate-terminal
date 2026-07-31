@@ -18,12 +18,20 @@ WorldState Terminal（世界状态终端）是一个个人使用、local-first �
 
 ## 一键打开（Windows）
 
-双击仓库根目录的 `WorldStateApp.bat`。首次运行会准备 Python 与前端依赖，迁移数据库，然后打开：
+日常使用只推荐双击桌面的 `WorldState Terminal.bat`。它会定位当前仓库并委托给仓库根目录的
+`WorldStateApp.bat`；仓库脚本优先启动可用的 Tauri 构建，否则使用经过验证的 BAT
+启动链。首次使用 BAT 启动链时会准备 Python 与前端依赖、迁移数据库，然后打开：
 
 - 终端：<http://127.0.0.1:4173/#today>
 - API 文档：<http://127.0.0.1:8000/docs>
 
-也可以在 PowerShell 中使用：
+在仓库内一键打开时使用：
+
+```powershell
+.\WorldStateApp.bat
+```
+
+维护和诊断只使用：
 
 ```powershell
 .\WorldState.bat start

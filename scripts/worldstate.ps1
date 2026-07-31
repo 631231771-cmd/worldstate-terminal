@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("start", "stop", "restart", "status", "doctor", "logs", "migrate", "bootstrap", "build")]
+    [ValidateSet("launch", "start", "stop", "restart", "status", "doctor", "logs", "migrate", "bootstrap", "build")]
     [string]$Command = "start",
     [switch]$NoBrowser
 )
@@ -17,6 +17,11 @@ $ConfigPath = Join-Path $RuntimeRoot "worldstate.env"
 $DatabasePath = Join-Path $RuntimeRoot "worldstate.db"
 $UiUrl = "http://127.0.0.1:4173/#today"
 $ApiHealthUrl = "http://127.0.0.1:8000/v2/health"
+$ApiPort = 8000
+$UiPort = 4173
+$DesktopReleaseExe = Join-Path $RepoRoot "apps\desktop-tauri\src-tauri\target\release\worldstate-terminal.exe"
+$DesktopDebugExe = Join-Path $RepoRoot "apps\desktop-tauri\src-tauri\target\debug\worldstate-terminal.exe"
+$DesktopLogRoot = Join-Path $env:LOCALAPPDATA "research.worldstate.terminal\logs"
 
 function Write-WorldState {
     param([string]$Message, [ConsoleColor]$Color = [ConsoleColor]::Gray)
@@ -32,6 +37,52 @@ function Get-ToolPath {
     $tool = Get-Command $Name -ErrorAction SilentlyContinue
     if ($null -eq $tool) { return $null }
     return $tool.Source
+}
+
+function Get-PortListener {
+    param([int]$Port)
+    $listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -eq $listener) { return $null }
+    return Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)" `
+        -ErrorAction SilentlyContinue
+}
+
+function Get-DesktopProcess {
+    Get-CimInstance Win32_Process -Filter "Name = 'worldstate-terminal.exe'" `
+        -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.ExecutablePath -and
+            $_.ExecutablePath.StartsWith($RepoRoot, [StringComparison]::OrdinalIgnoreCase)
+        } |
+        Select-Object -First 1
+}
+
+function Test-ProcessTreeReferencesRepo {
+    param($Process)
+    $current = $Process
+    $visited = [System.Collections.Generic.HashSet[int]]::new()
+    while ($null -ne $current -and $visited.Add([int]$current.ProcessId)) {
+        $identity = "$($current.ExecutablePath) $($current.CommandLine)"
+        if ($identity.IndexOf($RepoRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            return $true
+        }
+        if (-not $current.ParentProcessId) { break }
+        $current = Get-CimInstance Win32_Process `
+            -Filter "ProcessId = $($current.ParentProcessId)" -ErrorAction SilentlyContinue
+    }
+    return $false
+}
+
+function Get-WorldStateHealth {
+    try {
+        $health = Invoke-RestMethod -Uri $ApiHealthUrl -TimeoutSec 3
+        if ($health.service -eq "worldstate-research-api" -and $health.api_version -eq "v2") {
+            return $health
+        }
+    }
+    catch {}
+    return $null
 }
 
 function Ensure-Config {
@@ -157,8 +208,30 @@ function Wait-ForEndpoint {
 }
 
 function Start-WorldState {
+    $desktop = Get-DesktopProcess
+    if ($null -ne $desktop) {
+        Write-WorldState "Desktop application is already running (PID $($desktop.ProcessId))." Green
+        Show-Status
+        return
+    }
+
     Invoke-Migration
     $api = Get-ManagedProcess "research-api"
+    if ($null -eq $api) {
+        $apiListener = Get-PortListener $ApiPort
+        if ($null -ne $apiListener) {
+            $health = Get-WorldStateHealth
+            if ($null -ne $health -and (Test-ProcessTreeReferencesRepo $apiListener)) {
+                Set-Content -LiteralPath (Get-PidPath "research-api") `
+                    -Value $apiListener.ProcessId -Encoding ASCII
+                $api = $apiListener
+                Write-WorldState "Adopted the existing WorldState Research API (PID $($api.ProcessId))." Yellow
+            }
+            else {
+                throw "Port $ApiPort is already used by another program (PID $($apiListener.ProcessId), $($apiListener.Name))."
+            }
+        }
+    }
     if ($null -eq $api) {
         $apiProcess = Start-Process -FilePath $ServicePython `
             -ArgumentList @("-m", "worldstate.cli", "serve", "--host", "127.0.0.1", "--port", "8000") `
@@ -170,6 +243,20 @@ function Start-WorldState {
         Write-WorldState "Research API started." Green
     }
     $ui = Get-ManagedProcess "terminal-ui"
+    if ($null -eq $ui) {
+        $uiListener = Get-PortListener $UiPort
+        if ($null -ne $uiListener) {
+            if (Test-ProcessTreeReferencesRepo $uiListener) {
+                Set-Content -LiteralPath (Get-PidPath "terminal-ui") `
+                    -Value $uiListener.ProcessId -Encoding ASCII
+                $ui = $uiListener
+                Write-WorldState "Adopted the existing WorldState Terminal UI (PID $($ui.ProcessId))." Yellow
+            }
+            else {
+                throw "Port $UiPort is already used by another program (PID $($uiListener.ProcessId), $($uiListener.Name))."
+            }
+        }
+    }
     if ($null -eq $ui) {
         $node = Get-ToolPath "node"
         $vite = Join-Path $UiRoot "node_modules\vite\bin\vite.js"
@@ -192,6 +279,41 @@ function Start-WorldState {
     if (-not $NoBrowser) { Start-Process $UiUrl }
 }
 
+function Start-WorldStateApp {
+    $desktop = Get-DesktopProcess
+    if ($null -ne $desktop) {
+        Write-WorldState "Desktop application is already running (PID $($desktop.ProcessId))." Green
+        Show-Status
+        return
+    }
+    $desktopExe = if (Test-Path -LiteralPath $DesktopReleaseExe) {
+        $DesktopReleaseExe
+    }
+    elseif (Test-Path -LiteralPath $DesktopDebugExe) {
+        $DesktopDebugExe
+    }
+    else {
+        $null
+    }
+    if ($null -eq $desktopExe) {
+        Write-WorldState "No Tauri build is available; starting the verified BAT application." Yellow
+        Start-WorldState
+        return
+    }
+    $process = Start-Process -FilePath $desktopExe -WorkingDirectory $RepoRoot -PassThru
+    Start-Sleep -Milliseconds 1200
+    if ($process.HasExited) {
+        Write-WorldState "The Tauri application exited during startup; using the BAT application." Yellow
+        Start-WorldState
+        return
+    }
+    Write-WorldState "Desktop application started (PID $($process.Id))." Green
+    if (-not (Wait-ForEndpoint $ApiHealthUrl)) {
+        throw "The desktop application is open, but its Research API did not become ready. See $DesktopLogRoot."
+    }
+    Show-Status
+}
+
 function Stop-WorldState {
     Stop-ManagedProcess "terminal-ui"
     Stop-ManagedProcess "research-api"
@@ -200,18 +322,49 @@ function Stop-WorldState {
 function Show-Status {
     $api = Get-ManagedProcess "research-api"
     $ui = Get-ManagedProcess "terminal-ui"
-    Write-WorldState "Research API: $(if ($api) { "RUNNING (PID $($api.ProcessId))" } else { "STOPPED" })"
-    Write-WorldState "Terminal UI:  $(if ($ui) { "RUNNING (PID $($ui.ProcessId))" } else { "STOPPED" })"
-    if ($api) {
-        try {
-            $health = Invoke-RestMethod -Uri $ApiHealthUrl -TimeoutSec 3
-            Write-WorldState "Database: $($health.database.status) - Method: $($health.methodology_version)"
-        }
-        catch { Write-WorldState "Health check did not respond." Yellow }
+    $desktop = Get-DesktopProcess
+    $apiListener = Get-PortListener $ApiPort
+    $uiListener = Get-PortListener $UiPort
+    $health = Get-WorldStateHealth
+
+    if ($null -ne $api) {
+        Write-WorldState "Research API: RUNNING (managed PID $($api.ProcessId), port $ApiPort)"
+    }
+    elseif ($null -ne $apiListener -and $null -ne $health) {
+        Write-WorldState "Research API: RUNNING (desktop/external PID $($apiListener.ProcessId), port $ApiPort)"
+    }
+    elseif ($null -ne $apiListener) {
+        Write-WorldState "Research API: FOREIGN LISTENER (PID $($apiListener.ProcessId), port $ApiPort)" Yellow
+    }
+    else {
+        Write-WorldState "Research API: STOPPED (port $ApiPort)"
+    }
+
+    if ($null -ne $desktop) {
+        Write-WorldState "Terminal UI:  RUNNING (Tauri PID $($desktop.ProcessId), embedded UI)"
+    }
+    elseif ($null -ne $ui) {
+        Write-WorldState "Terminal UI:  RUNNING (managed PID $($ui.ProcessId), port $UiPort)"
+    }
+    elseif ($null -ne $uiListener) {
+        Write-WorldState "Terminal UI:  UNMANAGED LISTENER (PID $($uiListener.ProcessId), port $UiPort)" Yellow
+    }
+    else {
+        Write-WorldState "Terminal UI:  STOPPED (port $UiPort)"
+    }
+
+    Write-WorldState "BAT logs: $LogRoot"
+    Write-WorldState "Desktop logs: $DesktopLogRoot"
+    if ($null -ne $health) {
+        Write-WorldState "Database: $($health.database.status) - Method: $($health.methodology_version)"
+    }
+    elseif ($null -ne $apiListener) {
+        Write-WorldState "Health check did not identify WorldState Research API v2." Yellow
     }
 }
 
 switch ($Command) {
+    "launch" { Start-WorldStateApp }
     "start" { Start-WorldState }
     "stop" { Stop-WorldState }
     "restart" { Stop-WorldState; Start-WorldState }

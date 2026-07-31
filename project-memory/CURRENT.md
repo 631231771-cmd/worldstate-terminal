@@ -1,6 +1,6 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-07-30
+Updated: 2026-07-31
 
 ## Product truth
 
@@ -24,7 +24,13 @@ longer part of the active architecture. Their final state is preserved at tag
 
 ## Daily use
 
-Double-click `WorldStateApp.bat`, or run:
+Use only these launcher layers:
+
+- Desktop: `C:\Users\Administrator\Desktop\WorldState Terminal.bat`
+- Repository: `WorldStateApp.bat`
+- Maintenance: `WorldState.bat <command>`
+
+Maintenance examples:
 
 ```powershell
 .\WorldState.bat start
@@ -33,6 +39,11 @@ Double-click `WorldStateApp.bat`, or run:
 ```
 
 Terminal: `http://127.0.0.1:4173/#today`
+
+The duplicate Chinese BAT and obsolete PySide shortcut were hash-verified and
+archived on 2026-07-31. No WorldState Start Menu, Startup, scheduled-task, or
+residual port entry was present. Inventory and cleanup evidence are under
+`docs/stabilization`.
 
 ## Implemented vertical slices
 
@@ -46,10 +57,11 @@ Terminal: `http://127.0.0.1:4173/#today`
 
 ## Next work
 
-1. Import larger licensed point-in-time event/minute-bar history.
-2. Add official BLS, BEA and Federal Reserve release providers.
-3. Automate pre-T0 consensus snapshots from a legally usable source.
-4. Package a frozen Python sidecar into a signed Windows installer.
+1. Complete v0.4 research-method and release stabilization for PR #8.
+2. Import larger licensed point-in-time event/minute-bar history.
+3. Add official BLS, BEA and Federal Reserve release providers.
+4. Automate pre-T0 consensus snapshots from a legally usable source.
+5. Package a frozen Python sidecar into a signed Windows installer.
 
 ## Non-negotiable boundaries
 

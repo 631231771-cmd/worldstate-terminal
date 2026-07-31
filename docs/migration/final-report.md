@@ -7,6 +7,10 @@ geopolitical, aviation, maritime, surveillance, commerce and multi-variant
 surfaces were deleted from the active tree after preservation at tag
 `world-monitor-legacy-freeze` and branch `archive/world-monitor-legacy`.
 
+The product and active code-tree migration is complete. Research-method and
+release stabilization remains in progress; PR #8 stays Draft until its
+stability gates pass.
+
 ## Retained and replaced
 
 Retained concepts: local desktop delivery, provider isolation, caching-oriented
@@ -71,3 +75,8 @@ Known validation limits: Docker is not installed on the verification machine,
 PostgreSQL was not exercised, and the Starlette TestClient emits one upstream
 httpx deprecation warning. A signed, self-contained Python-sidecar installer is
 still packaging work; the BAT launcher is the verified daily-use path.
+
+Launcher use is consolidated to exactly three layers: desktop
+`WorldState Terminal.bat`, repository `WorldStateApp.bat`, and maintenance
+`WorldState.bat <command>`. Confirmed obsolete desktop entries were preserved in
+the dated desktop archive and are not active launch methods.

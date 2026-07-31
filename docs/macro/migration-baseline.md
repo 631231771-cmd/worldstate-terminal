@@ -17,10 +17,15 @@ the old system.
   `.runtime/backups/worldstate-v2-before-v3-a142d4ea9.db`
 - The tag and archive branch were pushed to `origin` before migration work began.
 
-## Runtime baseline
+## Historical runtime baseline
+
+The entries in this section describe the frozen pre-v3 system only. They are
+not current launch instructions; current launch instructions are in
+`docs/desktop/windows.md`.
 
 - Launcher: `WorldState.bat start`
-- Desktop launcher: `WorldStateApp.bat` (PySide shell; scheduled for replacement)
+- Desktop launcher at the captured commit: `WorldStateApp.bat` (then a PySide
+  shell; now replaced by the consolidated Tauri/BAT chain)
 - Frontend: `http://127.0.0.1:4173/?lang=zh&view=overview`
 - Macro API: `http://127.0.0.1:8000`
 - Methodology: `wst-state-v1`
