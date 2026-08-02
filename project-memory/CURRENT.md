@@ -1,6 +1,6 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-07-31
+Updated: 2026-08-02
 
 ## Product truth
 
@@ -18,9 +18,9 @@ longer part of the active architecture. Their final state is preserved at tag
 - Working branch: `refactor/macro-research-terminal`
 - Safety baseline: `f3e97fb0a`
 - Core v3 implementation: `9f8fbac68`
-- Database head: `0003_macro_research_terminal`
+- Database head: `0004_analysis_reproducibility`
 - API contract: `/v2`
-- Product version: `0.3.0`
+- Product version: `0.4.0`
 
 ## Daily use
 
@@ -54,10 +54,16 @@ residual port entry was present. Inventory and cleanup evidence are under
 - Fixed historical matching with 30/15/5 sample thresholds.
 - Data quality, contamination, proxy and fixture labels.
 - Deterministic explanations, EvidencePack and optional AI assistant.
+- v0.4 true Z-score gating, NFP cross-unit revision safeguards and point-in-time cutoff metadata.
+- Immutable AnalysisRun release/consensus/stage/OHLCV/history/config/output manifests with replay checks.
+- AnalysisRun-linked Regime dimensions, contamination-aware matching and per-dimension contributions.
+- Structured ResearchClaim → EvidenceItem bindings with deterministic fallback validation.
+- `exchange-session-lite` calendar handling with explicit long-window experimental disclosure.
+- Tauri product health verification, foreign-port refusal, child diagnostics and AI secret forwarding.
 
 ## Next work
 
-1. Complete v0.4 research-method and release stabilization for PR #8.
+1. Push the verified v0.4 stabilization commits and keep PR #8 Draft until all GitHub checks are green.
 2. Import larger licensed point-in-time event/minute-bar history.
 3. Add official BLS, BEA and Federal Reserve release providers.
 4. Automate pre-T0 consensus snapshots from a legally usable source.

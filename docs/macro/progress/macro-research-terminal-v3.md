@@ -1,5 +1,8 @@
 # Macro Research Terminal v3 progress
 
+The product/activity-tree migration is complete. Research-method and release
+stabilization is tracked in [`v0.4-stabilization.md`](v0.4-stabilization.md).
+
 Completed:
 
 - database v3 and one-time v2 backfill;

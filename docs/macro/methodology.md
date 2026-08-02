@@ -7,7 +7,9 @@ stages, and the regime snapshot known at T0.
 The pipeline is:
 
 1. Validate source and availability timestamps.
-2. Compute indicator-level raw, relative and standardized surprise.
+2. Compute indicator-level raw and relative surprise. Compute a genuine
+   point-in-time Z-score only with at least 20 prior forecast errors and
+   non-zero variance; otherwise expose a separately named threshold scale.
 3. Classify the bundle (for example, broad hot CPI or a headline/core conflict).
 4. Calculate stage-relative market windows.
 5. Detect volatility-adjusted earliest observed reactions and reversals.

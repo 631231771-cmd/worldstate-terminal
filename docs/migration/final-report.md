@@ -7,9 +7,10 @@ geopolitical, aviation, maritime, surveillance, commerce and multi-variant
 surfaces were deleted from the active tree after preservation at tag
 `world-monitor-legacy-freeze` and branch `archive/world-monitor-legacy`.
 
-The product and active code-tree migration is complete. Research-method and
-release stabilization remains in progress; PR #8 stays Draft until its
-stability gates pass.
+The product and active code-tree migration is complete. The v0.4 research-method
+and local release stabilization is implemented; PR #8 stays Draft until the
+pushed GitHub CI run is green. This statement does not mean real-data coverage
+or self-contained installer packaging is complete.
 
 ## Retained and replaced
 
@@ -29,6 +30,8 @@ Replaced:
 
 Alembic revision `0003_macro_research_terminal` creates the v3 model, backfills
 valuable CPI-v2 rows, validates references and removes semantic duplicates.
+Revision `0004_analysis_reproducibility` adds immutable AnalysisRun manifests,
+Regime dimensions, matched-run references, EvidenceItems and ResearchClaims.
 Clean-environment migration and upgraded-copy migration are both covered. Use
 `research/validation/verify_migration.py` for a read-only post-check.
 
@@ -36,10 +39,15 @@ Clean-environment migration and upgraded-copy migration are both covered. Use
 
 `/v2` exposes calendar, releases, stages, values, consensus, windows, reactions,
 timeline, historical matches, explanations, reports, EvidencePack, providers,
-quality, regimes, methods and local write/import/analyze operations.
+quality, regimes, methods and local write/import/analyze operations. v0.4 adds
+run manifest, replay, diff, claims and evidence endpoints plus idempotent
+analysis creation.
 
 The UI has exactly five top-level workspaces: Today, Macro Releases, Event Lab,
 Cross Asset, and Data & Methods. CPI, NFP and FOMC are navigable end to end.
+Event Lab distinguishes threshold scaling from Z-score, shows immutable run
+hashes, renders structured claim/evidence bindings and labels the experimental
+calendar precision.
 
 The verified FOMC Event Lab render is preserved at
 [`docs/architecture/assets/event-lab-fomc.png`](../architecture/assets/event-lab-fomc.png).
@@ -57,15 +65,17 @@ remain limited until a larger licensed point-in-time sample is imported.
 
 ## Verification
 
-Verified on Windows on 2026-07-30:
+Verified locally on Windows on 2026-08-02 (final GitHub results are recorded in
+the v0.4 stabilization report):
 
 - Ruff: passed.
-- strict mypy: passed for 50 Python source/test files.
-- pytest: 19 passed, 70.83% branch-aware coverage.
+- strict mypy: passed for 64 Python source/test files.
+- pytest: 63 tests passed, 68.88% branch-aware repository coverage and 96%
+  aggregate critical research-method coverage (90% gate).
 - terminal UI TypeScript and production Vite build: passed.
-- database v3: both an upgraded working database and a clean database passed
+- database v3 + v0.4: both an upgraded working database and a clean database passed
   required-table and orphan-reference validation.
-- Tauri: `cargo fmt --check`, `cargo check`, and a debug `tauri build
+- Tauri: unit tests, `cargo fmt --check`, `cargo check`, and a debug `tauri build
   --no-bundle` passed; the generated executable remained alive in a launch
   smoke test.
 - browser: all five workspaces rendered, the FOMC four-stage view and `-0.30`

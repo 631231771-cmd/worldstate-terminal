@@ -49,6 +49,19 @@ Local data is never written into the installation directory. Tauri uses the
 operating-system app-data/log directories and Windows Credential Manager for
 supported API secrets.
 
+Before adopting an existing process on port 8000, Tauri calls `/v2/health` and
+requires `product=worldstate-terminal` and `api_version=v2`. A foreign process
+produces a clear startup error instead of being mistaken for WorldState. The
+status command reports the verified product, fixed development port, backend
+source, child PID when spawned, AI provider and database/log paths. Both
+`OPENAI_API_KEY` and `WORLDSTATE_AI_COMPATIBLE_API_KEY` saved through the desktop
+secret command are forwarded to database migration and API child processes.
+
+Development and daily BAT operation currently share the same external Python
+boundary. A release build embeds the web UI and Research API source resources,
+but not a frozen Python interpreter; do not distribute the current EXE as a
+self-contained installer.
+
 The confirmed obsolete PySide shortcut and duplicate desktop BAT were archived
 under `WorldState Launcher Archive 2026-07-31` on the desktop. Do not run
 launchers from that archive.

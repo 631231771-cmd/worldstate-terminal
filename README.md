@@ -6,6 +6,8 @@ WorldState Terminal（世界状态终端）是一个个人使用、local-first �
 
 它不是 World Monitor 的延伸，也不是新闻墙、世界地图或自动交易系统。当前主线是美国 CPI、非农和 FOMC 事件，结合 point-in-time 发布值、共识快照、跨资产事件窗口、历史匹配与受证据约束的解释。
 
+当前状态是：**产品和活动代码树迁移完成，研究方法与发布稳定化已经实现，PR #8 在 GitHub CI 全绿前继续保持 Draft。** 内置 CPI、非农和 FOMC 是可追溯 fixture 演示，不代表真实数据就绪；当前桌面构建仍依赖本机 Python 3.12，不是可在空白电脑独立运行的发行安装包。
+
 ## 现在可以做什么
 
 - 查看 CPI、非农、FOMC 发布及其指标集合和阶段。
@@ -15,6 +17,8 @@ WorldState Terminal（世界状态终端）是一个个人使用、local-first �
 - 用固定匹配规则对比历史事件，并按样本量决定统计、案例或不推断。
 - 生成区分事实、历史关系、主假设、竞争解释和数据缺口的复盘报告。
 - 在没有外部密钥时使用可追溯 fixture 完成端到端演示。
+- 只有至少 20 个事件前、point-in-time 历史预测误差样本且方差非零时才输出 `surprise_z`；否则仅显示名称明确的 `threshold_scaled_surprise`。
+- 每次 v0.4 分析保存输入、配置、行情数据集、历史样本与输出哈希，并以结构化 Claim → Evidence ID 呈现事实和推断。
 
 ## 一键打开（Windows）
 
@@ -42,6 +46,8 @@ WorldState Terminal（世界状态终端）是一个个人使用、local-first �
 
 需要 Python 3.12 与 Node.js 20+。桌面壳的编译说明见
 [`docs/desktop/windows.md`](docs/desktop/windows.md)。
+
+Tauri 开发构建会启动同一套 Research API，但当前仓库没有冻结 Python sidecar，也没有签名安装包。换到一台没有项目 Python 环境的电脑时，单独复制 EXE 不能运行。
 
 ## 仓库结构
 
@@ -87,6 +93,7 @@ npm run build --prefix apps\terminal-ui
 - 事件污染会降低解释置信度并限制因果措辞。
 - 代理、fixture、人工录入、延迟和缺失都会显式标注。
 - AI 只能读取结构化 EvidencePack，不能补写系统没有取得的事实。
+- 长窗口使用 `exchange-session-lite`：它处理 DST、周末、Good Friday、若干提前收盘和 CME 风格维护窗，但仍是实验方法，不宣称完整复刻交易所日历或期货结算规则。
 
 详细方法见 [`docs/macro/methodology.md`](docs/macro/methodology.md)，完整迁移报告见
 [`docs/migration/final-report.md`](docs/migration/final-report.md)。
