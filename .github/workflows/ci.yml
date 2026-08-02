@@ -24,6 +24,11 @@ jobs:
       - run: uv run ruff check .
       - run: uv run mypy src tests
       - run: uv run pytest tests
+      - name: Enforce critical research-method coverage
+        run: >-
+          uv run coverage report
+          --include="src/worldstate/event_engine/*,src/worldstate/research_engine/history.py,src/worldstate/ai_researcher/claims.py,src/worldstate/ai_researcher/evidence.py,src/worldstate/macro_core/regimes.py,src/worldstate/market_core/sessions.py"
+          --fail-under=90
 
   terminal-ui:
     runs-on: ubuntu-latest
@@ -48,7 +53,11 @@ jobs:
           cache-dependency-path: |
             apps/terminal-ui/package-lock.json
             apps/desktop-tauri/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
       - run: npm ci --prefix apps/terminal-ui
+      - run: npm run build --prefix apps/terminal-ui
       - run: npm ci --prefix apps/desktop-tauri
-      - run: npm run check --prefix apps/desktop-tauri
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml -- --check
+      - run: cargo check --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml
+      - run: cargo test --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml
+      - run: npm run build --prefix apps/desktop-tauri -- --no-bundle

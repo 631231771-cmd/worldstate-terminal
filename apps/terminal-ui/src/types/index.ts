@@ -29,12 +29,19 @@ export interface ReleaseValue {
   consensus_source: string | null;
   consensus_captured_at: string | null;
   surprise?: {
-    raw: number | null;
-    relative: number | null;
-    standardized: number | null;
+    raw_surprise: number | null;
+    oriented_surprise: number | null;
+    relative_surprise: number | null;
+    threshold_scaled_surprise: number | null;
+    surprise_z: number | null;
     direction: string;
     revision: number | null;
-    history_samples: number;
+    history_sample_count: number;
+    history_mean: number | null;
+    history_std: number | null;
+    history_cutoff_at: string | null;
+    surprise_method: string;
+    z_score_unavailable_reason: string | null;
   };
 }
 
@@ -56,6 +63,10 @@ export interface ReleaseDetail {
     direction: string;
     reasons: string[];
     revision_dominant: boolean;
+    revision_analysis?: Record<string, unknown>;
+    composite_method?: string;
+    component_methods?: Record<string, string>;
+    minimum_z_score_sample?: number;
     methodology_version: string;
   };
   values: Record<string, ReleaseValue>;
@@ -82,6 +93,12 @@ export interface ReleaseDetail {
     started_at: string;
     completed_at: string | null;
     code_version: string;
+    input_snapshot_hash?: string | null;
+    config_hash?: string | null;
+    market_dataset_hash?: string | null;
+    historical_sample_hash?: string | null;
+    output_hash?: string | null;
+    reproducibility_status?: string;
     data_gaps: string[];
   } | null;
   source: {
@@ -122,6 +139,21 @@ export interface WindowResult {
   provider_key: string;
   quality_grade: string;
   missing_reason: string | null;
+  calendar_name?: string;
+  calendar_precision?: string;
+  expected_tradable_bars?: number;
+}
+
+export interface ResearchClaim {
+  claim_id: string;
+  claim_type: string;
+  statement: string;
+  evidence_ids: string[];
+  confidence: number;
+  is_inference: boolean;
+  limitations: string[];
+  falsifier: string | null;
+  validation: { valid: boolean };
 }
 
 export interface Reaction {

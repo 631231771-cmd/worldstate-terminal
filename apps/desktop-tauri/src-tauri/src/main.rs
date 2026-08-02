@@ -8,25 +8,74 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use keyring::Entry;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, RunEvent};
 
 const KEYRING_SERVICE: &str = "worldstate-terminal";
 const API_URL: &str = "http://127.0.0.1:8000/v2/health";
+const EXPECTED_PRODUCT: &str = "worldstate-terminal";
 
 #[derive(Default)]
 struct ResearchApiState {
     child: Mutex<Option<Child>>,
     database_path: Mutex<Option<PathBuf>>,
     log_path: Mutex<Option<PathBuf>>,
+    source: Mutex<String>,
+}
+
+#[derive(Deserialize)]
+struct HealthResponse {
+    product: Option<String>,
+    api_version: Option<String>,
+    ai_provider: Option<String>,
 }
 
 #[derive(Serialize)]
 struct BackendStatus {
     reachable: bool,
+    product_verified: bool,
     api_url: &'static str,
+    port: u16,
+    child_pid: Option<u32>,
+    ai_provider: String,
     database_path: Option<String>,
     log_path: Option<String>,
+    source: String,
+}
+
+fn health_matches(health: &HealthResponse) -> bool {
+    health.product.as_deref() == Some(EXPECTED_PRODUCT)
+        && health.api_version.as_deref() == Some("v2")
+}
+
+async fn fetch_health() -> Option<HealthResponse> {
+    let Ok(response) = reqwest::get(API_URL).await else {
+        return None;
+    };
+    let Ok(health) = response.json::<HealthResponse>().await else {
+        return None;
+    };
+    Some(health)
+}
+
+async fn verified_health() -> bool {
+    fetch_health()
+        .await
+        .is_some_and(|health| health_matches(&health))
+}
+
+fn secret_environment<'a>(
+    openai: Option<&'a str>,
+    compatible: Option<&'a str>,
+) -> Vec<(&'static str, &'a str)> {
+    let mut values = Vec::new();
+    if let Some(value) = openai {
+        values.push(("OPENAI_API_KEY", value));
+    }
+    if let Some(value) = compatible {
+        values.push(("WORLDSTATE_AI_COMPATIBLE_API_KEY", value));
+    }
+    values
 }
 
 fn development_root() -> PathBuf {
@@ -54,11 +103,27 @@ fn python_command(service_root: &Path) -> PathBuf {
     PathBuf::from("python")
 }
 
+fn existing_port_action(port_open: bool, product_verified: bool) -> Result<bool, String> {
+    if !port_open {
+        return Ok(false);
+    }
+    if product_verified {
+        return Ok(true);
+    }
+    Err("Port 8000 is occupied by a service that is not a verified WorldState Research API. Stop that service or select a different port before starting the desktop app.".into())
+}
+
 fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), String> {
     let api_address: SocketAddr = "127.0.0.1:8000"
         .parse()
         .map_err(|error| format!("Invalid local API address: {error}"))?;
-    if TcpStream::connect_timeout(&api_address, Duration::from_millis(250)).is_ok() {
+    let port_open = TcpStream::connect_timeout(&api_address, Duration::from_millis(250)).is_ok();
+    let product_verified = port_open && tauri::async_runtime::block_on(verified_health());
+    if existing_port_action(port_open, product_verified)? {
+        *state
+            .source
+            .lock()
+            .map_err(|_| "Backend state lock failed")? = "existing".into();
         return Ok(());
     }
     let service_root = resolve_service_root(app);
@@ -94,6 +159,10 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         .ok()
         .and_then(|entry| entry.get_password().ok())
         .filter(|value| !value.trim().is_empty());
+    let compatible_secret = Entry::new(KEYRING_SERVICE, "WORLDSTATE_AI_COMPATIBLE_API_KEY")
+        .ok()
+        .and_then(|entry| entry.get_password().ok())
+        .filter(|value| !value.trim().is_empty());
 
     let mut migration_command = Command::new(&python);
     migration_command
@@ -102,8 +171,10 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         .env("WORLDSTATE_DATABASE_URL", &database_url)
         .env("WORLDSTATE_ROOT", worldstate_root)
         .env("PYTHONPATH", &python_path);
-    if let Some(secret) = &openai_secret {
-        migration_command.env("OPENAI_API_KEY", secret);
+    let secret_environment =
+        secret_environment(openai_secret.as_deref(), compatible_secret.as_deref());
+    for (name, secret) in &secret_environment {
+        migration_command.env(name, secret);
     }
     let migration = migration_command
         .status()
@@ -138,8 +209,8 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
-    if let Some(secret) = openai_secret {
-        api_command.env("OPENAI_API_KEY", secret);
+    for (name, secret) in &secret_environment {
+        api_command.env(name, secret);
     }
     let child = api_command
         .spawn()
@@ -154,6 +225,10 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         .lock()
         .map_err(|_| "Database state lock failed")? = Some(database_path);
     *state.log_path.lock().map_err(|_| "Log state lock failed")? = Some(log_path);
+    *state
+        .source
+        .lock()
+        .map_err(|_| "Backend state lock failed")? = "spawned".into();
     Ok(())
 }
 
@@ -161,13 +236,22 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
 async fn backend_status(
     state: tauri::State<'_, ResearchApiState>,
 ) -> Result<BackendStatus, String> {
-    let reachable = reqwest::get(API_URL)
-        .await
-        .map(|response| response.status().is_success())
-        .unwrap_or(false);
+    let health = fetch_health().await;
+    let product_verified = health.as_ref().is_some_and(health_matches);
+    let child_pid = state
+        .child
+        .lock()
+        .ok()
+        .and_then(|value| value.as_ref().map(Child::id));
     Ok(BackendStatus {
-        reachable,
+        reachable: product_verified,
+        product_verified,
         api_url: API_URL,
+        port: 8000,
+        child_pid,
+        ai_provider: health
+            .and_then(|value| value.ai_provider)
+            .unwrap_or_else(|| "unavailable".into()),
         database_path: state
             .database_path
             .lock()
@@ -178,7 +262,51 @@ async fn backend_status(
             .lock()
             .ok()
             .and_then(|value| value.as_ref().map(|path| path.display().to_string())),
+        source: state
+            .source
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_else(|_| "unknown".into()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_identity_accepts_only_worldstate_v2() {
+        let valid = HealthResponse {
+            product: Some(EXPECTED_PRODUCT.into()),
+            api_version: Some("v2".into()),
+            ai_provider: Some("none".into()),
+        };
+        let foreign = HealthResponse {
+            product: Some("another-service".into()),
+            api_version: Some("v2".into()),
+            ai_provider: None,
+        };
+        assert!(health_matches(&valid));
+        assert!(!health_matches(&foreign));
+    }
+
+    #[test]
+    fn compatible_secret_is_mapped_to_the_backend_environment() {
+        let values = secret_environment(None, Some("secret-value"));
+        assert_eq!(
+            values,
+            vec![("WORLDSTATE_AI_COMPATIBLE_API_KEY", "secret-value")]
+        );
+    }
+
+    #[test]
+    fn occupied_foreign_port_is_rejected_instead_of_reused() {
+        assert_eq!(existing_port_action(false, false).unwrap(), false);
+        assert_eq!(existing_port_action(true, true).unwrap(), true);
+        assert!(existing_port_action(true, false)
+            .unwrap_err()
+            .contains("not a verified WorldState"));
+    }
 }
 
 #[tauri::command]

@@ -4,6 +4,7 @@ import type {
   Instrument,
   ReleaseDetail,
   ReleaseSummary,
+  ResearchClaim,
   TimelineResponse,
   WindowsResponse,
 } from "../types";
@@ -58,6 +59,8 @@ export const api = {
     request<HistoricalResponse>(`/v2/releases/${id}/historical-matches`),
   explanations: (id: string) =>
     request<ExplanationsResponse>(`/v2/releases/${id}/explanations`),
+  claims: (runId: string) =>
+    request<{ run_id: string; items: ResearchClaim[] }>(`/v2/analysis-runs/${runId}/claims`),
   instruments: () => request<Instrument[]>("/v2/instruments"),
   dataQuality: () => request<Record<string, unknown>>("/v2/data-quality"),
   providerRuns: () => request<Array<Record<string, unknown>>>("/v2/provider-runs"),

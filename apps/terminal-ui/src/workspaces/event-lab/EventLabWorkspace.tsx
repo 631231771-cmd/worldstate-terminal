@@ -7,6 +7,7 @@ import type {
   HistoricalResponse,
   ReleaseDetail,
   ReleaseSummary,
+  ResearchClaim,
   TimelineResponse,
   WindowsResponse,
 } from "../../types";
@@ -17,6 +18,7 @@ interface LabData {
   timeline: TimelineResponse;
   historical: HistoricalResponse;
   explanations: ExplanationsResponse;
+  claims: ResearchClaim[];
 }
 
 const WINDOW_ORDER = ["post_1m", "post_5m", "post_15m", "post_30m", "post_60m", "post_4h"];
@@ -62,15 +64,21 @@ export function EventLabWorkspace({
     setError(null);
     setData(null);
     setAssistantAnswer(null);
-    Promise.all([
-      api.release(release.id),
-      api.windows(release.id),
-      api.timeline(release.id),
-      api.historical(release.id),
-      api.explanations(release.id),
-    ])
-      .then(([detail, windows, timeline, historical, explanations]) => {
-        setData({ detail, windows, timeline, historical, explanations });
+    api.release(release.id)
+      .then((detail) =>
+        Promise.all([
+          Promise.resolve(detail),
+          api.windows(release.id),
+          api.timeline(release.id),
+          api.historical(release.id),
+          api.explanations(release.id),
+          detail.latest_analysis
+            ? api.claims(detail.latest_analysis.id)
+            : Promise.resolve({ run_id: "", items: [] }),
+        ]),
+      )
+      .then(([detail, windows, timeline, historical, explanations, claims]) => {
+        setData({ detail, windows, timeline, historical, explanations, claims: claims.items });
         setStage(detail.stages[0]?.key ?? "");
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "事件研究读取失败。"))
@@ -118,7 +126,7 @@ export function EventLabWorkspace({
     );
   }
 
-  const { detail, timeline, historical, explanations } = data;
+  const { detail, timeline, historical, explanations, claims } = data;
   const confidence = detail.latest_analysis?.confidence ?? explanations.confidence ?? 0;
   const runId = detail.latest_analysis?.id ?? "—";
 
@@ -195,8 +203,10 @@ export function EventLabWorkspace({
                 <div><dt>市场共识</dt><dd>{number(value.consensus)}</dd></div>
                 <div><dt>前值</dt><dd>{number(value.previous)}</dd></div>
                 <div><dt>修正前值</dt><dd>{number(value.revised_previous)}</dd></div>
-                <div><dt>原始惊喜</dt><dd>{number(value.surprise?.raw)}</dd></div>
-                <div><dt>标准化</dt><dd>{number(value.surprise?.standardized)}</dd></div>
+                <div><dt>原始惊喜</dt><dd>{number(value.surprise?.raw_surprise)}</dd></div>
+                <div><dt>阈值缩放</dt><dd>{number(value.surprise?.threshold_scaled_surprise)}</dd></div>
+                <div><dt>Z-score</dt><dd>{value.surprise?.surprise_z == null ? "历史样本不足，未计算 Z-score" : number(value.surprise.surprise_z)}</dd></div>
+                <div><dt>历史样本</dt><dd>{value.surprise?.history_sample_count ?? "—"}</dd></div>
               </dl>
               <p>共识快照：{value.consensus_captured_at ? new Date(value.consensus_captured_at).toLocaleString("zh-CN") : "缺失"}</p>
             </article>
@@ -206,6 +216,30 @@ export function EventLabWorkspace({
           {detail.bundle.reasons.map((reason) => <span key={reason}>{reason}</span>)}
         </div>
       </Panel>
+
+      <div class="two-column">
+        <Panel title="分析运行可复现性" eyebrow="ANALYSIS RUN">
+          <div class="historical-summary">
+            <div><span>状态</span><strong>{detail.latest_analysis?.reproducibility_status ?? "legacy"}</strong></div>
+            <div><span>Input</span><strong>{detail.latest_analysis?.input_snapshot_hash?.slice(0, 12) ?? "—"}</strong></div>
+            <div><span>Config</span><strong>{detail.latest_analysis?.config_hash?.slice(0, 12) ?? "—"}</strong></div>
+            <div><span>Output</span><strong>{detail.latest_analysis?.output_hash?.slice(0, 12) ?? "—"}</strong></div>
+          </div>
+          <p class="method-note">完整哈希、输入清单、算法版本和历史样本清单保存在本次 AnalysisRun 中。</p>
+        </Panel>
+        <Panel title="结构化研究声明" eyebrow="CLAIMS → EVIDENCE">
+          <div class="quality-list">
+            {claims.slice(0, 8).map((claim) => (
+              <article key={claim.claim_id}>
+                <Badge tone={claim.is_inference ? "warn" : "good"}>
+                  {claim.is_inference ? "推断" : "事实"}
+                </Badge>
+                <div><strong>{claim.statement}</strong><p>{claim.evidence_ids.length} 条证据绑定</p></div>
+              </article>
+            ))}
+          </div>
+        </Panel>
+      </div>
 
       <Panel title="分阶段跨资产反应" eyebrow="RELEASE STAGES">
         <div class="stage-selector">
@@ -265,7 +299,11 @@ export function EventLabWorkspace({
           </table>
         </div>
         <p class="method-note">
-          方向与反转按当前阶段 T0 计算；代理资产和 60 秒粒度限制在每条结果中保留。
+          方向与反转按当前阶段 T0 计算。交易日历为{" "}
+          {Array.from(
+            new Set(selectedWindows.map((item) => item.calendar_name ?? "unknown")),
+          ).join(" / ")}
+          ；长窗口属于 exchange-session-lite 实验方法，不代表完整交易所日历。
         </p>
       </Panel>
 
