@@ -1,4 +1,4 @@
-"""Internal event-lab value objects."""
+"""Typed inputs and outputs for evidence-bound macro event analysis."""
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -18,14 +18,47 @@ class IndicatorInput:
 
 
 @dataclass(frozen=True)
+class HistoricalSurpriseObservation:
+    """A historical consensus error available before the current release."""
+
+    released_at: datetime
+    raw_surprise: float
+
+
+@dataclass(frozen=True)
 class IndicatorSurprise:
     key: str
-    raw: Decimal | None
-    relative: float | None
-    standardized: float | None
+    raw_surprise: Decimal | None
+    oriented_surprise: float | None
+    relative_surprise: float | None
+    threshold_scaled_surprise: float | None
+    surprise_z: float | None
     direction: str
     revision: Decimal | None
-    history_samples: int
+    history_sample_count: int
+    history_mean: float | None
+    history_std: float | None
+    history_cutoff_at: datetime | None
+    surprise_method: str
+    z_score_unavailable_reason: str | None = None
+
+    # Transitional internal alias.  It deliberately exposes only a genuine z-score.
+    # API serializers must use the explicit fields above.
+    @property
+    def standardized(self) -> float | None:
+        return self.surprise_z
+
+    @property
+    def raw(self) -> Decimal | None:
+        return self.raw_surprise
+
+    @property
+    def relative(self) -> float | None:
+        return self.relative_surprise
+
+    @property
+    def history_samples(self) -> int:
+        return self.history_sample_count
 
 
 @dataclass(frozen=True)
@@ -36,6 +69,9 @@ class BundleSurprise:
     indicators: tuple[IndicatorSurprise, ...]
     reasons: tuple[str, ...]
     revision_dominant: bool
+    composite_method: str = "insufficient"
+    component_methods: dict[str, str] = field(default_factory=dict)
+    revision_analysis: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -69,6 +105,9 @@ class ComputedWindow:
     granularity_seconds: int
     quality_grade: str
     missing_reason: str | None = None
+    calendar_name: str = "exchange_session_lite"
+    calendar_precision: str = "limited"
+    expected_tradable_bars: int | None = None
 
 
 @dataclass(frozen=True)
@@ -85,6 +124,17 @@ class EarliestReaction:
     limitation: str
 
 
+REGIME_DIMENSIONS = (
+    "inflation_regime",
+    "growth_regime",
+    "monetary_policy_regime",
+    "risk_regime",
+    "dollar_regime",
+    "real_yield_regime",
+    "volatility_regime",
+)
+
+
 @dataclass(frozen=True)
 class HistoricalCase:
     event_id: str
@@ -98,3 +148,7 @@ class HistoricalCase:
     clean_window: bool
     returns: dict[str, float | None] = field(default_factory=dict)
     release_type: str = "US_CPI"
+    regime_dimensions: dict[str, str] = field(default_factory=dict)
+    analysis_run_id: str | None = None
+    is_fixture: bool = False
+    proxy_instrument_count: int = 0

@@ -70,3 +70,25 @@ def test_legacy_world_monitor_domains_are_absent() -> None:
     }
     present = {path.name for path in PACKAGE_ROOT.iterdir() if path.is_dir()}
     assert present.isdisjoint(forbidden_names)
+
+
+def test_application_router_uses_focused_services_and_legacy_facade_stays_small() -> None:
+    router = PACKAGE_ROOT / "api" / "v2" / "router.py"
+    source = router.read_text(encoding="utf-8")
+    assert "worldstate.application.events" not in source
+    required = {
+        "bootstrap_service.py",
+        "release_commands.py",
+        "consensus_service.py",
+        "market_import_service.py",
+        "analysis_orchestrator.py",
+        "analysis_persistence.py",
+        "release_queries.py",
+        "evidence_service.py",
+        "report_service.py",
+    }
+    present = {path.name for path in (PACKAGE_ROOT / "application").glob("*.py")}
+    assert required <= present
+    facade = (PACKAGE_ROOT / "application" / "events.py").read_text(encoding="utf-8")
+    assert len(facade.splitlines()) < 80
+    assert "Compatibility facade" in facade

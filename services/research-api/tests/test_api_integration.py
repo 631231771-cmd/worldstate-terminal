@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from fastapi.testclient import TestClient
 
 
@@ -62,7 +64,7 @@ def test_cpi_research_is_evidence_bounded(
 
     assert detail["bundle"]["classification"]
     assert {"headline_mom", "headline_yoy", "core_mom", "core_yoy"} <= set(detail["values"])
-    assert historical["filter_recipe"] == "macro-history-v3-fixed"
+    assert historical["filter_recipe"] == "macro-history-v0.4-fixed"
     assert historical["pre_filter_count"] >= historical["post_filter_count"]
     if historical["post_filter_count"] < 15:
         assert all(
@@ -83,8 +85,9 @@ def test_nfp_revision_and_fomc_stage_repricing(
 ) -> None:
     nfp_id = str(release_index["US_NFP"]["id"])
     nfp = client.get(f"/v2/releases/{nfp_id}").json()
-    assert nfp["bundle"]["revision_dominant"] is True
-    assert nfp["bundle"]["classification"] == "主要变化来自前值修正"
+    assert nfp["bundle"]["revision_dominant"] is False
+    assert nfp["bundle"]["revision_analysis"]["method"] == "weighted_per_indicator_standardization"
+    assert nfp["bundle"]["classification"] != "主要变化来自前值修正"
 
     fomc_id = str(release_index["FOMC"]["id"])
     rerun = client.post(f"/v2/releases/{fomc_id}/analysis-runs")
@@ -200,3 +203,113 @@ def test_manual_release_consensus_csv_and_analysis_workflow(client: TestClient) 
     detail = client.get(f"/v2/releases/{release_id}").json()
     assert detail["bundle"]["classification"] == "全面偏热"
     assert detail["latest_analysis"]["status"] == "completed"
+
+
+def test_analysis_run_is_replayable_idempotent_and_evidence_bound(
+    client: TestClient,
+    release_index: dict[str, dict[str, object]],
+) -> None:
+    release_id = str(release_index["US_CPI"]["id"])
+    first = client.post(
+        f"/v2/releases/{release_id}/analysis-runs",
+        headers={"Idempotency-Key": "cpi-stability-test"},
+    )
+    assert first.status_code == 200, first.text
+    first_id = first.json()["analysis_run_id"]
+    repeated = client.post(
+        f"/v2/releases/{release_id}/analysis-runs",
+        headers={"Idempotency-Key": "cpi-stability-test"},
+    )
+    assert repeated.json()["analysis_run_id"] == first_id
+
+    same_input_id = client.post(f"/v2/releases/{release_id}/analysis-runs?force=true").json()[
+        "analysis_run_id"
+    ]
+
+    manifest = client.get(f"/v2/analysis-runs/{first_id}/manifest")
+    replay = client.post(f"/v2/analysis-runs/{first_id}/replay")
+    claims = client.get(f"/v2/analysis-runs/{first_id}/claims").json()["items"]
+    evidence = client.get(f"/v2/analysis-runs/{first_id}/evidence").json()["items"]
+    assert manifest.status_code == 200
+    body = manifest.json()
+    assert body["reproducibility_status"] == "complete"
+    assert all(
+        body[key]
+        for key in (
+            "input_snapshot_hash",
+            "config_hash",
+            "output_hash",
+            "market_dataset_hash",
+            "historical_sample_hash",
+        )
+    )
+    assert body["release_value_ids"]
+    assert body["consensus_snapshot_ids"]
+    assert body["release_stage_ids"]
+    same_manifest = client.get(f"/v2/analysis-runs/{same_input_id}/manifest").json()
+    assert same_manifest["input_snapshot_hash"] == body["input_snapshot_hash"]
+    assert same_manifest["config_hash"] == body["config_hash"]
+    assert same_manifest["output_hash"] == body["output_hash"]
+    assert replay.json()["replayed"] is True
+    assert replay.json()["replayed_output_hash"] == body["output_hash"]
+    evidence_ids = {item["evidence_id"] for item in evidence}
+    assert claims
+    assert all(set(item["evidence_ids"]) <= evidence_ids for item in claims)
+    assert all(item["evidence_ids"] for item in claims if item["claim_type"] == "confirmed_fact")
+
+
+def test_consensus_and_market_mutations_change_new_run_hashes(
+    client: TestClient,
+    release_index: dict[str, dict[str, object]],
+) -> None:
+    release_id = str(release_index["US_CPI"]["id"])
+    detail = client.get(f"/v2/releases/{release_id}").json()
+    old_run_id = detail["latest_analysis"]["id"]
+    old_manifest = client.get(f"/v2/analysis-runs/{old_run_id}/manifest").json()
+    scheduled_at = datetime.fromisoformat(detail["scheduled_at"])
+    captured_at = (scheduled_at - timedelta(minutes=45)).isoformat()
+    old_consensus = float(detail["values"]["headline_mom"]["consensus"])
+    captured = client.post(
+        f"/v2/releases/{release_id}/consensus",
+        json={
+            "indicator_key": "headline_mom",
+            "consensus_value": old_consensus + 0.01,
+            "source_name": "Hash mutation test",
+            "captured_at": captured_at,
+            "quality_grade": "C",
+            "is_manual": True,
+            "verification_notes": "Deliberate test snapshot",
+        },
+    )
+    assert captured.status_code == 200, captured.text
+    consensus_run = client.post(f"/v2/releases/{release_id}/analysis-runs?force=true").json()[
+        "analysis_run_id"
+    ]
+    consensus_manifest = client.get(f"/v2/analysis-runs/{consensus_run}/manifest").json()
+    assert consensus_manifest["input_snapshot_hash"] != old_manifest["input_snapshot_hash"]
+
+    released_at = detail["released_at"]
+    csv_text = "\n".join(
+        (
+            "timestamp,instrument_key,open,high,low,close,volume",
+            f"{released_at},gold_gc,2370,2372,2368,2369,1",
+        )
+    )
+    imported = client.post(
+        f"/v2/releases/{release_id}/market-bars/import",
+        json={
+            "instrument_key": "gold_gc",
+            "csv_text": csv_text,
+            "provider_key": "hash_mutation_test",
+            "source_name": "Hash mutation test",
+            "verified": True,
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    market_run = client.post(f"/v2/releases/{release_id}/analysis-runs?force=true").json()[
+        "analysis_run_id"
+    ]
+    market_manifest = client.get(f"/v2/analysis-runs/{market_run}/manifest").json()
+    assert market_manifest["market_dataset_hash"] != consensus_manifest["market_dataset_hash"]
+    assert market_manifest["input_snapshot_hash"] != consensus_manifest["input_snapshot_hash"]
+    assert client.post(f"/v2/analysis-runs/{old_run_id}/replay").json()["replayed"] is True

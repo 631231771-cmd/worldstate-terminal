@@ -9,12 +9,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from worldstate import __version__
-from worldstate.application.events import (
-    analyze_release,
-    bootstrap_research_data,
-    get_evidence_pack,
-    get_quality_overview,
-)
+from worldstate.application.analysis_orchestrator import analyze_release
+from worldstate.application.bootstrap_service import bootstrap_research_data
+from worldstate.application.evidence_service import get_evidence_pack
+from worldstate.application.release_queries import get_quality_overview
 from worldstate.config import Settings
 from worldstate.db.session import create_engine
 

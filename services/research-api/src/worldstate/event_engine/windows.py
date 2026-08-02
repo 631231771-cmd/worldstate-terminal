@@ -14,7 +14,11 @@ from worldstate.event_engine.types import (
     EarliestReaction,
     WindowSpec,
 )
-from worldstate.market_core.sessions import resolve_session_window_end
+from worldstate.market_core.sessions import (
+    calendar_for_instrument,
+    expected_tradable_bars,
+    resolve_session_window_end,
+)
 from worldstate.provider_kit import MarketBarRecord
 
 WINDOW_SPECS = (
@@ -78,10 +82,11 @@ def _calculate_one(
     interval_seconds: int,
     source_grade: str,
     pre_volume: float | None,
+    instrument_key: str | None,
 ) -> ComputedWindow:
     start_at = release_at + timedelta(seconds=spec.start_seconds)
     end_at = (
-        resolve_session_window_end(release_at, spec.key)
+        resolve_session_window_end(release_at, spec.key, instrument_key)
         if spec.session_based
         else release_at + timedelta(seconds=spec.end_seconds)
     )
@@ -94,8 +99,7 @@ def _calculate_one(
         baseline = [bar for bar in bars if bar.timestamp < release_at]
         start_value = baseline[-1].close_value if baseline else None
 
-    duration = max(interval_seconds, int((end_at - start_at).total_seconds()))
-    expected = max(1, math.ceil(duration / interval_seconds))
+    expected = expected_tradable_bars(start_at, end_at, interval_seconds, instrument_key)
     coverage = min(1.0, len(sample) / expected)
     if not sample or start_value is None:
         return ComputedWindow(
@@ -123,6 +127,9 @@ def _calculate_one(
                 if spec.session_based
                 else "insufficient_bars"
             ),
+            calendar_name=calendar_for_instrument(instrument_key),
+            calendar_precision="exchange_session_lite",
+            expected_tradable_bars=expected,
         )
 
     end_value = sample[-1].close_value
@@ -189,6 +196,9 @@ def _calculate_one(
             if spec.session_based and coverage < 0.8
             else None
         ),
+        calendar_name=calendar_for_instrument(instrument_key),
+        calendar_precision="exchange_session_lite",
+        expected_tradable_bars=expected,
     )
 
 
@@ -199,6 +209,7 @@ def calculate_event_windows(
     interval_seconds: int,
     source_grade: str,
     specs: tuple[WindowSpec, ...] = WINDOW_SPECS,
+    instrument_key: str | None = None,
 ) -> list[ComputedWindow]:
     """Compute all windows and flag direction changes against the first response."""
 
@@ -219,6 +230,7 @@ def calculate_event_windows(
             interval_seconds=interval_seconds,
             source_grade=source_grade,
             pre_volume=pre_volume,
+            instrument_key=instrument_key,
         )
         for spec in specs
     ]

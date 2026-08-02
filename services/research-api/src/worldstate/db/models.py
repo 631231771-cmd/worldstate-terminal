@@ -429,6 +429,9 @@ class RegimeSnapshot(Base):
     as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     methodology_version: Mapped[str] = mapped_column(String(64), nullable=False)
     labels_json: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    dimensions_json: Mapped[dict[str, str]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
     evidence_json: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON_DOCUMENT, default=list, nullable=False
     )
@@ -467,6 +470,52 @@ class AnalysisRun(Base):
     parameters_json: Mapped[dict[str, Any]] = mapped_column(
         JSON_DOCUMENT, default=dict, nullable=False
     )
+    # Immutable v0.4 manifests.  Existing v3 runs are explicitly marked legacy.
+    input_snapshot_hash: Mapped[str | None] = mapped_column(String(64))
+    config_hash: Mapped[str | None] = mapped_column(String(64))
+    output_hash: Mapped[str | None] = mapped_column(String(64))
+    release_snapshot_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    release_value_ids_json: Mapped[list[str]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    consensus_snapshot_ids_json: Mapped[list[str]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    release_stage_ids_json: Mapped[list[str]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    market_dataset_manifest_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    market_dataset_hash: Mapped[str | None] = mapped_column(String(64))
+    historical_sample_manifest_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    historical_sample_hash: Mapped[str | None] = mapped_column(String(64))
+    provider_manifest_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    source_artifact_ids_json: Mapped[list[str]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    algorithm_versions_json: Mapped[dict[str, str]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    rule_versions_json: Mapped[dict[str, str]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    analysis_parameters_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    reproducibility_status: Mapped[str] = mapped_column(
+        String(32), default="legacy_incomplete", nullable=False
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
+    failure_stage: Mapped[str | None] = mapped_column(String(64))
+    error_type: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
 
 
 class EventWindowDefinition(Base):
@@ -587,6 +636,9 @@ class HistoricalMatch(Base):
     matched_release_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("macro_releases.id"), nullable=False
     )
+    matched_analysis_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("analysis_runs.id")
+    )
     similarity_score: Mapped[float] = mapped_column(Float, nullable=False)
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
     included: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -622,6 +674,56 @@ class Explanation(Base):
     )
     unresolved_json: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
     rule_key: Mapped[str | None] = mapped_column(String(128))
+
+
+class EvidenceItem(Base):
+    __tablename__ = "evidence_items"
+    __table_args__ = (Index("ix_evidence_items_run", "analysis_run_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    analysis_run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    evidence_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_artifact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("source_artifacts.id"))
+    statement: Mapped[str] = mapped_column(Text, nullable=False)
+    value_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+    unit: Mapped[str | None] = mapped_column(String(64))
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    quality_grade: Mapped[str] = mapped_column(String(16), default="UNKNOWN", nullable=False)
+    is_fixture: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_proxy: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_manual: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    limitations_json: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ResearchClaim(Base):
+    __tablename__ = "research_claims"
+    __table_args__ = (Index("ix_research_claims_run", "analysis_run_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    analysis_run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    claim_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    statement: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_ids_json: Mapped[list[str]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    is_inference: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    causal_language: Mapped[str] = mapped_column(String(32), default="qualified", nullable=False)
+    limitations_json: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    falsifier: Mapped[str | None] = mapped_column(Text)
+    contradicting_evidence_ids_json: Mapped[list[str]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    validation_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
 
 
 class DataQualityRecord(Base):

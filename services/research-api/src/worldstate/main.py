@@ -13,7 +13,7 @@ from prometheus_client import make_asgi_app
 
 from worldstate import __version__
 from worldstate.api import router
-from worldstate.application.events import bootstrap_research_data
+from worldstate.application.bootstrap_service import bootstrap_research_data
 from worldstate.config import Settings
 from worldstate.db.session import create_engine
 from worldstate.logging import configure_logging

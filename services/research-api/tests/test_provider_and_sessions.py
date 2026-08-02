@@ -5,7 +5,10 @@ from datetime import UTC, date, datetime
 import pytest
 
 from worldstate.market_core.sessions import (
+    expected_tradable_bars,
+    is_tradable_minute,
     is_us_cash_session,
+    resolve_instrument_close,
     resolve_us_cash_close,
 )
 from worldstate.provider_kit.models import BarQuery, MarketInstrumentRef
@@ -64,6 +67,32 @@ def test_session_close_handles_dst_and_holidays() -> None:
     assert is_us_cash_session(date(2024, 7, 4)) is False
     after_close = resolve_us_cash_close(datetime(2024, 7, 3, 21, 0, tzinfo=UTC))
     assert after_close.date() == date(2024, 7, 5)
+
+
+def test_good_friday_memorial_day_and_early_close_are_calendar_aware() -> None:
+    assert is_us_cash_session(date(2024, 3, 29)) is False
+    assert is_us_cash_session(date(2024, 5, 27)) is False
+    july_third = resolve_us_cash_close(datetime(2024, 7, 3, 14, 0, tzinfo=UTC))
+    assert july_third == datetime(2024, 7, 3, 17, 0, tzinfo=UTC)
+
+
+def test_cme_weekend_and_daily_maintenance_are_not_expected_bars() -> None:
+    saturday = datetime(2024, 3, 9, 15, 0, tzinfo=UTC)
+    sunday_open = datetime(2024, 3, 10, 23, 0, tzinfo=UTC)  # 19:00 New York after DST
+    maintenance = datetime(2024, 3, 11, 21, 30, tzinfo=UTC)  # 17:30 New York
+    assert is_tradable_minute(saturday, "gold_gc") is False
+    assert is_tradable_minute(sunday_open, "gold_gc") is True
+    assert is_tradable_minute(maintenance, "gold_gc") is False
+
+
+def test_long_window_uses_instrument_sessions_not_natural_minutes() -> None:
+    start = datetime(2024, 3, 8, 13, 30, tzinfo=UTC)
+    end = datetime(2024, 3, 11, 21, 0, tzinfo=UTC)
+    expected = expected_tradable_bars(start, end, 60, "gold_gc")
+    natural = int((end - start).total_seconds() / 60)
+    assert 0 < expected < natural
+    assert resolve_instrument_close(start, "gold_gc").hour == 22
+    assert resolve_instrument_close(start, "sp500_cash").hour == 21
 
 
 def test_csv_provider_rejects_missing_columns() -> None:

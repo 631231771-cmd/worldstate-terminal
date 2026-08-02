@@ -14,8 +14,7 @@ def repository_root() -> Path:
         return Path(override).expanduser().resolve()
     for parent in Path(__file__).resolve().parents:
         if (parent / "data").is_dir() and (
-            (parent / "services" / "research-api").is_dir()
-            or (parent / "pyproject.toml").is_file()
+            (parent / "services" / "research-api").is_dir() or (parent / "pyproject.toml").is_file()
         ):
             return parent
     return Path.cwd().resolve()

@@ -20,31 +20,37 @@ from worldstate.api.v2.schemas import (
     ReleaseCreateInput,
     stage_payload,
 )
-from worldstate.application.events import (
-    METHODOLOGY_VERSION,
-    analyze_release,
-    append_consensus,
-    bootstrap_research_data,
-    create_manual_release,
+from worldstate.application.analysis_orchestrator import METHODOLOGY_VERSION, analyze_release
+from worldstate.application.analysis_persistence import (
+    diff_analysis_runs,
+    get_analysis_manifest,
+    replay_analysis_run,
+)
+from worldstate.application.bootstrap_service import bootstrap_research_data
+from worldstate.application.consensus_service import append_consensus
+from worldstate.application.evidence_service import get_evidence_pack
+from worldstate.application.market_import_service import import_market_csv
+from worldstate.application.release_commands import create_manual_release
+from worldstate.application.release_queries import (
     get_current_regime,
-    get_evidence_pack,
     get_provider_runs,
     get_quality_overview,
     get_release_detail,
-    get_release_explanations,
     get_release_historical,
     get_release_timeline,
     get_release_windows,
-    import_market_csv,
     list_releases,
 )
+from worldstate.application.report_service import get_release_explanations
 from worldstate.config import Settings
 from worldstate.db.models import (
     AnalysisRun,
     ConsensusSnapshot,
+    EvidenceItem,
     Indicator,
     MacroRelease,
     MarketInstrument,
+    ResearchClaim,
 )
 from worldstate.research_engine.history import (
     CASE_STUDY_SAMPLE,
@@ -110,6 +116,7 @@ async def health(request: Request) -> dict[str, object]:
         database_status = "unavailable"
         database_message = type(exc).__name__
     return {
+        "product": "worldstate-terminal",
         "service": "worldstate-research-api",
         "version": __version__,
         "api_version": "v2",
@@ -120,6 +127,90 @@ async def health(request: Request) -> dict[str, object]:
         "ai_provider": settings.resolved_ai_provider,
         "writes_enabled": settings.writes_available,
     }
+
+
+@router.get("/analysis-runs/{run_id}/manifest", tags=["analysis"])
+async def analysis_manifest(run_id: str, request: Request) -> object:
+    return required(
+        await get_analysis_manifest(request.app.state.database_engine, run_id),
+        "analysis run not found",
+    )
+
+
+@router.post(
+    "/analysis-runs/{run_id}/replay",
+    tags=["analysis"],
+    dependencies=[Depends(require_write_access)],
+)
+async def analysis_replay(run_id: str, request: Request) -> object:
+    return required(
+        await replay_analysis_run(request.app.state.database_engine, run_id),
+        "analysis run not found",
+    )
+
+
+@router.get("/analysis-runs/{run_id}/diff/{other_id}", tags=["analysis"])
+async def analysis_diff(run_id: str, other_id: str, request: Request) -> object:
+    return required(
+        await diff_analysis_runs(request.app.state.database_engine, run_id, other_id),
+        "analysis run not found",
+    )
+
+
+@router.get("/analysis-runs/{run_id}/evidence", tags=["research"])
+async def analysis_evidence(run_id: str, request: Request) -> object:
+    factory = async_sessionmaker(request.app.state.database_engine, expire_on_commit=False)
+    async with factory() as session:
+        rows = (
+            await session.scalars(
+                select(EvidenceItem).where(EvidenceItem.analysis_run_id == uuid.UUID(run_id))
+            )
+        ).all()
+        return {
+            "run_id": run_id,
+            "items": [
+                {
+                    "evidence_id": str(item.id),
+                    "evidence_type": item.evidence_type,
+                    "statement": item.statement,
+                    "quality_grade": item.quality_grade,
+                    "is_fixture": item.is_fixture,
+                    "is_proxy": item.is_proxy,
+                    "is_manual": item.is_manual,
+                    "limitations": item.limitations_json,
+                    "content_hash": item.content_hash,
+                }
+                for item in rows
+            ],
+        }
+
+
+@router.get("/analysis-runs/{run_id}/claims", tags=["research"])
+async def analysis_claims(run_id: str, request: Request) -> object:
+    factory = async_sessionmaker(request.app.state.database_engine, expire_on_commit=False)
+    async with factory() as session:
+        rows = (
+            await session.scalars(
+                select(ResearchClaim).where(ResearchClaim.analysis_run_id == uuid.UUID(run_id))
+            )
+        ).all()
+        return {
+            "run_id": run_id,
+            "items": [
+                {
+                    "claim_id": str(item.id),
+                    "claim_type": item.claim_type,
+                    "statement": item.statement,
+                    "evidence_ids": item.evidence_ids_json,
+                    "confidence": item.confidence,
+                    "is_inference": item.is_inference,
+                    "limitations": item.limitations_json,
+                    "falsifier": item.falsifier,
+                    "validation": item.validation_json,
+                }
+                for item in rows
+            ],
+        }
 
 
 @router.get("/today", tags=["research"])
@@ -393,9 +484,19 @@ async def import_bars(
     tags=["analysis"],
     dependencies=[Depends(require_write_access)],
 )
-async def run_analysis(release_id: str, request: Request) -> dict[str, str]:
+async def run_analysis(
+    release_id: str,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    force: bool = Query(default=False),
+) -> dict[str, str]:
     try:
-        run_id = await analyze_release(request.app.state.database_engine, release_id)
+        run_id = await analyze_release(
+            request.app.state.database_engine,
+            release_id,
+            idempotency_key=idempotency_key,
+            force=force,
+        )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -431,6 +532,12 @@ async def analysis_run(run_id: str, request: Request) -> object:
             "earliest_reactions": row.earliest_reactions_json,
             "data_gaps": row.data_gaps_json,
             "parameters": row.parameters_json,
+            "input_snapshot_hash": row.input_snapshot_hash,
+            "config_hash": row.config_hash,
+            "market_dataset_hash": row.market_dataset_hash,
+            "historical_sample_hash": row.historical_sample_hash,
+            "output_hash": row.output_hash,
+            "reproducibility_status": row.reproducibility_status,
         }
 
 
