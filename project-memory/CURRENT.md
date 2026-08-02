@@ -63,7 +63,8 @@ residual port entry was present. Inventory and cleanup evidence are under
 
 ## Next work
 
-1. Push the verified v0.4 stabilization commits and keep PR #8 Draft until all GitHub checks are green.
+1. v0.4 stabilization is pushed at `bf0f10175`; both GitHub CI runs are green.
+   PR #8 remains Draft and unmerged by explicit instruction.
 2. Import larger licensed point-in-time event/minute-bar history.
 3. Add official BLS, BEA and Federal Reserve release providers.
 4. Automate pre-T0 consensus snapshots from a legally usable source.
