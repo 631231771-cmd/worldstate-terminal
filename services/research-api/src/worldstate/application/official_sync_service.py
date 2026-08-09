@@ -1307,7 +1307,7 @@ async def sync_fred_foundation(
         catalog = [
             item
             for item in load_catalog(repository_root() / "data" / "macro")
-            if item.native_id in _FRED_FOUNDATION_SERIES
+            if item.provider == clients.fred.key
         ]
         factory = _factory(engine)
         async with factory() as session, session.begin():
@@ -1470,7 +1470,11 @@ async def sync_fred_foundation(
             source_artifact_id=primary_artifact_id,
             quality_grade="A" if as_of else "B",
             warnings=warnings,
-            output_data={"series": sorted(_FRED_FOUNDATION_SERIES), "as_of": as_of},
+            output_data={
+                "series": sorted(item.native_id for item in catalog),
+                "series_count": len(catalog),
+                "as_of": as_of,
+            },
         )
         return {
             "status": "completed",

@@ -84,6 +84,26 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("FRED_API_KEY", "WORLDSTATE_FRED_API_KEY"),
     )
+    ecb_api_url: str = Field(
+        default="https://data-api.ecb.europa.eu/service/data",
+        validation_alias="WORLDSTATE_ECB_API_URL",
+    )
+    boj_api_url: str | None = Field(
+        default=None,
+        validation_alias="WORLDSTATE_BOJ_API_URL",
+    )
+    boe_api_url: str = Field(
+        default="https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp",
+        validation_alias="WORLDSTATE_BOE_API_URL",
+    )
+    china_api_url: str | None = Field(
+        default=None,
+        validation_alias="WORLDSTATE_CHINA_API_URL",
+    )
+    public_provider_sync_enabled: bool = Field(
+        default=True,
+        validation_alias="WORLDSTATE_PUBLIC_PROVIDER_SYNC_ENABLED",
+    )
     bls_api_key: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices("BLS_API_KEY", "WORLDSTATE_BLS_API_KEY"),

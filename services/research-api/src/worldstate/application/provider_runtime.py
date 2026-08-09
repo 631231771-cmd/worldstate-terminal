@@ -26,8 +26,11 @@ from worldstate.provider_kit import (
     DatabentoMarketProvider,
     FederalReserveFomcProvider,
     FredAlfredProvider,
+    OfficialPublicCsvProvider,
     ProviderCapabilities,
     ProviderRetryPolicy,
+    ProviderTerms,
+    PublicSeriesSpec,
     TradingEconomicsConsensusProvider,
 )
 from worldstate.provider_kit import (
@@ -48,6 +51,10 @@ class ProviderClients:
     fred: FredAlfredProvider
     trading_economics: TradingEconomicsConsensusProvider
     databento: DatabentoMarketProvider
+    ecb: OfficialPublicCsvProvider
+    boj: OfficialPublicCsvProvider
+    boe: OfficialPublicCsvProvider
+    china: OfficialPublicCsvProvider
 
 
 class _HealthProvider(Protocol):
@@ -92,6 +99,101 @@ def build_provider_clients(
             max_estimated_cost_usd=settings.databento_max_estimated_cost_usd,
             allow_paid_download=settings.allow_paid_download,
             timeout_seconds=max(settings.provider_timeout_seconds, 60),
+            retry_policy=retry_policy,
+        ),
+        ecb=OfficialPublicCsvProvider(
+            key="ecb_data_portal",
+            name="European Central Bank Data Portal",
+            base_url=settings.ecb_api_url,
+            terms=ProviderTerms(
+                license_name="ECB Data Portal terms",
+                terms_url="https://data.ecb.europa.eu/help/terms-of-use",
+                redistribution_allowed=True,
+            ),
+            series=(
+                PublicSeriesSpec(
+                    native_id="EXR.D.USD.EUR.SP00.A",
+                    canonical_key="EA.EXTERNAL.EURUSD",
+                    title="US dollar per euro reference rate",
+                    entity="EA19",
+                    frequency="daily",
+                    unit="USD_per_EUR",
+                    source_url="https://data.ecb.europa.eu/data/datasets/EXR/EXR.D.USD.EUR.SP00.A",
+                ),
+                PublicSeriesSpec(
+                    native_id="ICP.M.U2.N.000000.4.ANR",
+                    canonical_key="EA.INFLATION.HICP",
+                    title="Euro Area HICP annual rate",
+                    entity="EA19",
+                    frequency="monthly",
+                    unit="percent",
+                    source_url="https://data.ecb.europa.eu/data/datasets/ICP/ICP.M.U2.N.000000.4.ANR",
+                ),
+                PublicSeriesSpec(
+                    native_id="FM.D.U2.EUR.4F.MM",
+                    canonical_key="EA.POLICY.ECB_DEPOSIT_RATE",
+                    title="ECB deposit facility rate",
+                    entity="EA19",
+                    frequency="daily",
+                    unit="percent",
+                    source_url="https://data.ecb.europa.eu/data/datasets/FM/FM.D.U2.EUR.4F.MM",
+                ),
+            ),
+            timeout_seconds=settings.provider_timeout_seconds,
+            retry_policy=retry_policy,
+        ),
+        boe=OfficialPublicCsvProvider(
+            key="bank_of_england_iadb",
+            name="Bank of England IADB",
+            base_url=settings.boe_api_url,
+            terms=ProviderTerms(
+                license_name="Bank of England IADB terms",
+                terms_url="https://www.bankofengland.co.uk/boeapps/database/iadb-notes.asp",
+                redistribution_allowed=True,
+            ),
+            series=(
+                PublicSeriesSpec(
+                    native_id="IUDBEDR",
+                    canonical_key="GBR.POLICY.BANK_RATE",
+                    title="Bank Rate",
+                    entity="GBR",
+                    frequency="daily",
+                    unit="percent",
+                    source_url="https://www.bankofengland.co.uk/boeapps/database/Bank-Rate.asp",
+                    value_column="IUDBEDR",
+                    date_column="DATE",
+                    endpoint_kind="boe",
+                ),
+            ),
+            timeout_seconds=settings.provider_timeout_seconds,
+            retry_policy=retry_policy,
+        ),
+        boj=OfficialPublicCsvProvider(
+            key="boj_public",
+            name="Bank of Japan public export",
+            base_url=settings.boj_api_url or "",
+            terms=ProviderTerms(
+                license_name="Bank of Japan public data terms",
+                terms_url="https://www.stat-search.boj.or.jp/",
+                redistribution_allowed=True,
+            ),
+            series=(),
+            enabled=bool(settings.boj_api_url),
+            timeout_seconds=settings.provider_timeout_seconds,
+            retry_policy=retry_policy,
+        ),
+        china=OfficialPublicCsvProvider(
+            key="china_official_public",
+            name="China official macro export",
+            base_url=settings.china_api_url or "",
+            terms=ProviderTerms(
+                license_name="China official statistics publication terms",
+                terms_url="https://www.stats.gov.cn/",
+                redistribution_allowed=False,
+            ),
+            series=(),
+            enabled=bool(settings.china_api_url),
+            timeout_seconds=settings.provider_timeout_seconds,
             retry_policy=retry_policy,
         ),
     )
@@ -177,6 +279,10 @@ async def provider_health_snapshot(settings: Settings) -> list[dict[str, object]
         clients.federal_reserve,
         clients.trading_economics,
         clients.databento,
+        clients.ecb,
+        clients.boj,
+        clients.boe,
+        clients.china,
     )
     results = await asyncio.gather(
         *(provider.healthcheck() for provider in providers),

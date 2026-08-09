@@ -43,6 +43,7 @@ from worldstate.application.provider_runtime import (
     build_provider_clients,
     provider_health_snapshot,
 )
+from worldstate.application.public_sync_service import sync_public_providers
 from worldstate.application.reconciliation_service import reconcile_persisted_data
 from worldstate.config import Settings
 from worldstate.db.models import (
@@ -202,6 +203,42 @@ _PROVIDERS: tuple[dict[str, Any], ...] = (
             "cost_estimate",
         ),
     },
+    {
+        "provider_id": "ecb_data_portal",
+        "display_name": "ECB Data Portal",
+        "aliases": ("ecb_data_portal", "ecb"),
+        "credential": None,
+        "public": True,
+        "public_setting": "ecb_api_url",
+        "capabilities": ("euro_area_rates", "hicp", "eur_exchange_rates"),
+    },
+    {
+        "provider_id": "bank_of_england_iadb",
+        "display_name": "Bank of England",
+        "aliases": ("bank_of_england_iadb", "boe", "bank_of_england"),
+        "credential": None,
+        "public": True,
+        "public_setting": "boe_api_url",
+        "capabilities": ("bank_rate", "uk_rates"),
+    },
+    {
+        "provider_id": "boj_public",
+        "display_name": "Bank of Japan",
+        "aliases": ("boj_public", "boj", "bank_of_japan"),
+        "credential": None,
+        "public": True,
+        "public_setting": "boj_api_url",
+        "capabilities": ("japan_public_export",),
+    },
+    {
+        "provider_id": "china_official_public",
+        "display_name": "China Official Macro",
+        "aliases": ("china_official_public", "china"),
+        "credential": None,
+        "public": True,
+        "public_setting": "china_api_url",
+        "capabilities": ("china_official_export",),
+    },
 )
 
 
@@ -354,7 +391,11 @@ async def build_provider_status(
         aliases = tuple(str(item) for item in definition["aliases"])
         public = bool(definition["public"])
         credential_configured = _has_secret(settings, definition["credential"])
-        configured = public or credential_configured
+        public_configured = public and (
+            not definition.get("public_setting")
+            or bool(getattr(settings, str(definition["public_setting"]), None))
+        )
+        configured = public_configured or credential_configured
         record = _provider_record(persisted, aliases)
         live = next(
             (item for item in live_health if str(item.get("provider_key", "")).lower() in aliases),
@@ -384,7 +425,9 @@ async def build_provider_status(
             healthy = False
         else:
             healthy = None
-        entitlement = _provider_entitlement(record, public=public, configured=credential_configured)
+        entitlement = _provider_entitlement(
+            record, public=public_configured, configured=credential_configured
+        )
         pit_entitled: bool | None = None
         if definition["provider_id"] == "trading_economics_consensus":
             pit_entitled = bool(getattr(settings, "trading_economics_pit_entitled", False))
@@ -409,7 +452,7 @@ async def build_provider_status(
             provider_status = run_status
         elif health_snapshot and health_snapshot.get("status"):
             provider_status = str(health_snapshot["status"])
-        elif public:
+        elif public_configured:
             provider_status = "available_public"
         elif credential_configured:
             provider_status = "configured_unverified"
@@ -1283,6 +1326,28 @@ async def sync_official_endpoint(
         key: _redact_provider_message(value, settings)
         for key, value in cast(dict[str, object], result.get("failures", {})).items()
     }
+    _set_multi_status(response, result)
+    return result
+
+
+@data_write_router.post("/sync/public")
+async def sync_public_endpoint(
+    payload: DataRangeInput,
+    request: Request,
+    response: Response,
+) -> dict[str, Any]:
+    """Synchronize configured no-key official public macro feeds.
+
+    The endpoint never falls back to fixtures.  Providers without a configured
+    export URL return ``blocked``/``partial`` with the provider name exposed.
+    """
+
+    result = await sync_public_providers(
+        request.app.state.database_engine,
+        request.app.state.settings,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+    )
     _set_multi_status(response, result)
     return result
 
