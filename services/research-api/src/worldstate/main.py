@@ -19,6 +19,7 @@ from worldstate.application.bootstrap_service import (
     initialize_research_catalog,
 )
 from worldstate.application.scheduler_runtime import SchedulerRuntime
+from worldstate.application.world_state_service import seed_state_fixture_data
 from worldstate.config import Settings
 from worldstate.db.session import create_engine
 from worldstate.logging import configure_logging
@@ -35,6 +36,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.database_engine = create_engine(resolved.database_url)
         await initialize_research_catalog(app.state.database_engine)
         if resolved.demo_mode:
+            await seed_state_fixture_data(app.state.database_engine)
             await bootstrap_research_data(app.state.database_engine)
         scheduler: SchedulerRuntime | None = None
         backfill_worker: BackfillWorker | None = None

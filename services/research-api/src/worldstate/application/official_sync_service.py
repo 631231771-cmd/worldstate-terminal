@@ -335,9 +335,7 @@ async def sync_bls_calendar(
         engine,
         provider_key=clients.bls.key,
         operation="sync_release_calendar",
-        idempotency_key=(
-            f"bls-calendar:{family_scope}:{start_date}:{end_date}:{date.today()}"
-        ),
+        idempotency_key=(f"bls-calendar:{family_scope}:{start_date}:{end_date}:{date.today()}"),
         input_data={
             "start_date": start_date,
             "end_date": end_date,
@@ -541,9 +539,7 @@ async def sync_bls_actuals(
         engine,
         provider_key=clients.bls.key,
         operation="sync_actuals_revisions",
-        idempotency_key=(
-            f"bls-actuals:{family_scope}:{start_date}:{end_date}:{date.today()}"
-        ),
+        idempotency_key=(f"bls-actuals:{family_scope}:{start_date}:{end_date}:{date.today()}"),
         input_data={
             "start_date": start_date,
             "end_date": end_date,
@@ -686,11 +682,7 @@ async def sync_bls_actuals(
                     indicator_key = _BLS_INDICATOR_MAP.get(observation.canonical_key)
                     indicator = indicators.get(indicator_key or "")
                     target_release = await session.get(MacroRelease, release_id)
-                    if (
-                        indicator is None
-                        or target_release is None
-                        or observation.value is None
-                    ):
+                    if indicator is None or target_release is None or observation.value is None:
                         continue
                     matched += 1
                     stage = await session.scalar(
@@ -844,9 +836,7 @@ async def sync_fomc_materials(
     try:
         calendar_batches = []
         for archive_year in range(start_date.year, min(end_date.year, 2020) + 1):
-            calendar_batches.append(
-                await clients.federal_reserve.fetch_calendar(year=archive_year)
-            )
+            calendar_batches.append(await clients.federal_reserve.fetch_calendar(year=archive_year))
             requests += 1
         if end_date.year >= 2021:
             calendar_batches.append(await clients.federal_reserve.fetch_calendar())
@@ -891,14 +881,10 @@ async def sync_fomc_materials(
                 provider_key=clients.federal_reserve.key,
                 calendar_kind="FOMC",
                 period_start=(
-                    min(item.end_date for item in batch_meetings)
-                    if batch_meetings
-                    else start_date
+                    min(item.end_date for item in batch_meetings) if batch_meetings else start_date
                 ),
                 period_end=(
-                    max(item.end_date for item in batch_meetings)
-                    if batch_meetings
-                    else end_date
+                    max(item.end_date for item in batch_meetings) if batch_meetings else end_date
                 ),
                 captured_at=batch.retrieved_at,
                 payload=[meeting.model_dump(mode="json") for meeting in batch_meetings],
@@ -983,9 +969,7 @@ async def sync_fomc_materials(
                     documents.append((linked_document, linked_stored.id))
                     seen_document_urls.add(linked_document.source_url)
             statement_candidates = [
-                item
-                for item in documents
-                if item[0].document_type == FomcMaterialType.STATEMENT
+                item for item in documents if item[0].document_type == FomcMaterialType.STATEMENT
             ]
             statement_pair = (
                 max(
@@ -1185,9 +1169,7 @@ async def sync_fomc_materials(
                             and _aware(meeting.press_conference_at) <= datetime.now(UTC)
                         ),
                         metadata={
-                            "timestamp_source": meeting.metadata.get(
-                                "press_conference_time_basis"
-                            ),
+                            "timestamp_source": meeting.metadata.get("press_conference_time_basis"),
                             "meeting_specific_material_url": (
                                 press_pair[0].source_url if press_pair is not None else None
                             ),
@@ -1415,6 +1397,10 @@ async def sync_fred_foundation(
                         active=True,
                         metadata_json={
                             "state_dimensions": definition.state_dimensions,
+                            "orientation": definition.orientation,
+                            "weight": definition.weight,
+                            "minimum_history": definition.minimum_history,
+                            "freshness_half_life_days": definition.freshness_half_life_days,
                             "source_mode": "observed",
                             "underlying_series_terms_must_be_checked": True,
                         },
@@ -1425,9 +1411,13 @@ async def sync_fred_foundation(
                     prior_source_mode = str(series.metadata_json.get("source_mode") or "")
                     series.metadata_json = {
                         **series.metadata_json,
+                        "state_dimensions": definition.state_dimensions,
+                        "orientation": definition.orientation,
+                        "weight": definition.weight,
+                        "minimum_history": definition.minimum_history,
+                        "freshness_half_life_days": definition.freshness_half_life_days,
                         "source_mode": "observed",
-                        "fixture_observations_retained": prior_source_mode
-                        in {"demo", "fixture"},
+                        "fixture_observations_retained": prior_source_mode in {"demo", "fixture"},
                         "underlying_series_terms_must_be_checked": True,
                     }
                 for observation in batch.observations:
@@ -1510,9 +1500,7 @@ async def sync_official_data(
         raise ValueError(f"unsupported event types: {sorted(unsupported)}")
     if not selected:
         raise ValueError("at least one event type is required")
-    bls_families: tuple[BlsFamily, ...] = tuple(
-        item for item in selected if item in _BLS_FAMILIES
-    )
+    bls_families: tuple[BlsFamily, ...] = tuple(item for item in selected if item in _BLS_FAMILIES)
     results: dict[str, object] = {}
     failures: dict[str, str] = {}
     operations: list[tuple[str, Any, dict[str, object]]] = []

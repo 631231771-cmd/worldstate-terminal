@@ -43,6 +43,7 @@ from worldstate.application.release_queries import (
     list_releases,
 )
 from worldstate.application.report_service import get_release_explanations
+from worldstate.application.world_state_service import build_world_state
 from worldstate.config import Settings
 from worldstate.db.models import (
     AnalysisRun,
@@ -691,6 +692,21 @@ async def regimes(
         request.app.state.database_engine,
         data_mode=requested_data_mode(request, data_mode),
     )
+
+
+@router.get("/world-state", tags=["macro"])
+async def world_state(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, object]:
+    """Return the deterministic, point-in-time macro state snapshot.
+
+    This endpoint is intentionally separate from the event-regime endpoint:
+    ``/regime`` describes the pre-event context attached to a research run,
+    while this response describes the latest series state for the terminal.
+    """
+    mode = requested_data_mode(request, data_mode)
+    return await build_world_state(request.app.state.database_engine, data_mode=mode)
 
 
 @router.get("/methodology", tags=["system"])
