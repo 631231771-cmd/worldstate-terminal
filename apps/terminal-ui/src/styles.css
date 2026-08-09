@@ -124,6 +124,11 @@ a { color: var(--amber); }
 
 .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .two-column--research { grid-template-columns: 1.15fr .85fr; }
+.state-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.state-card-grid .panel { border: 0; min-height: 180px; }
+.state-score { display: block; margin: 8px 0; font: 600 38px var(--font-mono); }
+.driver-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--line-soft); font-size: 13px; }
+.driver-row span { color: var(--muted); font: 12px var(--font-mono); }
 .state-strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
 .state-strip__item { min-height: 108px; padding: 14px; background: var(--surface-2); }
 .state-strip__item > span { display: block; color: var(--muted); font: 500 11px var(--font-mono); text-transform: uppercase; }
@@ -155,6 +160,19 @@ a { color: var(--amber); }
 }
 .segmented button.active, .instrument-toggles button.active { color: var(--amber); border-color: #76602c; background: #2b2516; }
 .search-input { min-width: 320px; padding: 9px 13px; color: var(--text); border: 1px solid var(--line); background: #11130f; }
+.series-list { display: grid; }
+.series-row { display: flex; justify-content: space-between; gap: 18px; width: 100%; padding: 13px 10px; color: var(--text); text-align: left; background: transparent; border: 0; border-top: 1px solid var(--line-soft); cursor: pointer; }
+.series-row:hover, .series-row.active { background: var(--surface-2); }
+.series-row strong, .series-row small { display: block; }
+.series-row strong { font-size: 14px; }
+.series-row small { color: var(--muted); font: 11px var(--font-mono); }
+.series-row > span:last-child { text-align: right; font: 500 14px var(--font-mono); }
+.series-transforms { flex-wrap: wrap; margin-bottom: 16px; }
+.series-transforms button { padding: 6px 9px; font-size: 11px; }
+.series-history { display: grid; gap: 0; max-height: 520px; overflow: auto; }
+.series-history__row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+.series-history__row time, .series-history__row small { color: var(--muted); font: 11px var(--font-mono); }
+.series-history__row strong { font: 500 13px var(--font-mono); }
 .table-wrap { width: 100%; overflow: auto; }
 table { width: 100%; border-collapse: collapse; }
 th { padding: 12px; color: var(--dim); font: 500 10px var(--font-mono); letter-spacing: .1em; text-align: left; border-bottom: 1px solid var(--line); }

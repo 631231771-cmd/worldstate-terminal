@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from worldstate.application.market_research_service import _transform
 from worldstate.application.world_state_service import calculate_signal, classify_regime
 
 
@@ -67,3 +68,25 @@ def test_daily_brief_is_deterministic_and_has_explicit_sections(client: TestClie
     assert isinstance(payload["biggest_changes"], list)
     assert isinstance(payload["upcoming"], list)
     assert "AI 只可在此基础上解释" in payload["ai_note"]
+
+
+def test_series_transforms_preserve_missing_leads() -> None:
+    points = _transform([100, 101, 102, 104, 108], [], "mom")
+    assert points[0] is None
+    assert points[-1] is not None
+    zscores = _transform([1, 1, 1, 2], [], "zscore")
+    assert zscores[-1] is not None
+    assert zscores[-1] > 0
+
+
+def test_market_and_series_endpoints_are_mode_explicit(client: TestClient) -> None:
+    market = client.get("/v2/market-dashboard?horizon=1w&data_mode=fixture")
+    assert market.status_code == 200
+    assert market.json()["methodology_version"] == "wst-market-dashboard-v1"
+    series = client.get("/v2/series?data_mode=fixture")
+    assert series.status_code == 200
+    assert all(item["data_mode"] == "fixture" for item in series.json())
+    detail = client.get("/v2/series/US.INFLATION.CPI_HEADLINE?data_mode=fixture&transform=mom")
+    assert detail.status_code == 200
+    assert detail.json()["transform"] == "mom"
+    assert detail.json()["points"]

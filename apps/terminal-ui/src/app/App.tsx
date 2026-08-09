@@ -5,15 +5,21 @@ import type { ReleaseSummary, ViewKey } from "../types";
 import { CrossAssetWorkspace } from "../workspaces/cross-asset/CrossAssetWorkspace";
 import { DataMethodsWorkspace } from "../workspaces/data-methods/DataMethodsWorkspace";
 import { EventLabWorkspace } from "../workspaces/event-lab/EventLabWorkspace";
+import { MarketsWorkspace } from "../workspaces/markets/MarketsWorkspace";
 import { ReleasesWorkspace } from "../workspaces/releases/ReleasesWorkspace";
+import { SeriesWorkspace } from "../workspaces/series/SeriesWorkspace";
 import { TodayWorkspace } from "../workspaces/today/TodayWorkspace";
+import { WorldStateWorkspace } from "../workspaces/world-state/WorldStateWorkspace";
 
 const NAVIGATION: Array<{ key: ViewKey; label: string; index: string; note: string }> = [
   { key: "today", label: "今日", index: "01", note: "研究入口" },
-  { key: "releases", label: "宏观发布", index: "02", note: "实际值与共识" },
-  { key: "event-lab", label: "事件实验室", index: "03", note: "完整复盘" },
-  { key: "cross-asset", label: "跨资产", index: "04", note: "同轴反应" },
-  { key: "data-methods", label: "数据与方法", index: "05", note: "质量与边界" },
+  { key: "world-state", label: "宏观状态", index: "02", note: "增长与通胀" },
+  { key: "markets", label: "市场状态", index: "03", note: "跨资产确认" },
+  { key: "releases", label: "宏观发布", index: "04", note: "实际值与共识" },
+  { key: "event-lab", label: "事件实验室", index: "05", note: "完整复盘" },
+  { key: "cross-asset", label: "跨资产", index: "06", note: "同轴反应" },
+  { key: "series", label: "宏观序列", index: "07", note: "时间序列" },
+  { key: "data-methods", label: "数据与方法", index: "08", note: "质量与边界" },
 ];
 
 function initialView(): ViewKey {
@@ -148,6 +154,8 @@ export function App() {
             {view === "today" ? (
               <TodayWorkspace releases={releases} health={health} onOpen={openRelease} />
             ) : null}
+            {view === "world-state" ? <WorldStateWorkspace /> : null}
+            {view === "markets" ? <MarketsWorkspace /> : null}
             {view === "releases" ? (
               <ReleasesWorkspace releases={releases} onOpen={openRelease} />
             ) : null}
@@ -155,6 +163,7 @@ export function App() {
               <EventLabWorkspace release={selected} onRefresh={refresh} />
             ) : null}
             {view === "cross-asset" ? <CrossAssetWorkspace release={selected} /> : null}
+            {view === "series" ? <SeriesWorkspace /> : null}
             {view === "data-methods" ? <DataMethodsWorkspace /> : null}
           </>
         )}

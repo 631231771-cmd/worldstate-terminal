@@ -72,6 +72,16 @@ export const api = {
     }>("/v2/today"),
   dailyBrief: () => request<DailyBriefResponse>("/v2/daily-brief"),
   worldState: () => request<WorldStateResponse>("/v2/world-state"),
+  marketDashboard: (horizon = "1d") =>
+    request<Record<string, unknown> & { items: Array<Record<string, unknown>> }>(
+      `/v2/market-dashboard?horizon=${horizon}`,
+    ),
+  series: (query = "") =>
+    request<Array<Record<string, unknown>>>(`/v2/series?q=${encodeURIComponent(query)}`),
+  seriesHistory: (key: string, transform = "raw") =>
+    request<Record<string, unknown>>(
+      `/v2/series/${encodeURIComponent(key)}?transform=${transform}`,
+    ),
   releases: () => request<ReleaseSummary[]>("/v2/releases?limit=500"),
   release: (id: string) => request<ReleaseDetail>(`/v2/releases/${id}`),
   windows: (id: string) => request<WindowsResponse>(`/v2/releases/${id}/windows`),

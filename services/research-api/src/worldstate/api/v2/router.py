@@ -32,6 +32,11 @@ from worldstate.application.consensus_service import append_consensus
 from worldstate.application.daily_brief_service import build_daily_brief
 from worldstate.application.evidence_service import get_evidence_pack
 from worldstate.application.market_import_service import import_market_csv
+from worldstate.application.market_research_service import (
+    build_market_dashboard,
+    get_series_history,
+    search_series,
+)
 from worldstate.application.release_commands import create_manual_release
 from worldstate.application.release_queries import (
     get_current_regime,
@@ -261,16 +266,11 @@ async def today(
         and datetime.fromisoformat(str(item["scheduled_at"])) <= now
         and item.get("analysis_status") == "completed"
         and item.get("reproducibility_status") == "complete"
-        and (
-            requested_mode == "all"
-            or item.get("data_mode") == requested_mode
-        )
+        and (requested_mode == "all" or item.get("data_mode") == requested_mode)
     ]
     eligible.sort(
         key=lambda item: str(
-            item.get("analysis_completed_at")
-            or item.get("released_at")
-            or item.get("scheduled_at")
+            item.get("analysis_completed_at") or item.get("released_at") or item.get("scheduled_at")
         ),
         reverse=True,
     )
@@ -287,8 +287,7 @@ async def today(
         },
         "question": "今天的宏观信息改变了哪条政策、增长或通胀定价链？",
         "data_note": (
-            "只展示当前数据模式下已发布、已完成且可复现的研究；"
-            "没有符合条件的记录时保持空白。"
+            "只展示当前数据模式下已发布、已完成且可复现的研究；没有符合条件的记录时保持空白。"
         ),
     }
 
@@ -718,6 +717,54 @@ async def daily_brief(
     """Build the deterministic daily entry point used by the Today workspace."""
     mode = requested_data_mode(request, data_mode)
     return await build_daily_brief(request.app.state.database_engine, data_mode=mode)
+
+
+@router.get("/market-dashboard", tags=["market"])
+async def market_dashboard(
+    request: Request,
+    horizon: Literal["1d", "1w", "1m", "3m"] = Query(default="1d"),
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, object]:
+    return await build_market_dashboard(
+        request.app.state.database_engine,
+        horizon=horizon,
+        data_mode=requested_data_mode(request, data_mode),
+    )
+
+
+@router.get("/series", tags=["macro"])
+async def series_search(
+    request: Request,
+    q: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> list[dict[str, object]]:
+    return await search_series(
+        request.app.state.database_engine,
+        query=q,
+        limit=limit,
+        data_mode=requested_data_mode(request, data_mode),
+    )
+
+
+@router.get("/series/{canonical_key:path}", tags=["macro"])
+async def series_history(
+    canonical_key: str,
+    request: Request,
+    transform: str = Query(default="raw"),
+    limit: int = Query(default=240, ge=1, le=2000),
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> object:
+    return required(
+        await get_series_history(
+            request.app.state.database_engine,
+            canonical_key,
+            transform=transform,
+            limit=limit,
+            data_mode=requested_data_mode(request, data_mode),
+        ),
+        "series not found",
+    )
 
 
 @router.get("/methodology", tags=["system"])
