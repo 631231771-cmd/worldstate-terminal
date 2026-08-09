@@ -1,6 +1,6 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-08-02
+Updated: 2026-08-09
 
 ## Product truth
 
@@ -17,7 +17,7 @@ longer part of the active architecture. Their final state is preserved at tag
 
 - Working branch: `refactor/macro-research-terminal`
 - Last committed v0.4 baseline: `16544c373bb32fc9788b72538db49c3fcc2c1337`
-- v0.5 worktree state: local implementation and validation complete; commit/CI pending
+- v0.5 Data Foundation: committed as `4054a66e620db2f5aff9a4c70b6af9be3b9aad94`; local and GitHub CI validation complete
 - Database head in the worktree: `0006_data_mode_integrity`
 - API contract: `/v2`
 - Product version in the worktree: `0.5.0`
@@ -134,18 +134,19 @@ not live or licensed historical datasets.
 - Missing-key behavior: FRED, Trading Economics and Databento report
   `not_configured`; no paid download was attempted. BLS schedule HTTP 403 is an
   explicit blocked ProviderRun and produces partial/non-zero sync status.
-- GitHub Actions: not yet run for the uncommitted v0.5 worktree; PR #8 remains Draft.
+- GitHub Actions: green for `research-api`, `terminal-ui` and `desktop-check` on run
+  `https://github.com/631231771-cmd/worldstate-terminal/actions/runs/31302012562`.
+  PR #8 remains Draft and unmerged.
 
 Do not reuse v0.4 pass counts as v0.5 evidence.
 
 ## Next work after this stabilization only
 
-1. Push the validated v0.5 commit, make GitHub Actions green and keep PR #8 Draft.
-2. Re-run BLS schedule ingestion from a network where the official HTML is not
+1. Re-run BLS schedule ingestion from a network where the official HTML is not
    blocked, and preserve the resulting artifact.
-3. With legally usable credentials, validate FRED/ALFRED and Trading Economics
+2. With legally usable credentials, validate FRED/ALFRED and Trading Economics
    PIT semantics and Databento estimates/entitlements against real accounts.
-4. Perform a bounded approved real-data backfill and assess stored versus
+3. Perform a bounded approved real-data backfill and assess stored versus
    analysis-eligible coverage gaps.
 
 Do not add new event types, workspaces, automatic trading, news walls or maps in
