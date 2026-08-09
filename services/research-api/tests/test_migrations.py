@@ -9,7 +9,7 @@ from alembic import command
 from alembic.config import Config
 
 
-def test_clean_database_migrates_to_v06_with_reference_integrity(
+def test_clean_database_migrates_to_v051_with_reference_integrity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -42,7 +42,7 @@ def test_clean_database_migrates_to_v06_with_reference_integrity(
     finally:
         connection.close()
 
-    assert revision == ("0006_data_mode_integrity",)
+    assert revision == ("0007_truthfulness_stabilization",)
     assert {
         "evidence_items",
         "research_claims",
@@ -68,7 +68,7 @@ def test_clean_database_migrates_to_v06_with_reference_integrity(
     assert integrity_errors == []
 
 
-def test_existing_v04_database_upgrades_to_v06(
+def test_existing_v04_database_upgrades_to_v051(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -161,13 +161,13 @@ def test_existing_v04_database_upgrades_to_v06(
         ).fetchone()
     finally:
         connection.close()
-    assert revision == ("0006_data_mode_integrity",)
+    assert revision == ("0007_truthfulness_stabilization",)
     assert {"data_mode", "metadata_json"} <= columns
     assert migrated_demo_mode == ("fixture",)
     assert integrity_errors == []
 
 
-def test_existing_v05_database_upgrades_to_v06(
+def test_existing_v05_database_upgrades_to_v051(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -207,7 +207,108 @@ def test_existing_v05_database_upgrades_to_v06(
     finally:
         connection.close()
 
-    assert revision == ("0006_data_mode_integrity",)
+    assert revision == ("0007_truthfulness_stabilization",)
     assert "data_mode" in observation_columns
     assert "uq_provider_run_idempotency_mode" in unique_indexes
     assert integrity_errors == []
+
+
+def test_truthfulness_migration_reclassifies_consensus_and_guards_future_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "mismatch.db"
+    monkeypatch.setenv(
+        "WORLDSTATE_DATABASE_URL",
+        f"sqlite+aiosqlite:///{database.as_posix()}",
+    )
+    root = Path(__file__).parents[1]
+    config = Config(str(root / "alembic.ini"))
+    command.upgrade(config, "0006_data_mode_integrity")
+    release_id = uuid.uuid4().hex
+    indicator_id = uuid.uuid4().hex
+    quality_id = uuid.uuid4().hex
+    consensus_id = uuid.uuid4().hex
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute(
+            """
+            INSERT INTO macro_releases
+            (id, release_key, release_type, title, country, period_label,
+             scheduled_at, released_at, source_timezone, status, data_version,
+             data_mode, contamination_level, clean_window, overlapping_events,
+             confounding_notes, metadata_json, created_at, updated_at)
+            VALUES (?, 'fixture-cpi', 'US_CPI', 'Fixture CPI', 'USA', '2024-01',
+                    '2024-02-13T13:30:00+00:00', '2024-02-13T13:30:00+00:00',
+                    'America/New_York', 'released', 'v1', 'fixture', 'none', 1,
+                    '[]', '[]', '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (release_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO indicators
+            (id, indicator_key, name, family, country, unit, periodicity,
+             hotter_when_higher, bundle_weight, active, metadata_json,
+             created_at, updated_at)
+            VALUES (?, 'TEST_CPI', 'Test CPI', 'inflation', 'USA', 'percent',
+                    'monthly', 1, 1.0, 1, '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (indicator_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO data_quality_records
+            (id, subject_type, subject_id, source_name, source_type, acquired_at,
+             is_manual, is_verified, is_fixture, is_proxy, quality_grade,
+             verification_notes, metadata_json, created_at)
+            VALUES (?, 'consensus_snapshot', ?, 'manual', 'manual', CURRENT_TIMESTAMP,
+                    1, 1, 0, 0, 'B', 'pre-release snapshot', '{}', CURRENT_TIMESTAMP)
+            """,
+            (quality_id, consensus_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO consensus_snapshots
+            (id, macro_release_id, indicator_id, consensus_value, source_name,
+             captured_at, quality_grade, is_manual, data_mode, verification_notes,
+             quality_id, metadata_json, created_at)
+            VALUES (?, ?, ?, 0.2, 'manual', '2024-02-13T12:00:00+00:00',
+                    'B', 1, 'observed', 'pre-release snapshot', ?, '{}', CURRENT_TIMESTAMP)
+            """,
+            (consensus_id, release_id, indicator_id, quality_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    command.upgrade(config, "head")
+    connection = sqlite3.connect(database)
+    try:
+        row = connection.execute(
+            "SELECT data_mode FROM consensus_snapshots WHERE id = ?", (consensus_id,)
+        ).fetchone()
+        quality = connection.execute(
+            "SELECT is_fixture, is_verified, quality_grade FROM data_quality_records WHERE id = ?",
+            (quality_id,),
+        ).fetchone()
+        triggers = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+            "AND name LIKE 'ws_consensussnapshots_mode_%'"
+        ).fetchall()
+        assert row == ("fixture",)
+        assert quality == (1, 0, "C")
+        assert len(triggers) == 2
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO consensus_snapshots
+                (id, macro_release_id, indicator_id, consensus_value, source_name,
+                 captured_at, quality_grade, is_manual, data_mode, metadata_json, created_at)
+                VALUES (?, ?, ?, 0.3, 'manual', '2024-02-13T12:01:00+00:00',
+                        'B', 1, 'observed', '{}', CURRENT_TIMESTAMP)
+                """,
+                (uuid.uuid4().hex, release_id, indicator_id),
+            )
+    finally:
+        connection.close()

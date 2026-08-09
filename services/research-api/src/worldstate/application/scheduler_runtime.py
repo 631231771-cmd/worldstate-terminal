@@ -38,6 +38,7 @@ from worldstate.application.sync_service import complete_sync_run, fail_sync_run
 from worldstate.config import Settings
 from worldstate.db.models import MacroRelease, SyncJob, SyncJobRun
 from worldstate.market_core.sessions import resolve_instrument_close
+from worldstate.provider_kit import ProviderError, ProviderErrorCode
 
 logger = structlog.get_logger(__name__)
 
@@ -109,9 +110,28 @@ def _result_counts(result: object) -> tuple[int, int]:
     return read, written
 
 
+_EXPECTED_PROVIDER_BLOCKS = {
+    ProviderErrorCode.NOT_CONFIGURED.value,
+    ProviderErrorCode.ENTITLEMENT.value,
+    ProviderErrorCode.PAID_DOWNLOAD_DISABLED.value,
+    ProviderErrorCode.BUDGET_EXCEEDED.value,
+    ProviderErrorCode.COST_ESTIMATE_UNAVAILABLE.value,
+}
+
+
 def _require_complete(result: dict[str, object], operation: str) -> None:
     status = str(result.get("status", "completed"))
-    if status not in {"completed", "ok", "success"}:
+    if status not in {
+        "completed",
+        "ok",
+        "success",
+        "partial",
+        "blocked",
+        "skipped",
+        "not_configured",
+        "not_entitled",
+        "paid_download_disabled",
+    }:
         failures = result.get("failures")
         raise RuntimeError(f"{operation} finished as {status}: {failures or 'incomplete'}")
 
@@ -319,7 +339,7 @@ async def run_scheduler_cycle(
     recovered = await recover_scheduler(engine, now=timestamp)
     due = await enqueue_due_jobs(engine, now=timestamp)
     relative_count = await enqueue_release_relative_jobs(engine, now=timestamp)
-    completed = failed = 0
+    completed = failed = blocked = 0
     for _ in range(max_runs):
         run = await claim_next_run(engine, now=timestamp)
         if run is None:
@@ -371,10 +391,45 @@ async def run_scheduler_cycle(
                 now=_utc(),
             )
             completed += 1
+            if str(result.get("status")) in {
+                "blocked",
+                "not_configured",
+                "not_entitled",
+                "paid_download_disabled",
+                "skipped",
+            }:
+                blocked += 1
         except asyncio.CancelledError:
             # Leave the run in running state; restart recovery will create an
             # idempotent retry instead of pretending the interrupted call ended.
             raise
+        except ProviderError as exc:
+            if exc.error_code.value in _EXPECTED_PROVIDER_BLOCKS:
+                blocked_result = {
+                    "status": "blocked",
+                    "operation": job.operation,
+                    "provider_status": exc.error_code.value,
+                    "message": redact_sensitive_text(str(exc))[:500],
+                }
+                await complete_sync_run(
+                    engine,
+                    run.id,
+                    records_read=0,
+                    records_written=0,
+                    output_data=blocked_result,
+                    now=_utc(),
+                )
+                completed += 1
+                blocked += 1
+                continue
+            await fail_sync_run(
+                engine,
+                run.id,
+                error_type=type(exc).__name__,
+                error_message=redact_sensitive_text(exc)[:2000],
+                now=_utc(),
+            )
+            failed += 1
         except Exception as exc:
             await fail_sync_run(
                 engine,
@@ -389,6 +444,7 @@ async def run_scheduler_cycle(
         "daily_enqueued": len(due),
         "release_runs_seen": relative_count,
         "completed": completed,
+        "blocked": blocked,
         "failed": failed,
     }
 

@@ -18,7 +18,7 @@ longer part of the active architecture. Their final state is preserved at tag
 - Working branch: `refactor/macro-research-terminal`
 - Last committed v0.4 baseline: `16544c373bb32fc9788b72538db49c3fcc2c1337`
 - v0.5 Data Foundation: committed as `4054a66e620db2f5aff9a4c70b6af9be3b9aad94`; local and GitHub CI validation complete
-- Database head in the worktree: `0006_data_mode_integrity`
+- Database head in the worktree: `0007_truthfulness_stabilization`
 - API contract: `/v2`
 - Product version in the worktree: `0.5.0`
 - PR #8: Draft, unmerged; do not mark Ready or merge before final validation
@@ -59,19 +59,23 @@ archived on 2026-07-31. Do not restore them or modify the desktop archive.
 The bundled CPI/NFP/FOMC slices are traceable fixture demonstrations. They are
 not live or licensed historical datasets.
 
-## v0.5 Data Foundation implemented in the worktree
+## v0.5 Data Foundation implemented; v0.5.1 truthfulness stabilization in progress
 
 - Typed BLS, Federal Reserve, FRED/ALFRED, Trading Economics and Databento adapters.
 - `observed` / `fixture` isolation across core records and analysis queries.
 - Provider entitlement, quota, run, raw artifact and idempotency persistence.
 - Durable sync job/run, calendar snapshot, market-data manifest, reconciliation
   and bounded backfill-job models in migration `0005_provider_data_foundation`.
-- Follow-up migration `0006_data_mode_integrity` upgrades databases that already
+- Follow-up migrations `0006_data_mode_integrity` and `0007_truthfulness_stabilization` upgrade databases that already
   applied the earlier local 0005 shape; it isolates Observation/ProviderRun/
   CalendarSnapshot identities by data mode without deleting existing rows.
 - Non-blocking local scheduler and recoverable backfill worker are attached to
   the Research API lifecycle. First startup catches up today's missed daily
   work once; every cycle recovers stale runs without blocking desktop startup.
+- v0.5.1 truthfulness policy: Today only returns released, completed and
+  reproducibility-complete research for the requested data mode; Regime never
+  falls back from observed to fixture. Missing credentials/entitlements and
+  paid-download-disabled outcomes are blocked/partial, not failed.
 - Durable official/consensus/market orchestration: BLS releases, FRED/ALFRED
   observations, Federal Reserve 2015–2020 archives plus current/future meetings,
   TE snapshots and Databento event-linked manifests.
@@ -118,12 +122,13 @@ not live or licensed historical datasets.
 ## Validation checkpoint
 
 - Migration: fresh → head, 0004 → head, 0005 → head and a real-runtime copy all
-  reached `0006_data_mode_integrity`; SQLite quick check `ok`, foreign-key errors 0.
+  must reach `0007_truthfulness_stabilization`; the four consensus parent-mode
+  mismatches are reclassified in place and not deleted.
 - The real local database was backed up to
   `.runtime/backups/worldstate-pre-v05-final-20260802-2135.db` before upgrade.
   Its 10,132 legacy FRED demo observations are now explicitly `fixture`.
 - Ruff and strict mypy: green across 92 checked source/test files.
-- Pytest: 152 passed; overall coverage 75.54%; critical research-method set 96%.
+- Pytest: the v0.5.1 validation run is authoritative; do not reuse the previous count.
 - Terminal UI production build: passed; npm audit reported 0 vulnerabilities.
 - Rust/Tauri: fmt/check passed, 4 tests passed, unsigned no-bundle release built.
 - Public-source smoke: BLS public API normalized 70 CPI and 106 NFP observations
@@ -134,9 +139,8 @@ not live or licensed historical datasets.
 - Missing-key behavior: FRED, Trading Economics and Databento report
   `not_configured`; no paid download was attempted. BLS schedule HTTP 403 is an
   explicit blocked ProviderRun and produces partial/non-zero sync status.
-- GitHub Actions: green for `research-api`, `terminal-ui` and `desktop-check` on run
-  `https://github.com/631231771-cmd/worldstate-terminal/actions/runs/31302442523`.
-  PR #8 remains Draft and unmerged.
+- GitHub Actions: use the latest run for the current pushed PR head; historical
+  commit/run references are not proof for v0.5.1. PR #8 remains Draft and unmerged.
 
 Do not reuse v0.4 pass counts as v0.5 evidence.
 

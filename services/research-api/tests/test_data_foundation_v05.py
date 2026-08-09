@@ -18,6 +18,7 @@ from worldstate.application.backfill_service import (
     estimate_backfill,
 )
 from worldstate.application.data_foundation_service import (
+    assert_matching_data_mode,
     associate_source_artifact,
     fail_provider_run,
     record_provider_run,
@@ -62,6 +63,12 @@ from worldstate.db.models import (
     SyncJobRun,
 )
 from worldstate.db.session import create_engine
+
+
+def test_data_mode_guard_rejects_cross_mode_child() -> None:
+    assert_matching_data_mode("observed", "observed", "test-child")
+    with pytest.raises(ValueError, match="data_mode mismatch"):
+        assert_matching_data_mode("fixture", "observed", "test-child")
 
 T0 = datetime(2026, 7, 14, 12, 30, tzinfo=UTC)
 

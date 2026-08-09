@@ -49,6 +49,30 @@ def test_api_v2_bootstraps_complete_vertical_slice(
         assert client.get(path).status_code == 200, path
 
 
+def test_today_only_exposes_qualified_research_for_requested_mode(
+    client: TestClient,
+) -> None:
+    observed = client.get("/v2/today?data_mode=observed").json()
+    assert all(item["data_mode"] == "observed" for item in observed["latest_research"])
+    assert all(item["status"] == "released" for item in observed["latest_research"])
+    assert all(item["analysis_status"] == "completed" for item in observed["latest_research"])
+    assert all(item["reproducibility_status"] == "complete" for item in observed["latest_research"])
+    fixture = client.get("/v2/today?data_mode=fixture").json()
+    assert all(item["data_mode"] == "fixture" for item in fixture["latest_research"])
+    assert all(item["status"] == "released" for item in fixture["latest_research"])
+
+
+def test_regime_respects_data_mode_and_does_not_fall_back_to_fixture(
+    client: TestClient,
+) -> None:
+    observed = client.get("/v2/regime?data_mode=observed").json()
+    assert observed["state"] == "unavailable"
+    assert observed["data_mode"] == "observed"
+    fixture = client.get("/v2/regimes?data_mode=fixture").json()
+    assert fixture["state"] == "ready"
+    assert fixture["data_mode"] == "fixture"
+
+
 def test_cpi_research_is_evidence_bounded(
     client: TestClient,
     release_index: dict[str, dict[str, object]],

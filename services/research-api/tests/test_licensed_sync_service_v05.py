@@ -140,7 +140,7 @@ async def test_databento_aggregate_budget_blocks_before_contract_or_download(
     async with factory() as session:
         run = await session.scalar(select(ProviderRun))
         assert run is not None
-        assert run.status == "failed"
+        assert run.status == "blocked"
     await engine.dispose()
 
 

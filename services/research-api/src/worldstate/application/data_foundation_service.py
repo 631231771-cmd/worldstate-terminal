@@ -65,6 +65,21 @@ def validate_data_mode(data_mode: str) -> DataMode:
     return cast(DataMode, data_mode)
 
 
+def assert_matching_data_mode(
+    parent_mode: str,
+    child_mode: str,
+    relationship: str,
+) -> None:
+    """Reject a child row that would silently cross the observed/fixture boundary."""
+
+    parent = validate_data_mode(parent_mode)
+    child = validate_data_mode(child_mode)
+    if parent != child:
+        raise ValueError(
+            f"data_mode mismatch for {relationship}: parent={parent!r}, child={child!r}"
+        )
+
+
 def redact_sensitive_text(value: object) -> str:
     """Remove labelled credentials before errors enter durable local state."""
 
@@ -343,12 +358,20 @@ async def fail_provider_run(
         row = await session.get(ProviderRun, run_id)
         if row is None:
             raise LookupError("provider run not found")
-        row.status = "failed"
+        error_code = getattr(getattr(error, "error_code", None), "value", None)
+        expected_block = error_code in {
+            "provider_not_configured",
+            "provider_entitlement_required",
+            "provider_paid_download_disabled",
+            "provider_budget_exceeded",
+            "provider_cost_estimate_unavailable",
+        }
+        row.status = "blocked" if expected_block else "failed"
         row.completed_at = _utc(completed_at)
         message = str(error) if isinstance(error, str) else f"{type(error).__name__}: {error}"
         row.error_message = redact_sensitive_text(message)[:2000]
         row.warnings_json = warnings or []
-        row.quality_grade = "D"
+        row.quality_grade = "C" if expected_block else "D"
         await session.flush()
         return row
 
@@ -463,6 +486,7 @@ async def get_provider_data_status(engine: AsyncEngine) -> list[dict[str, Any]]:
 __all__ = [
     "DataMode",
     "EntitlementStatus",
+    "assert_matching_data_mode",
     "associate_source_artifact",
     "complete_provider_run",
     "fail_provider_run",

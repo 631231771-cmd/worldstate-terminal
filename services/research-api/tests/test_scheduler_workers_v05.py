@@ -376,6 +376,54 @@ async def test_sqlite_scheduler_claim_is_atomic_across_concurrent_workers(
     assert persisted.status == "running"
 
 
+async def test_expected_provider_block_is_not_persisted_as_scheduler_failure(
+    worker_engine: AsyncEngine,
+) -> None:
+    job = await ensure_sync_job(
+        worker_engine,
+        job_key="blocked-provider",
+        operation="snapshot_consensus",
+        schedule_type="manual",
+        schedule={},
+    )
+    run = await enqueue_sync_run(
+        worker_engine,
+        sync_job_id=job.id,
+        scheduled_for=T0,
+    )
+
+    async def executor(
+        engine: AsyncEngine,
+        settings: Settings,
+        run: SyncJobRun,
+        job: SyncJob,
+        *,
+        now: datetime,
+    ) -> dict[str, object]:
+        del engine, settings, run, job, now
+        raise ProviderError(
+            "trading_economics",
+            ProviderErrorCode.NOT_CONFIGURED,
+            "provider is not configured",
+        )
+
+    result = await run_scheduler_cycle(
+        worker_engine,
+        _settings(),
+        now=T0,
+        executor=executor,
+        max_runs=1,
+    )
+    assert result["blocked"] == 1
+    assert result["failed"] == 0
+    factory = async_sessionmaker(worker_engine, expire_on_commit=False)
+    async with factory() as session:
+        persisted = await session.get(SyncJobRun, run.id)
+    assert persisted is not None
+    assert persisted.status == "completed"
+    assert persisted.output_json["status"] == "blocked"
+
+
 async def test_first_desktop_start_catches_up_today_once(
     worker_engine: AsyncEngine,
 ) -> None:

@@ -14,10 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from worldstate.application.data_foundation_service import (
     DataMode,
+    assert_matching_data_mode,
     json_safe,
     validate_data_mode,
 )
-from worldstate.db.models import CalendarSnapshot, MarketDataManifest
+from worldstate.db.models import CalendarSnapshot, MacroRelease, MarketDataManifest
 
 
 def _factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
@@ -89,6 +90,10 @@ async def record_market_data_manifest(
     manifest_hash = _hash(identity)
     factory = _factory(engine)
     async with factory() as session, session.begin():
+        release = await session.get(MacroRelease, macro_release_id)
+        if release is None:
+            raise LookupError("macro release not found")
+        assert_matching_data_mode(release.data_mode, data_mode, "market_data_manifest")
         existing = await session.scalar(
             select(MarketDataManifest).where(MarketDataManifest.manifest_hash == manifest_hash)
         )

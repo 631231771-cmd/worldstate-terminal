@@ -129,7 +129,7 @@ services\research-api\.venv\Scripts\python.exe -m pytest services\research-api\t
 npm run build --prefix apps\terminal-ui
 ```
 
-当前 v0.5 工作区为 **152 passed**，整体语句覆盖率 75.54%；惊喜、窗口、
+当前 v0.5.1 稳定化的测试结果以最新本地验证和 GitHub Actions 为准；不再把历史测试数量或旧 SHA 当作当前发布证明。惊喜、窗口、
 历史匹配、Evidence、Regime 和交易时段等关键研究逻辑的 CI 门槛集合为
 **96%**。不要用旧的 v0.4 测试数字代表当前工作区。
 

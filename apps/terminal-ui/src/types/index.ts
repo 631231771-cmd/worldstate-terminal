@@ -13,6 +13,8 @@ export interface ReleaseSummary {
   surprise_score: number | null;
   confidence: number | null;
   analysis_status: string;
+  reproducibility_status?: string | null;
+  analysis_completed_at?: string | null;
   data_mode: string;
   clean_window: boolean;
   contamination_level: string;

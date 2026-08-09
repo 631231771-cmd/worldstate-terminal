@@ -234,24 +234,60 @@ async def analysis_claims(run_id: str, request: Request) -> object:
 
 
 @router.get("/today", tags=["research"])
-async def today(request: Request) -> dict[str, object]:
+async def today(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, object]:
+    requested_mode = requested_data_mode(request, data_mode)
     items = await list_releases(
         request.app.state.database_engine,
         limit=100,
-        data_mode=requested_data_mode(request),
+        data_mode=requested_mode,
     )
-    current = date.today()
+    now = datetime.now(UTC)
+    current = now.date()
     scheduled_today = [
         item
         for item in items
         if datetime.fromisoformat(str(item["scheduled_at"])).date() == current
     ]
+    eligible = [
+        item
+        for item in items
+        if item.get("status") == "released"
+        and item.get("released_at") is not None
+        and datetime.fromisoformat(str(item["scheduled_at"])) <= now
+        and item.get("analysis_status") == "completed"
+        and item.get("reproducibility_status") == "complete"
+        and (
+            requested_mode == "all"
+            or item.get("data_mode") == requested_mode
+        )
+    ]
+    eligible.sort(
+        key=lambda item: str(
+            item.get("analysis_completed_at")
+            or item.get("released_at")
+            or item.get("scheduled_at")
+        ),
+        reverse=True,
+    )
     return {
         "date": current.isoformat(),
         "scheduled_releases": scheduled_today,
-        "latest_research": items[:5],
+        "latest_research": eligible[:5],
+        "latest_research_policy": {
+            "data_mode": requested_mode,
+            "requires_released": True,
+            "requires_completed_analysis": True,
+            "requires_reproducible_analysis": True,
+            "excludes_fixture_from_observed": requested_mode == "observed",
+        },
         "question": "今天的宏观信息改变了哪条政策、增长或通胀定价链？",
-        "data_note": "没有今日事件时展示最近已完成复盘，不用新闻填充空白。",
+        "data_note": (
+            "只展示当前数据模式下已发布、已完成且可复现的研究；"
+            "没有符合条件的记录时保持空白。"
+        ),
     }
 
 
@@ -636,13 +672,25 @@ async def providers(request: Request) -> dict[str, object]:
 
 
 @router.get("/regime", tags=["research"])
-async def regime(request: Request) -> dict[str, object]:
-    return await get_current_regime(request.app.state.database_engine)
+async def regime(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, object]:
+    return await get_current_regime(
+        request.app.state.database_engine,
+        data_mode=requested_data_mode(request, data_mode),
+    )
 
 
 @router.get("/regimes", tags=["research"])
-async def regimes(request: Request) -> dict[str, object]:
-    return await get_current_regime(request.app.state.database_engine)
+async def regimes(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, object]:
+    return await get_current_regime(
+        request.app.state.database_engine,
+        data_mode=requested_data_mode(request, data_mode),
+    )
 
 
 @router.get("/methodology", tags=["system"])

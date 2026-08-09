@@ -7,10 +7,10 @@ geopolitical, aviation, maritime, surveillance, commerce and multi-variant
 surfaces were deleted from the active tree after preservation at tag
 `world-monitor-legacy-freeze` and branch `archive/world-monitor-legacy`.
 
-The product and active code-tree migration is complete. The v0.4 research-method
-and local release stabilization is implemented. GitHub CI is green; PR #8
-remains Draft and unmerged by explicit instruction. This statement does not
-mean real-data coverage or self-contained installer packaging is complete.
+The product and active code-tree migration is complete. Research-method and
+release truthfulness stabilization is still being validated; PR #8 remains
+Draft and unmerged by explicit instruction. This statement does not mean
+real-data coverage or self-contained installer packaging is complete.
 
 ## Retained and replaced
 

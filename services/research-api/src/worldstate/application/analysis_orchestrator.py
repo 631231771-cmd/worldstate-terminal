@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from itertools import pairwise
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -2237,6 +2237,14 @@ async def list_releases(
                     "surprise_score": run.composite_surprise_score if run else None,
                     "confidence": run.confidence if run else 0.0,
                     "analysis_status": run.status if run else "pending",
+                    "reproducibility_status": (
+                        run.reproducibility_status if run else None
+                    ),
+                    "analysis_completed_at": (
+                        _aware(run.completed_at).isoformat()
+                        if run and run.completed_at
+                        else None
+                    ),
                     "data_mode": run.data_mode if run else release.data_mode,
                     "clean_window": release.clean_window,
                     "contamination_level": release.contamination_level,
@@ -3127,21 +3135,32 @@ async def get_provider_runs(engine: AsyncEngine) -> list[dict[str, object]]:
         ]
 
 
-async def get_current_regime(engine: AsyncEngine) -> dict[str, object]:
+async def get_current_regime(
+    engine: AsyncEngine,
+    *,
+    data_mode: Literal["observed", "fixture", "all"] = "observed",
+) -> dict[str, object]:
     factory = _factory(engine)
     async with factory() as session:
-        run = await session.scalar(
+        run_query = (
             select(AnalysisRun)
+            .join(MacroRelease, MacroRelease.id == AnalysisRun.macro_release_id)
             .where(
                 AnalysisRun.status == "completed",
                 AnalysisRun.regime_snapshot_id.is_not(None),
+                AnalysisRun.reproducibility_status == "complete",
+                AnalysisRun.data_mode == MacroRelease.data_mode,
             )
-            .order_by(AnalysisRun.completed_at.desc())
+            .order_by(AnalysisRun.completed_at.desc(), AnalysisRun.id.desc())
         )
+        if data_mode != "all":
+            run_query = run_query.where(AnalysisRun.data_mode == data_mode)
+        run = await session.scalar(run_query)
         if run is None or run.regime_snapshot_id is None:
             return {
                 "state": "unavailable",
                 "labels": [],
+                "data_mode": data_mode,
                 "data_gaps": ["尚无完成的宏观事件分析。"],
             }
         regime = await session.get(RegimeSnapshot, run.regime_snapshot_id)
@@ -3150,10 +3169,12 @@ async def get_current_regime(engine: AsyncEngine) -> dict[str, object]:
             return {
                 "state": "unavailable",
                 "labels": [],
+                "data_mode": data_mode,
                 "data_gaps": ["分析运行缺少对应的regime快照。"],
             }
         return {
             "state": "ready",
+            "data_mode": run.data_mode,
             "as_of": _aware(regime.as_of).isoformat(),
             "release_id": str(release.id),
             "release_type": release.release_type,

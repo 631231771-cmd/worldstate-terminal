@@ -509,7 +509,7 @@ export function DataMethodsWorkspace() {
                 <tr key={String(run.id ?? index)}>
                   <td><strong>{String(run.provider_key ?? "—")}</strong></td>
                   <td>{String(run.operation ?? "—")}</td>
-                  <td><Badge tone={run.status === "completed" ? "good" : "bad"}>{String(run.status ?? "unknown")}</Badge></td>
+                  <td><Badge tone={run.status === "completed" ? "good" : run.status === "blocked" ? "warn" : "bad"}>{String(run.status ?? "unknown")}</Badge></td>
                   <td>{String(run.records_read ?? "—")}</td>
                   <td>{String(run.records_written ?? "—")}</td>
                   <td>{String(run.quality_grade ?? "—")}</td>
