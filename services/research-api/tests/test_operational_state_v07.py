@@ -10,6 +10,15 @@ def test_freshness_exposes_mode_and_statuses(client: TestClient) -> None:
     assert all("available_at" in item and "status" in item for item in payload["items"])
 
 
+def test_macro_system_status_never_promotes_partial_coverage(client: TestClient) -> None:
+    response = client.get("/v2/macro-systems?data_mode=fixture")
+    assert response.status_code == 200
+    for system in response.json()["systems"]:
+        assert system["status"] in {"available", "partial", "unavailable"}
+        if 0 < system["available_components"] < system["component_count"]:
+            assert system["status"] == "partial"
+
+
 def test_world_state_snapshot_history_is_replayable(client: TestClient) -> None:
     response = client.post(
         "/v2/world-state/snapshot?data_mode=fixture", headers={"x-worldstate-local": "1"}
@@ -18,6 +27,19 @@ def test_world_state_snapshot_history_is_replayable(client: TestClient) -> None:
     snapshot = response.json()
     assert snapshot["data_mode"] == "fixture"
     assert len(snapshot["source_snapshot_hash"]) == 64
+    assert isinstance(snapshot["dimensions"], dict)
+    assert isinstance(snapshot["regime"], dict)
+    assert isinstance(snapshot["top_changes"], list)
+    assert isinstance(snapshot["evidence"], list)
+    assert isinstance(snapshot["data_gaps"], list)
+    assert snapshot["methodology_version"]
+    brief_response = client.get(
+        "/v2/daily-brief",
+        params={"data_mode": "fixture", "as_of": snapshot["as_of"]},
+    )
+    assert brief_response.status_code == 200, brief_response.text
+    brief = brief_response.json()
+    assert snapshot["top_changes"] == brief["biggest_changes"]
     history = client.get("/v2/world-state/history?data_mode=fixture")
     assert history.status_code == 200
     assert history.json()[0]["source_snapshot_hash"] == snapshot["source_snapshot_hash"]

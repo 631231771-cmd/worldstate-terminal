@@ -436,9 +436,11 @@ async def test_first_desktop_start_catches_up_today_once(
     assert {job.job_key for job in daily} == {
         "daily-provider-health",
         "daily-official-sync",
+        "daily-bls-current-state",
         "daily-calendar-sync",
         "daily-public-macro-sync",
         "overnight-reconciliation",
+        "daily-world-state-snapshot",
     }
     assert all(job.next_run_at is not None and job.next_run_at <= T0 for job in daily)
 

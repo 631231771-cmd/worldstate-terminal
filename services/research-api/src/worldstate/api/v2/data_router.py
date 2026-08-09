@@ -29,6 +29,7 @@ from worldstate.application.backfill_service import (
     get_backfill_job,
     make_backfill_idempotency_key,
 )
+from worldstate.application.bls_state_service import sync_bls_current_state
 from worldstate.application.data_foundation_service import get_provider_data_status
 from worldstate.application.freshness_service import build_data_freshness
 from worldstate.application.licensed_sync_service import (
@@ -1412,6 +1413,26 @@ async def sync_calendar_endpoint(
         start_date=payload.start_date,
         end_date=payload.end_date,
     )
+    _set_multi_status(response, result)
+    return result
+
+
+@data_write_router.post("/sync/bls-current-state")
+async def sync_bls_current_state_endpoint(
+    payload: DataRangeInput,
+    request: Request,
+    response: Response,
+) -> dict[str, Any]:
+    """Capture current BLS macro history for live state, never for PIT replay."""
+    try:
+        result = await sync_bls_current_state(
+            request.app.state.database_engine,
+            request.app.state.settings,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+        )
+    except Exception as exc:
+        raise _http_error_for_service(exc, request.app.state.settings) from exc
     _set_multi_status(response, result)
     return result
 

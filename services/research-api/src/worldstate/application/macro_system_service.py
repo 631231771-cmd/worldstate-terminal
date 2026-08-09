@@ -105,14 +105,24 @@ async def build_macro_systems(
                     }
                 )
             available = [item for item in component_rows if item["status"] == "available"]
+            coverage = (len(available) / len(component_rows)) if component_rows else 0.0
+            if not available:
+                system_status = "unavailable"
+            elif len(available) == len(component_rows):
+                system_status = "available"
+            else:
+                # A single live component is useful evidence, but it is not
+                # a complete system.  Never present partial coverage as a
+                # fully available macro mechanism.
+                system_status = "partial"
             systems.append(
                 {
                     "key": key,
                     "title": title,
-                    "status": "available" if available else "unavailable",
-                    "coverage": round(len(available) / len(component_rows), 4)
-                    if component_rows
-                    else 0.0,
+                    "status": system_status,
+                    "coverage": round(coverage, 4),
+                    "available_components": len(available),
+                    "component_count": len(component_rows),
                     "components": component_rows,
                     "interpretation": "组件状态和相对变化，非单一因果评分。",
                 }

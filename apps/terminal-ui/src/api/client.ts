@@ -144,6 +144,12 @@ export const api = {
     ),
   bootstrapFree: () =>
     request<Record<string, unknown>>("/v2/data/bootstrap-free", { method: "POST" }, [207, 424]),
+  syncBlsCurrentState: (start_date: string, end_date: string) =>
+    request<Record<string, unknown>>(
+      "/v2/data/sync/bls-current-state",
+      { method: "POST", body: JSON.stringify({ start_date, end_date }) },
+      [207, 424],
+    ),
   estimateBackfill: (input: BackfillRequest) => {
     const query = new URLSearchParams({
       start_date: input.start_date,

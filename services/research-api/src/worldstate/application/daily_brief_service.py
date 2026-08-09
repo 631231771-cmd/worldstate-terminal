@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from worldstate.application.analysis_orchestrator import list_releases
 from worldstate.application.world_state_service import build_world_state
-from worldstate.db.models import MarketBar, MarketInstrument
+from worldstate.db.models import MarketBar, MarketInstrument, Observation, Series
 
 DataMode = Literal["observed", "fixture", "all"]
 
@@ -178,6 +178,39 @@ async def build_daily_brief(
         row for row in rows if _aware(datetime.fromisoformat(str(row["scheduled_at"]))) > cutoff
     ][:12]
     markets = await _market_confirmation(engine, data_mode=data_mode, cutoff=cutoff)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        revised_rows = (
+            await session.execute(
+                select(Observation, Series)
+                .join(Series, Series.id == Observation.series_id)
+                .where(
+                    Observation.is_revised.is_(True),
+                    Observation.fetched_at >= cutoff - timedelta(days=30),
+                    Observation.fetched_at <= cutoff,
+                )
+                .order_by(Observation.fetched_at.desc())
+                .limit(50)
+            )
+        ).all()
+    revisions = [
+        {
+            "series_key": str(series.canonical_key),
+            "title": series.title,
+            "period": observation.period_start.isoformat(),
+            "value": float(observation.value) if observation.value is not None else None,
+            "vintage": observation.vintage_date.isoformat(),
+            "fetched_at": observation.fetched_at.isoformat(),
+            "data_mode": observation.data_mode,
+            "point_in_time": bool(series.metadata_json.get("point_in_time", False)),
+            "evidence_ids": [str(observation.id)],
+            "limitation": (
+                "当前 provider 标记为修订；没有本地首发快照时，不能重建完整修订幅度。"
+            ),
+        }
+        for observation, series in revised_rows
+        if data_mode == "all" or observation.data_mode == data_mode
+    ]
     changes = _top_changes(state, recent, markets)
     return {
         "as_of": cutoff.isoformat(),
@@ -187,7 +220,7 @@ async def build_daily_brief(
         "biggest_changes": changes,
         "macro_events": recent,
         "market_confirmation": markets,
-        "revisions": [],
+        "revisions": revisions,
         "upcoming": upcoming,
         "watch_next": [
             "观察增长与通胀状态是否同向变化。",

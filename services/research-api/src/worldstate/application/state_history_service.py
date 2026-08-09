@@ -54,7 +54,10 @@ async def persist_world_state_snapshot(
     source_payload = {
         "dimensions": state.get("dimensions", {}),
         "regime": state.get("regime", {}),
-        "top_changes": brief.get("top_changes", []),
+        # Daily brief calls this field ``biggest_changes``.  Keep the
+        # persisted snapshot contract stable as ``top_changes`` while using
+        # the actual brief payload as the source of truth.
+        "top_changes": brief.get("biggest_changes", []),
         "data_gaps": state.get("data_gaps", []),
         "data_mode": data_mode,
         "as_of": timestamp.isoformat(),
@@ -77,7 +80,7 @@ async def persist_world_state_snapshot(
                 data_mode=data_mode,
                 dimensions_json=state.get("dimensions", {}),
                 regime_json=state.get("regime", {}),
-                top_changes_json=brief.get("top_changes", []),
+                top_changes_json=brief.get("biggest_changes", []),
                 evidence_json=state.get("evidence", []),
                 data_gaps_json=state.get("data_gaps", []),
                 source_snapshot_hash=source_hash,

@@ -6,6 +6,7 @@ import type { DataFreshnessResponse, DataProviderStatus } from "../../types";
 interface ControlData {
   providers: DataProviderStatus[];
   freshness: DataFreshnessResponse;
+  systems: Array<Record<string, unknown>>;
 }
 
 export function DataControlWorkspace() {
@@ -14,8 +15,15 @@ export function DataControlWorkspace() {
   const [busy, setBusy] = useState(false);
 
   const reload = async () => {
-    const [providers, freshness] = await Promise.all([api.dataProviders(), api.dataFreshness()]);
-    setData({ providers: providers.items, freshness });
+    const [providers, freshness, systemsPayload] = await Promise.all([
+      api.dataProviders(),
+      api.dataFreshness(),
+      api.macroSystems(),
+    ]);
+    const systems = Array.isArray(systemsPayload.systems)
+      ? (systemsPayload.systems as Array<Record<string, unknown>>)
+      : [];
+    setData({ providers: providers.items, freshness, systems });
   };
 
   useEffect(() => {
@@ -36,13 +44,36 @@ export function DataControlWorkspace() {
     }
   };
 
+  const syncBlsState = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const end = new Date();
+      const start = new Date(end);
+      start.setFullYear(end.getFullYear() - 5);
+      const result = await api.syncBlsCurrentState(
+        start.toISOString().slice(0, 10),
+        end.toISOString().slice(0, 10),
+      );
+      setMessage(`BLS 当前观测已同步：${String(result.records_written ?? 0)} 条，非 PIT 状态数据`);
+      await reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "BLS 当前观测同步失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!data) return <StateMessage title="正在读取数据控制中心" detail="检查 Provider、最新观测和数据新鲜度。" />;
   const summary = data.freshness.summary;
   return (
     <div class="workspace data-foundation">
       <section class="page-heading">
         <div><div class="eyebrow">DATA CONTROL CENTER · v0.7</div><h1>数据控制中心</h1><p>观察真实数据是否存在、是否过期，以及哪些 Provider 可以继续同步。</p></div>
-        <button class="button-primary" disabled={busy} onClick={() => void bootstrap()}>{busy ? "同步中…" : "Bootstrap Free Data"}</button>
+        <div class="page-heading__actions">
+          <button class="button-secondary" disabled={busy} onClick={() => void syncBlsState()}>同步 BLS 当前观测</button>
+          <button class="button-primary" disabled={busy} onClick={() => void bootstrap()}>{busy ? "同步中…" : "Bootstrap Free Data"}</button>
+        </div>
       </section>
       {message ? <div class="data-notice"><strong>{message}</strong><p>Fixture 不会自动替代 observed。</p></div> : null}
       <div class="summary-grid data-summary-grid">
@@ -50,6 +81,17 @@ export function DataControlWorkspace() {
       </div>
       <Panel title="Provider 状态" eyebrow="PUBLIC · CREDENTIAL · BLOCKED">
         <div class="provider-setup-grid">{data.providers.map((item) => <article class="provider-card" key={item.provider_id}><header><div><span>{item.provider_id}</span><h3>{item.display_name}</h3></div><Badge tone={item.healthy === true ? "good" : item.healthy === false ? "bad" : "neutral"}>{item.status}</Badge></header><p>{item.configured ? "已配置或公共端点可用" : "未配置"}</p><small>{item.last_error ?? item.capabilities.join(" · ")}</small></article>)}</div>
+      </Panel>
+      <Panel title="宏观系统覆盖" eyebrow="OBSERVED COMPONENT COVERAGE">
+        <div class="provider-setup-grid">
+          {data.systems.map((system) => (
+            <article class="provider-card" key={String(system.key)}>
+              <header><div><span>{String(system.key)}</span><h3>{String(system.title)}</h3></div><Badge tone={system.status === "available" ? "good" : system.status === "partial" ? "warn" : "bad"}>{String(system.status)}</Badge></header>
+              <p>{String(system.available_components ?? 0)} / {String(system.component_count ?? 0)} 个组件有观测</p>
+              <small>coverage {String(system.coverage ?? 0)}</small>
+            </article>
+          ))}
+        </div>
       </Panel>
       <Panel title="序列新鲜度" eyebrow="OBSERVED SERIES">
         <div class="freshness-table-wrap"><table class="coverage-table"><thead><tr><th>序列</th><th>Provider</th><th>状态</th><th>最新期间</th><th>可用时间</th></tr></thead><tbody>{data.freshness.items.slice(0, 120).map((item) => <tr key={item.canonical_key}><td><strong>{item.title}</strong><small>{item.canonical_key}</small></td><td>{item.provider}</td><td><Badge tone={item.status === "LIVE" ? "good" : item.status === "MISSING" ? "bad" : "warn"}>{item.status}</Badge></td><td>{item.latest_period ?? "—"}</td><td>{item.available_at ?? "—"}</td></tr>)}</tbody></table></div>

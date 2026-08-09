@@ -21,7 +21,7 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0009_operational_state`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- HEAD: `48403213d` (`feat: activate v07 live global macro foundation` plus lock refresh)
+- HEAD: checkpoint in progress for v0.7 Live Activation Completion (snapshot truthfulness, partial system status, BLS current-state boundary, and daily snapshot scheduling)
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
   `feature/v0.7-live-global`; do not mark any of them Ready or merge
 

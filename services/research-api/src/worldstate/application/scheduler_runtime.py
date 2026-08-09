@@ -13,6 +13,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from worldstate.application.bls_state_service import sync_bls_current_state
 from worldstate.application.data_foundation_service import redact_sensitive_text
 from worldstate.application.licensed_sync_service import (
     snapshot_trading_economics_consensus,
@@ -35,6 +36,7 @@ from worldstate.application.scheduler_service import (
     schedule_deferred_market_window,
     schedule_release_tasks,
 )
+from worldstate.application.state_history_service import persist_world_state_snapshot
 from worldstate.application.sync_service import complete_sync_run, fail_sync_run
 from worldstate.config import Settings
 from worldstate.db.models import MacroRelease, SyncJob, SyncJobRun
@@ -167,6 +169,16 @@ async def execute_scheduled_operation(
         )
         _require_complete(result, operation)
         return result
+    if operation == "sync_bls_current_state":
+        default_start = max(settings.data_start_date, today - timedelta(days=365 * 5))
+        result = await sync_bls_current_state(
+            engine,
+            settings,
+            start_date=_date_input(run.input_json, "start_date", default_start),
+            end_date=_date_input(run.input_json, "end_date", today),
+        )
+        _require_complete(result, operation)
+        return result
     if operation == "sync_public_macro":
         default_start = max(settings.data_start_date, today - timedelta(days=400))
         providers = tuple(
@@ -264,6 +276,23 @@ async def execute_scheduled_operation(
         result = await reconcile_persisted_data(engine)
         _require_complete(result, operation)
         return result
+    if operation == "snapshot_world_state":
+        data_mode = str(run.input_json.get("data_mode", job.data_mode or "observed"))
+        if data_mode not in {"observed", "fixture", "all"}:
+            data_mode = "observed"
+        snapshot = await persist_world_state_snapshot(
+            engine,
+            data_mode=data_mode,  # type: ignore[arg-type]
+            as_of=_utc(now),
+        )
+        return {
+            "status": "completed",
+            "data_mode": data_mode,
+            "records_read": len(snapshot.get("evidence", [])),
+            "records_written": 1,
+            "snapshot_id": snapshot["id"],
+            "source_snapshot_hash": snapshot["source_snapshot_hash"],
+        }
     raise ValueError(f"unsupported scheduled operation: {operation}")
 
 
