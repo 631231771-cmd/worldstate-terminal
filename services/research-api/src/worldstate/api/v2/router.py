@@ -34,6 +34,7 @@ from worldstate.application.analysis_persistence import (
 from worldstate.application.consensus_service import append_consensus
 from worldstate.application.daily_brief_service import build_daily_brief
 from worldstate.application.evidence_service import get_evidence_pack
+from worldstate.application.global_macro_service import build_global_macro
 from worldstate.application.market_import_service import import_market_csv
 from worldstate.application.market_research_service import (
     build_market_dashboard,
@@ -717,6 +718,17 @@ async def world_state(
     """
     mode = requested_data_mode(request, data_mode)
     return await build_world_state(request.app.state.database_engine, data_mode=mode)
+
+
+@router.get("/global-macro", tags=["macro"])
+async def global_macro(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, object]:
+    return await build_global_macro(
+        request.app.state.database_engine,
+        data_mode=requested_data_mode(request, data_mode),
+    )
 
 
 @router.get("/daily-brief", tags=["macro"])

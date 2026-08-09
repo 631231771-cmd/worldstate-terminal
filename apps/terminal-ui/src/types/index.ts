@@ -1,4 +1,4 @@
-export type ViewKey = "today" | "world-state" | "markets" | "releases" | "event-lab" | "cross-asset" | "series" | "research" | "data-methods";
+export type ViewKey = "today" | "world-state" | "markets" | "releases" | "event-lab" | "cross-asset" | "series" | "countries" | "research" | "data-methods";
 
 export interface ReleaseSummary {
   id: string;

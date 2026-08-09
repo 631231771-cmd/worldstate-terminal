@@ -122,3 +122,13 @@ def test_thesis_book_is_user_owned_and_evaluation_does_not_auto_confirm(client: 
     assert assistant.status_code == 200
     assert assistant.json()["mode"] == "deterministic_context"
     assert assistant.json()["facts"][0]["claim_type"] == "fact"
+
+
+def test_global_macro_marks_uncovered_countries_unavailable(client: TestClient) -> None:
+    response = client.get("/v2/global-macro?data_mode=observed")
+    assert response.status_code == 200
+    payload = response.json()
+    assert {item["iso3"] for item in payload["countries"]} == {"USA", "CHN", "EA19", "JPN", "GBR"}
+    assert all(item["data_mode"] == "observed" for item in payload["countries"])
+    assert any(item["status"] == "unavailable" for item in payload["countries"])
+    assert payload["context_cards"]

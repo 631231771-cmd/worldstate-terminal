@@ -6,7 +6,28 @@ WorldState Terminal（世界状态终端）是一款个人使用、local-first �
 
 它不是新闻墙、世界地图、自动交易系统，也不把相关性写成唯一因果。当前研究主线固定为美国 CPI、非农和 FOMC，并结合 point-in-time 发布值、发布前共识、跨资产事件窗口、历史匹配和受证据约束的解释。
 
-## v0.5 当前状态
+## v0.6 当前状态
+
+当前开发分支 `feature/v0.6-operational-intelligence` 在 v0.5.1 truthfulness
+基础上增加了可每日使用的 World State、Daily Macro Brief、跨资产市场页、
+Series Explorer、Thesis Book、结构化上下文助手和全球宏观第一层。它们都
+复用既有 point-in-time/observed-fixture 数据边界；没有数据时显示缺口，
+不会把 fixture 当成 live。
+
+- **可在本机使用**：Today（World State、Top Changes、Market Confirmation、Upcoming）、
+  World State、Markets、Series、Research/Thesis、Releases、Event Lab、Cross Asset、
+  Data & Methods，以及 `/v2/world-state`、`/v2/daily-brief`、`/v2/market-dashboard`、
+  `/v2/series`、`/v2/theses`、`/v2/global-macro`。
+- **真实数据就绪但依赖配置**：FRED/ALFRED、Trading Economics、Databento；BLS/Fed
+  按官方来源工作。没有密钥/权限时 API 会返回 `not_configured` 或 `unavailable`。
+- **Fixture 作用**：干净 demo 数据只用于确认页面和确定性方法链，provider 和
+  `data_mode` 都单独标记。真实 observed 覆盖仍需按 v0.5 数据源边界导入。
+- **发布边界**：Tauri/Windows 入口保持可用，但没有冻结 Python sidecar 或签名
+  安装包；空白电脑仍需 Python 3.12、Node.js 20+ 等本机依赖。
+
+详细方法见 [`docs/macro/v0.6-operational-intelligence.md`](docs/macro/v0.6-operational-intelligence.md)。
+
+## v0.5 历史状态
 
 v0.5 Data Foundation 正在 PR #8 的 Draft 分支上实施和稳定化，尚未合并到 `main`。当前状态必须按以下层级理解：
 

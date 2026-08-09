@@ -72,6 +72,7 @@ export const api = {
     }>("/v2/today"),
   dailyBrief: () => request<DailyBriefResponse>("/v2/daily-brief"),
   worldState: () => request<WorldStateResponse>("/v2/world-state"),
+  globalMacro: () => request<Record<string, unknown>>("/v2/global-macro"),
   marketDashboard: (horizon = "1d") =>
     request<Record<string, unknown> & { items: Array<Record<string, unknown>> }>(
       `/v2/market-dashboard?horizon=${horizon}`,

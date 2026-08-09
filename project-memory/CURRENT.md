@@ -15,12 +15,12 @@ longer part of the active architecture. Their final state is preserved at tag
 
 ## Active branch and milestones
 
-- Working branch: `refactor/macro-research-terminal`
+- Working branch: `feature/v0.6-operational-intelligence`
 - Last committed v0.4 baseline: `16544c373bb32fc9788b72538db49c3fcc2c1337`
 - v0.5 Data Foundation: committed as `4054a66e620db2f5aff9a4c70b6af9be3b9aad94`; local and GitHub CI validation complete
-- Database head in the worktree: `0007_truthfulness_stabilization`
+- Database head in the worktree: `0008_thesis_book`
 - API contract: `/v2`
-- Product version in the worktree: `0.5.0`
+- Product version in the worktree: `0.6.0`
 - PR #8: Draft, unmerged; do not mark Ready or merge before final validation
 
 ## Daily use
@@ -86,6 +86,36 @@ not live or licensed historical datasets.
   API boundaries and corresponding existing-terminal UI panels.
 - CLI/launcher diagnostics for provider status, coverage and backfill estimates.
 
+## v0.6 Operational Macro Intelligence implemented in checkpoints
+
+- `wst-state-v1` deterministic World State engine reads the existing
+  Series/Observation point-in-time layer and returns Growth, Inflation,
+  Liquidity, Policy Tightness, Credit, Risk, Fiscal and External dimensions
+  with score, direction, momentum, coverage, freshness, drivers, evidence IDs
+  and data gaps.  `/v2/world-state` never falls back between data modes.
+- `wst-daily-brief-v1` powers `/v2/daily-brief` and the upgraded Today page:
+  World State, Top Changes, recent releases, market confirmation, revisions,
+  upcoming events and Watch Next are generated deterministically.  AI is not
+  required for the daily entry point.
+- `/v2/market-dashboard` and the Markets workspace show 1D/1W/1M/3M changes,
+  empirical percentiles, provider/granularity, proxy labels and gaps.
+- `/v2/series` and `/v2/series/{canonical_key}` provide Series Explorer
+  search, raw/MoM/YoY/3M annualized/percentile/z-score/moving-average views;
+  transforms never mutate raw vintages.
+- Migration `0008_thesis_book` adds the user-owned Thesis Book.  Thesis
+  creation/update/evaluation and `/v2/research/assistant/context` expose
+  structured context without auto-confirming a user hypothesis.
+- `/v2/global-macro` and the Countries workspace provide a shallow first layer
+  for US, China, Euro Area, Japan and UK.  Uncovered countries are shown as
+  unavailable; the Context Layer cards are a framework, not live coverage.
+- Demo mode has a separate `worldstate_state_fixture` provider and fixture
+  observations for state cards.  They are excluded from observed queries.
+
+The v0.6 implementation is a usable local research surface, not a claim of
+complete live global coverage.  Official FRED/BLS/Fed observations, licensed
+consensus and minute market data remain governed by the v0.5 provider and
+entitlement boundaries below.
+
 ## Honest incomplete boundaries
 
 - Sync commands and reconciliation are wired and return honest
@@ -118,6 +148,12 @@ not live or licensed historical datasets.
   yield basis-point series.
 - Python is not frozen into a sidecar; the current desktop build is not a
   standalone signed installer for a blank computer.
+- In a no-key observed database, World State, Daily Brief market confirmation,
+  Series Explorer and global country cards can legitimately be empty or
+  partial.  The UI displays those gaps rather than substituting demo rows.
+- The first global layer has reliable observed coverage only where a provider
+  has populated the Series/Observation catalog; the other country cards are
+  scaffolding with explicit `unavailable` status.
 
 ## Validation checkpoint
 
@@ -128,7 +164,8 @@ not live or licensed historical datasets.
   `.runtime/backups/worldstate-pre-v05-final-20260802-2135.db` before upgrade.
   Its 10,132 legacy FRED demo observations are now explicitly `fixture`.
 - Ruff and strict mypy: green across 92 checked source/test files.
-- Pytest: 157 passed; overall coverage 75.58%; critical research-method set 96%.
+- Pytest: v0.5 baseline 157 passed; v0.6 checkpoint suite is 166 passed before
+  final CI.  Coverage is reported from the final verification command below.
 - Terminal UI production build: passed; npm audit reported 0 vulnerabilities.
 - Rust/Tauri: fmt/check passed, 4 tests passed, unsigned no-bundle release built.
 - Public-source smoke: BLS public API normalized 70 CPI and 106 NFP observations
@@ -142,16 +179,18 @@ not live or licensed historical datasets.
 - GitHub Actions: green for `research-api`, `terminal-ui` and `desktop-check` on
   run `31306285082`; PR #8 remains Draft and unmerged.
 
-Do not reuse v0.4 pass counts as v0.5 evidence.
+Do not reuse v0.4 pass counts as v0.5/v0.6 evidence.
 
-## Next work after this stabilization only
+## Next work after v0.6 checkpoint
 
-1. Re-run BLS schedule ingestion from a network where the official HTML is not
-   blocked, and preserve the resulting artifact.
+1. Populate a bounded observed FRED/BLS/Fed dataset and verify the new World
+   State/Daily Brief outputs against official release artifacts.
 2. With legally usable credentials, validate FRED/ALFRED and Trading Economics
    PIT semantics and Databento estimates/entitlements against real accounts.
-3. Perform a bounded approved real-data backfill and assess stored versus
-   analysis-eligible coverage gaps.
+3. Add observed country catalogs only when official sources and availability
+   timestamps are preserved; do not turn the global scaffolding into labels.
+4. Add calendar-driven revision cards and deeper market reaction coverage after
+   the observed data foundation is populated.
 
 Do not add new event types, workspaces, automatic trading, news walls or maps in
 this stabilization scope.
