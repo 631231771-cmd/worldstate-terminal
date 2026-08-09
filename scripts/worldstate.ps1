@@ -1,9 +1,9 @@
 param(
-    [ValidateSet("start", "stop", "restart", "status", "sync", "doctor", "logs")]
+    [ValidateSet("launch", "start", "stop", "restart", "status", "doctor", "logs", "migrate", "bootstrap", "build", "data-doctor", "sync-official", "sync-calendar", "snapshot-consensus", "estimate-backfill", "backfill", "sync-market", "reconcile-data", "data-status")]
     [string]$Command = "start",
     [switch]$NoBrowser,
     [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$ExtraArguments
+    [string[]]$CommandArgs = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,19 +12,25 @@ Set-StrictMode -Version Latest
 $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $RuntimeRoot = Join-Path $RepoRoot ".runtime"
 $LogRoot = Join-Path $RuntimeRoot "logs"
-$ServiceRoot = Join-Path $RepoRoot "services\macro-engine"
+$ServiceRoot = Join-Path $RepoRoot "services\research-api"
 $ServicePython = Join-Path $ServiceRoot ".venv\Scripts\python.exe"
+$UiRoot = Join-Path $RepoRoot "apps\terminal-ui"
 $ConfigPath = Join-Path $RuntimeRoot "worldstate.env"
 $DatabasePath = Join-Path $RuntimeRoot "worldstate.db"
-$FrontendUrl = "http://127.0.0.1:4173/?lang=zh"
-$EngineHealthUrl = "http://127.0.0.1:8000/v1/health"
+$UiUrl = "http://127.0.0.1:4173/#today"
+$ApiHealthUrl = "http://127.0.0.1:8000/v2/health"
+$ApiPort = 8000
+$UiPort = 4173
+$DesktopReleaseExe = Join-Path $RepoRoot "apps\desktop-tauri\src-tauri\target\release\worldstate-terminal.exe"
+$DesktopDebugExe = Join-Path $RepoRoot "apps\desktop-tauri\src-tauri\target\debug\worldstate-terminal.exe"
+$DesktopLogRoot = Join-Path $env:LOCALAPPDATA "research.worldstate.terminal\logs"
 
 function Write-WorldState {
     param([string]$Message, [ConsoleColor]$Color = [ConsoleColor]::Gray)
     Write-Host "[WorldState] $Message" -ForegroundColor $Color
 }
 
-function Ensure-RuntimeDirectories {
+function Ensure-Runtime {
     New-Item -ItemType Directory -Force -Path $RuntimeRoot, $LogRoot | Out-Null
 }
 
@@ -35,66 +41,116 @@ function Get-ToolPath {
     return $tool.Source
 }
 
-function Ensure-LocalConfig {
-    Ensure-RuntimeDirectories
-    $aiDefaults = @(
-        "MACRO_AI_PROVIDER=auto"
-        "OPENAI_API_KEY="
-        "MACRO_AI_MODEL=gpt-5.6-sol"
-        "MACRO_AI_BASE_URL=https://api.openai.com/v1"
-        "MACRO_AI_COMPATIBLE_API_KEY="
-        "OLLAMA_BASE_URL="
-        "MACRO_OLLAMA_MODEL=qwen3:8b"
-        "MACRO_X_BEARER_TOKEN="
-        "MACRO_AGENT_REACH_X_ENABLED=true"
-        "MACRO_AGENT_REACH_X_POSTS_PER_ACCOUNT=3"
-        "MACRO_AGENT_REACH_X_CACHE_SECONDS=1200"
-        "MACRO_CLAWFEED_URL="
-    )
-    if (Test-Path -LiteralPath $ConfigPath) {
-        $existingConfig = Get-Content -LiteralPath $ConfigPath
-        $missingDefaults = foreach ($defaultLine in $aiDefaults) {
-            $defaultKey = $defaultLine.Split("=", 2)[0]
-            if (-not ($existingConfig | Where-Object { $_ -match "^$([regex]::Escape($defaultKey))=" })) {
-                $defaultLine
-            }
-        }
-        if ($missingDefaults) {
-            Add-Content -LiteralPath $ConfigPath -Value @(
-                ""
-                "# Optional evidence-grounded AI tutor"
-                $missingDefaults
-            ) -Encoding UTF8
-            Write-WorldState "Updated local configuration with optional AI settings." Green
-        }
-        return
-    }
-    $databaseUrl = "sqlite+aiosqlite:///$($DatabasePath.Replace('\', '/'))"
-    $content = @(
-        "# World State Terminal local configuration"
-        "# Add your FRED key after FRED_API_KEY=, then run: WorldState.bat sync"
-        "MACRO_ENGINE_URL=http://127.0.0.1:8000"
-        "MACRO_DATABASE_URL=$databaseUrl"
-        "MACRO_DEFAULT_LOCALE=zh-CN"
-        "MACRO_DEFAULT_TIMEZONE=Asia/Taipei"
-        "MACRO_STRICT_POINT_IN_TIME=true"
-        "MACRO_ENABLE_WRITES=false"
-        "MACRO_STALE_AFTER_HOURS=72"
-        "FRED_API_KEY="
-        "# AI is optional. Use openai, ollama, compatible, or none."
-        $aiDefaults
-    )
-    Set-Content -LiteralPath $ConfigPath -Value $content -Encoding UTF8
-    Write-WorldState "Created local configuration: .runtime\worldstate.env" Green
+function Get-PortListener {
+    param([int]$Port)
+    $listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -eq $listener) { return $null }
+    return Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)" `
+        -ErrorAction SilentlyContinue
 }
 
-function Import-LocalConfig {
-    Ensure-LocalConfig
+function Get-DesktopProcess {
+    Get-CimInstance Win32_Process -Filter "Name = 'worldstate-terminal.exe'" `
+        -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.ExecutablePath -and
+            $_.ExecutablePath.StartsWith($RepoRoot, [StringComparison]::OrdinalIgnoreCase)
+        } |
+        Select-Object -First 1
+}
+
+function Test-ProcessTreeReferencesRepo {
+    param($Process)
+    $current = $Process
+    $visited = [System.Collections.Generic.HashSet[int]]::new()
+    while ($null -ne $current -and $visited.Add([int]$current.ProcessId)) {
+        $identity = "$($current.ExecutablePath) $($current.CommandLine)"
+        if ($identity.IndexOf($RepoRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            return $true
+        }
+        if (-not $current.ParentProcessId) { break }
+        $current = Get-CimInstance Win32_Process `
+            -Filter "ProcessId = $($current.ParentProcessId)" -ErrorAction SilentlyContinue
+    }
+    return $false
+}
+
+function Get-WorldStateHealth {
+    try {
+        $health = Invoke-RestMethod -Uri $ApiHealthUrl -TimeoutSec 3
+        if ($health.service -eq "worldstate-research-api" -and $health.api_version -eq "v2") {
+            return $health
+        }
+    }
+    catch {}
+    return $null
+}
+
+function Ensure-Config {
+    Ensure-Runtime
+    $databaseUrl = "sqlite+aiosqlite:///$($DatabasePath.Replace('\', '/'))"
+    $defaults = @(
+        "# WorldState Macro Research Terminal local configuration"
+        "WORLDSTATE_DATABASE_URL=$databaseUrl"
+        "WORLDSTATE_API_URL=http://127.0.0.1:8000"
+        "WORLDSTATE_DEFAULT_LOCALE=zh-CN"
+        "WORLDSTATE_DEFAULT_TIMEZONE=Asia/Shanghai"
+        "WORLDSTATE_STRICT_POINT_IN_TIME=true"
+        "WORLDSTATE_DATA_START_DATE=2015-01-01"
+        "WORLDSTATE_MARKET_INTRADAY_PRE_MINUTES=90"
+        "WORLDSTATE_MARKET_INTRADAY_POST_MINUTES=240"
+        "WORLDSTATE_MARKET_DAILY_PRE_DAYS=5"
+        "WORLDSTATE_MARKET_DAILY_POST_DAYS=5"
+        "WORLDSTATE_DATABENTO_MAX_ESTIMATED_COST_USD=0"
+        "WORLDSTATE_ALLOW_PAID_DOWNLOAD=false"
+        "WORLDSTATE_DEMO_MODE=false"
+        "WORLDSTATE_SCHEDULER_ENABLED=true"
+        "WORLDSTATE_AI_PROVIDER=auto"
+        "WORLDSTATE_AI_MODEL=gpt-5.6-sol"
+        "WORLDSTATE_AI_BASE_URL=https://api.openai.com/v1"
+        "OPENAI_API_KEY="
+        "OLLAMA_BASE_URL="
+        "WORLDSTATE_OLLAMA_MODEL=qwen3:8b"
+        "FRED_API_KEY="
+        "BLS_API_KEY="
+        "TRADING_ECONOMICS_API_KEY="
+        "WORLDSTATE_TRADING_ECONOMICS_PIT_ENTITLED=false"
+        "DATABENTO_API_KEY="
+    )
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        Set-Content -LiteralPath $ConfigPath -Value $defaults -Encoding UTF8
+        Write-WorldState "Created local configuration: .runtime\worldstate.env" Green
+        return
+    }
+    $existing = @(Get-Content -LiteralPath $ConfigPath)
+    $knownKeys = [System.Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($line in $existing) {
+        $trimmed = $line.Trim()
+        if ($trimmed -and -not $trimmed.StartsWith("#") -and $trimmed.Contains("=")) {
+            [void]$knownKeys.Add($trimmed.Split("=", 2)[0].Trim())
+        }
+    }
+    $missing = @(
+        $defaults | Where-Object {
+            $_ -and -not $_.StartsWith("#") -and
+            -not $knownKeys.Contains($_.Split("=", 2)[0].Trim())
+        }
+    )
+    if ($missing.Count -gt 0) {
+        Add-Content -LiteralPath $ConfigPath -Value @("", "# v0.5 data foundation", $missing) `
+            -Encoding UTF8
+        Write-WorldState "Added missing v0.5 settings to local configuration." Green
+    }
+}
+
+function Import-Config {
+    Ensure-Config
     foreach ($line in Get-Content -LiteralPath $ConfigPath) {
         $trimmed = $line.Trim()
-        if (-not $trimmed -or $trimmed.StartsWith("#") -or -not $trimmed.Contains("=")) {
-            continue
-        }
+        if (-not $trimmed -or $trimmed.StartsWith("#") -or -not $trimmed.Contains("=")) { continue }
         $parts = $trimmed.Split("=", 2)
         [Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1], "Process")
     }
@@ -102,49 +158,57 @@ function Import-LocalConfig {
 
 function Ensure-Dependencies {
     $python = Get-ToolPath "python"
-    if (-not $python) {
-        throw "Python is required. Install Python 3.12 or newer, then run WorldState.bat again."
-    }
-    $node = Get-ToolPath "node"
     $npm = Get-ToolPath "npm"
-    if (-not $node -or -not $npm) {
-        throw "Node.js and npm are required. Install Node.js 22 or newer, then run WorldState.bat again."
-    }
+    if (-not $python) { throw "Python 3.12 is required. Install it, then open WorldStateApp.bat again." }
+    if (-not $npm) { throw "Node.js 20 or newer is required. Install it, then open WorldStateApp.bat again." }
 
     & $python -m uv --version *> $null
     if ($LASTEXITCODE -ne 0) {
-        Write-WorldState "Installing the local Python environment manager..." Yellow
-        & $python -m pip install --user "uv==0.11.31"
-        if ($LASTEXITCODE -ne 0) { throw "Unable to install uv." }
+        Write-WorldState "Preparing the Python environment manager..." Yellow
+        & $python -m pip install --user "uv>=0.11,<0.12"
+        if ($LASTEXITCODE -ne 0) { throw "Python environment manager installation failed." }
     }
-
-    Write-WorldState "Checking Macro Engine dependencies..."
-    & $python -m uv sync --locked --project $ServiceRoot
-    if ($LASTEXITCODE -ne 0) { throw "Macro Engine dependency installation failed." }
-
-    $viteEntry = Join-Path $RepoRoot "node_modules\vite\bin\vite.js"
-    if (-not (Test-Path -LiteralPath $viteEntry)) {
-        Write-WorldState "Installing dashboard dependencies..." Yellow
-        Push-Location $RepoRoot
-        try {
-            & $npm ci --ignore-scripts --prefer-offline
-            if ($LASTEXITCODE -ne 0) { throw "Dashboard dependency installation failed." }
-        }
-        finally {
-            Pop-Location
-        }
+    if (-not (Test-Path -LiteralPath $ServicePython)) {
+        Write-WorldState "First launch: installing Research API dependencies..." Yellow
+        & $python -m uv sync --locked --all-groups --project $ServiceRoot
+        if ($LASTEXITCODE -ne 0) { throw "Research API dependency installation failed." }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $UiRoot "node_modules\vite\bin\vite.js"))) {
+        Write-WorldState "First launch: installing Terminal UI dependencies..." Yellow
+        & $npm install --ignore-scripts --prefix $UiRoot
+        if ($LASTEXITCODE -ne 0) { throw "Terminal UI dependency installation failed." }
     }
 }
 
 function Invoke-Migration {
-    Write-WorldState "Applying local database migrations..."
-    & $ServicePython -m macro_engine.cli migrate
-    if ($LASTEXITCODE -ne 0) { throw "Database migration failed." }
+    Import-Config
+    Ensure-Dependencies
+    Write-WorldState "Checking database v3..." Cyan
+    Push-Location $ServiceRoot
+    try {
+        & $ServicePython -m worldstate.cli migrate
+        if ($LASTEXITCODE -ne 0) { throw "Database migration failed." }
+    }
+    finally { Pop-Location }
+}
+
+function Invoke-DataCommand {
+    Invoke-Migration
+    Push-Location $ServiceRoot
+    try {
+        & $ServicePython -m worldstate.cli $Command @CommandArgs
+        $dataExitCode = $LASTEXITCODE
+    }
+    finally { Pop-Location }
+    if ($dataExitCode -ne 0) {
+        Write-WorldState "Data command '$Command' did not complete (exit $dataExitCode)." Yellow
+        exit $dataExitCode
+    }
 }
 
 function Get-PidPath {
     param([string]$Name)
-    return Join-Path $RuntimeRoot "$Name.pid"
+    Join-Path $RuntimeRoot "$Name.pid"
 }
 
 function Get-ManagedProcess {
@@ -153,20 +217,8 @@ function Get-ManagedProcess {
     if (-not (Test-Path -LiteralPath $pidPath)) { return $null }
     $savedPid = [int](Get-Content -LiteralPath $pidPath -Raw)
     $process = Get-CimInstance Win32_Process -Filter "ProcessId = $savedPid" -ErrorAction SilentlyContinue
-    if ($null -eq $process) {
-        Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
-        return $null
-    }
-    $marker = switch ($Name) {
-        "engine" { "macro_engine.cli serve" }
-        "frontend" { "vite.js" }
-        "sync" { "macro_engine.cli sync" }
-        default { "" }
-    }
-    if (-not $process.CommandLine -or
-        $process.CommandLine.IndexOf($RepoRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0 -or
-        ($marker -and $process.CommandLine.IndexOf($marker, [StringComparison]::OrdinalIgnoreCase) -lt 0)) {
-        Write-WorldState "Ignoring stale $Name PID; it does not belong to this checkout." Yellow
+    if ($null -eq $process -or -not $process.CommandLine -or
+        $process.CommandLine.IndexOf($RepoRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
         Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
         return $null
     }
@@ -175,18 +227,18 @@ function Get-ManagedProcess {
 
 function Stop-ManagedProcess {
     param([string]$Name)
-    $rootProcess = Get-ManagedProcess $Name
-    if ($null -eq $rootProcess) { return }
-    $allProcesses = @(Get-CimInstance Win32_Process)
+    $process = Get-ManagedProcess $Name
+    if ($null -eq $process) { return }
+    $all = @(Get-CimInstance Win32_Process)
     $ids = [System.Collections.Generic.List[int]]::new()
-    function Add-Descendants {
+    function Add-Tree {
         param([int]$ParentId)
-        foreach ($child in $allProcesses | Where-Object { $_.ParentProcessId -eq $ParentId }) {
-            Add-Descendants -ParentId $child.ProcessId
+        foreach ($child in $all | Where-Object { $_.ParentProcessId -eq $ParentId }) {
+            Add-Tree -ParentId $child.ProcessId
         }
         $ids.Add($ParentId)
     }
-    Add-Descendants -ParentId $rootProcess.ProcessId
+    Add-Tree -ParentId $process.ProcessId
     foreach ($processId in $ids) {
         Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
     }
@@ -202,180 +254,206 @@ function Wait-ForEndpoint {
             $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2
             if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) { return $true }
         }
-        catch {
-            Start-Sleep -Milliseconds 500
-        }
+        catch { Start-Sleep -Milliseconds 500 }
     }
     return $false
 }
 
 function Start-WorldState {
-    Ensure-RuntimeDirectories
-    Import-LocalConfig
-    Ensure-Dependencies
+    $desktop = Get-DesktopProcess
+    if ($null -ne $desktop) {
+        Write-WorldState "Desktop application is already running (PID $($desktop.ProcessId))." Green
+        Show-Status
+        return
+    }
+
     Invoke-Migration
-
-    $engine = Get-ManagedProcess "engine"
-    if ($null -eq $engine) {
-        $engineOut = Join-Path $LogRoot "engine.out.log"
-        $engineError = Join-Path $LogRoot "engine.error.log"
-        $engineProcess = Start-Process `
-            -FilePath $ServicePython `
-            -ArgumentList @("-m", "macro_engine.cli", "serve", "--host", "127.0.0.1", "--port", "8000") `
+    $api = Get-ManagedProcess "research-api"
+    if ($null -eq $api) {
+        $apiListener = Get-PortListener $ApiPort
+        if ($null -ne $apiListener) {
+            $health = Get-WorldStateHealth
+            if ($null -ne $health -and (Test-ProcessTreeReferencesRepo $apiListener)) {
+                Set-Content -LiteralPath (Get-PidPath "research-api") `
+                    -Value $apiListener.ProcessId -Encoding ASCII
+                $api = $apiListener
+                Write-WorldState "Adopted the existing WorldState Research API (PID $($api.ProcessId))." Yellow
+            }
+            else {
+                throw "Port $ApiPort is already used by another program (PID $($apiListener.ProcessId), $($apiListener.Name))."
+            }
+        }
+    }
+    if ($null -eq $api) {
+        $apiProcess = Start-Process -FilePath $ServicePython `
+            -ArgumentList @("-m", "worldstate.cli", "serve", "--host", "127.0.0.1", "--port", "8000") `
             -WorkingDirectory $ServiceRoot `
-            -RedirectStandardOutput $engineOut `
-            -RedirectStandardError $engineError `
-            -WindowStyle Hidden `
-            -PassThru
-        Set-Content -LiteralPath (Get-PidPath "engine") -Value $engineProcess.Id -Encoding ASCII
-        Write-WorldState "Macro Engine started (PID $($engineProcess.Id))." Green
+            -RedirectStandardOutput (Join-Path $LogRoot "research-api.out.log") `
+            -RedirectStandardError (Join-Path $LogRoot "research-api.error.log") `
+            -WindowStyle Hidden -PassThru
+        Set-Content -LiteralPath (Get-PidPath "research-api") -Value $apiProcess.Id -Encoding ASCII
+        Write-WorldState "Research API started." Green
     }
-    else {
-        Write-WorldState "Macro Engine is already running (PID $($engine.ProcessId))."
+    $ui = Get-ManagedProcess "terminal-ui"
+    if ($null -eq $ui) {
+        $uiListener = Get-PortListener $UiPort
+        if ($null -ne $uiListener) {
+            if (Test-ProcessTreeReferencesRepo $uiListener) {
+                Set-Content -LiteralPath (Get-PidPath "terminal-ui") `
+                    -Value $uiListener.ProcessId -Encoding ASCII
+                $ui = $uiListener
+                Write-WorldState "Adopted the existing WorldState Terminal UI (PID $($ui.ProcessId))." Yellow
+            }
+            else {
+                throw "Port $UiPort is already used by another program (PID $($uiListener.ProcessId), $($uiListener.Name))."
+            }
+        }
     }
-
-    $frontend = Get-ManagedProcess "frontend"
-    if ($null -eq $frontend) {
+    if ($null -eq $ui) {
         $node = Get-ToolPath "node"
-        $viteEntry = Join-Path $RepoRoot "node_modules\vite\bin\vite.js"
-        $env:VITE_VARIANT = "macro"
-        $env:VITE_MACRO_ENGINE_URL = "http://127.0.0.1:8000"
-        $frontendOut = Join-Path $LogRoot "frontend.out.log"
-        $frontendError = Join-Path $LogRoot "frontend.error.log"
-        $frontendProcess = Start-Process `
-            -FilePath $node `
-            -ArgumentList @($viteEntry, "--host", "127.0.0.1", "--port", "4173") `
-            -WorkingDirectory $RepoRoot `
-            -RedirectStandardOutput $frontendOut `
-            -RedirectStandardError $frontendError `
-            -WindowStyle Hidden `
-            -PassThru
-        Set-Content -LiteralPath (Get-PidPath "frontend") -Value $frontendProcess.Id -Encoding ASCII
-        Write-WorldState "Dashboard started (PID $($frontendProcess.Id))." Green
+        $vite = Join-Path $UiRoot "node_modules\vite\bin\vite.js"
+        $uiProcess = Start-Process -FilePath $node `
+            -ArgumentList @($vite, "--host", "127.0.0.1", "--port", "4173", "--strictPort") `
+            -WorkingDirectory $UiRoot `
+            -RedirectStandardOutput (Join-Path $LogRoot "terminal-ui.out.log") `
+            -RedirectStandardError (Join-Path $LogRoot "terminal-ui.error.log") `
+            -WindowStyle Hidden -PassThru
+        Set-Content -LiteralPath (Get-PidPath "terminal-ui") -Value $uiProcess.Id -Encoding ASCII
+        Write-WorldState "Terminal UI started." Green
+    }
+    if (-not (Wait-ForEndpoint $ApiHealthUrl)) {
+        throw "Research API did not become ready. See .runtime\logs\research-api.error.log."
+    }
+    if (-not (Wait-ForEndpoint $UiUrl)) {
+        throw "Terminal UI did not become ready. See .runtime\logs\terminal-ui.error.log."
+    }
+    Write-WorldState "WorldState is ready: $UiUrl" Cyan
+    if (-not $NoBrowser) { Start-Process $UiUrl }
+}
+
+function Start-WorldStateApp {
+    $desktop = Get-DesktopProcess
+    if ($null -ne $desktop) {
+        Write-WorldState "Desktop application is already running (PID $($desktop.ProcessId))." Green
+        Show-Status
+        return
+    }
+    $desktopExe = if (Test-Path -LiteralPath $DesktopReleaseExe) {
+        $DesktopReleaseExe
+    }
+    elseif (Test-Path -LiteralPath $DesktopDebugExe) {
+        $DesktopDebugExe
     }
     else {
-        Write-WorldState "Dashboard is already running (PID $($frontend.ProcessId))."
+        $null
     }
-
-    if (-not (Wait-ForEndpoint -Url $EngineHealthUrl)) {
-        throw "Macro Engine did not become ready. See .runtime\logs\engine.error.log."
+    if ($null -eq $desktopExe) {
+        Write-WorldState "No Tauri build is available; starting the verified BAT application." Yellow
+        Start-WorldState
+        return
     }
-    if (-not (Wait-ForEndpoint -Url $FrontendUrl)) {
-        throw "Dashboard did not become ready. See .runtime\logs\frontend.error.log."
+    $process = Start-Process -FilePath $desktopExe -WorkingDirectory $RepoRoot -PassThru
+    Start-Sleep -Milliseconds 1200
+    if ($process.HasExited) {
+        Write-WorldState "The Tauri application exited during startup; using the BAT application." Yellow
+        Start-WorldState
+        return
     }
-
-    if ($null -eq (Get-ManagedProcess "sync")) {
-        $syncOut = Join-Path $LogRoot "sync.out.log"
-        $syncError = Join-Path $LogRoot "sync.error.log"
-        $syncProcess = Start-Process `
-            -FilePath $ServicePython `
-            -ArgumentList @("-m", "macro_engine.cli", "sync", "--all", "--recent-days", "3650") `
-            -WorkingDirectory $ServiceRoot `
-            -RedirectStandardOutput $syncOut `
-            -RedirectStandardError $syncError `
-            -WindowStyle Hidden `
-            -PassThru
-        Set-Content -LiteralPath (Get-PidPath "sync") -Value $syncProcess.Id -Encoding ASCII
-        Write-WorldState "Background data initialization started (PID $($syncProcess.Id))."
-    }
-
-    Write-WorldState "Ready: $FrontendUrl" Cyan
-    if (-not $NoBrowser) {
-        Start-Process $FrontendUrl
-    }
-}
-
-function Stop-WorldState {
-    Stop-ManagedProcess "sync"
-    Stop-ManagedProcess "frontend"
-    Stop-ManagedProcess "engine"
-}
-
-function Show-Status {
-    $engine = Get-ManagedProcess "engine"
-    $frontend = Get-ManagedProcess "frontend"
-    $sync = Get-ManagedProcess "sync"
-    Write-WorldState "Macro Engine: $(if ($engine) { "RUNNING (PID $($engine.ProcessId))" } else { "STOPPED" })"
-    Write-WorldState "Dashboard:    $(if ($frontend) { "RUNNING (PID $($frontend.ProcessId))" } else { "STOPPED" })"
-    Write-WorldState "Sync:         $(if ($sync) { "RUNNING (PID $($sync.ProcessId))" } else { "IDLE" })"
-    if ($engine) {
-        try {
-            $health = Invoke-RestMethod -Uri $EngineHealthUrl -TimeoutSec 3
-            Write-WorldState "Database:     $($health.database.status)"
-            Write-WorldState "Methodology:  $($health.methodology_version)"
-        }
-        catch {
-            Write-WorldState "Health probe failed." Yellow
-        }
-    }
-}
-
-function Invoke-ManualSync {
-    Import-LocalConfig
-    Ensure-Dependencies
-    Invoke-Migration
-    $arguments = @("-m", "macro_engine.cli", "sync", "--all")
-    if ($ExtraArguments.Count -gt 0) {
-        if ($ExtraArguments[0] -eq "--series" -and $ExtraArguments.Count -gt 1) {
-            $arguments = @("-m", "macro_engine.cli", "sync", "--series", $ExtraArguments[1])
-        }
-    }
-    Write-WorldState "Synchronizing macro data..."
-    & $ServicePython @arguments
-    if ($LASTEXITCODE -ne 0) { throw "Synchronization failed." }
-}
-
-function Invoke-Doctor {
-    Ensure-RuntimeDirectories
-    $checks = @(
-        @("Python", (Get-ToolPath "python")),
-        @("Node.js", (Get-ToolPath "node")),
-        @("npm", (Get-ToolPath "npm")),
-        @("Local config", $(if (Test-Path -LiteralPath $ConfigPath) { $ConfigPath } else { "will be created on start" })),
-        @("SQLite database", $(if (Test-Path -LiteralPath $DatabasePath) { $DatabasePath } else { "will be created on start" }))
-    )
-    foreach ($check in $checks) {
-        $ok = [bool]$check[1]
-        Write-Host ("{0,-18} {1}" -f $check[0], $(if ($ok) { $check[1] } else { "MISSING" })) `
-            -ForegroundColor $(if ($ok) { "Green" } else { "Red" })
+    Write-WorldState "Desktop application started (PID $($process.Id))." Green
+    if (-not (Wait-ForEndpoint $ApiHealthUrl)) {
+        throw "The desktop application is open, but its Research API did not become ready. See $DesktopLogRoot."
     }
     Show-Status
 }
 
-function Show-Logs {
-    Ensure-RuntimeDirectories
-    $files = @(
-        "engine.out.log",
-        "engine.error.log",
-        "frontend.out.log",
-        "frontend.error.log",
-        "sync.out.log",
-        "sync.error.log"
-    )
-    foreach ($name in $files) {
-        $path = Join-Path $LogRoot $name
-        if (-not (Test-Path -LiteralPath $path)) { continue }
-        Write-Host "`n=== $name ===" -ForegroundColor Cyan
-        Get-Content -LiteralPath $path -Tail 60
+function Stop-WorldState {
+    Stop-ManagedProcess "terminal-ui"
+    Stop-ManagedProcess "research-api"
+}
+
+function Show-Status {
+    $api = Get-ManagedProcess "research-api"
+    $ui = Get-ManagedProcess "terminal-ui"
+    $desktop = Get-DesktopProcess
+    $apiListener = Get-PortListener $ApiPort
+    $uiListener = Get-PortListener $UiPort
+    $health = Get-WorldStateHealth
+
+    if ($null -ne $api) {
+        Write-WorldState "Research API: RUNNING (managed PID $($api.ProcessId), port $ApiPort)"
+    }
+    elseif ($null -ne $apiListener -and $null -ne $health) {
+        Write-WorldState "Research API: RUNNING (desktop/external PID $($apiListener.ProcessId), port $ApiPort)"
+    }
+    elseif ($null -ne $apiListener) {
+        Write-WorldState "Research API: FOREIGN LISTENER (PID $($apiListener.ProcessId), port $ApiPort)" Yellow
+    }
+    else {
+        Write-WorldState "Research API: STOPPED (port $ApiPort)"
+    }
+
+    if ($null -ne $desktop) {
+        Write-WorldState "Terminal UI:  RUNNING (Tauri PID $($desktop.ProcessId), embedded UI)"
+    }
+    elseif ($null -ne $ui) {
+        Write-WorldState "Terminal UI:  RUNNING (managed PID $($ui.ProcessId), port $UiPort)"
+    }
+    elseif ($null -ne $uiListener) {
+        Write-WorldState "Terminal UI:  UNMANAGED LISTENER (PID $($uiListener.ProcessId), port $UiPort)" Yellow
+    }
+    else {
+        Write-WorldState "Terminal UI:  STOPPED (port $UiPort)"
+    }
+
+    Write-WorldState "BAT logs: $LogRoot"
+    Write-WorldState "Desktop logs: $DesktopLogRoot"
+    if ($null -ne $health) {
+        Write-WorldState "Database: $($health.database.status) - Method: $($health.methodology_version)"
+    }
+    elseif ($null -ne $apiListener) {
+        Write-WorldState "Health check did not identify WorldState Research API v2." Yellow
     }
 }
 
-try {
-    switch ($Command) {
-        "start" { Start-WorldState }
-        "stop" { Stop-WorldState }
-        "restart" {
-            Stop-WorldState
-            Start-WorldState
-        }
-        "status" { Show-Status }
-        "sync" { Invoke-ManualSync }
-        "doctor" { Invoke-Doctor }
-        "logs" { Show-Logs }
+switch ($Command) {
+    "launch" { Start-WorldStateApp }
+    "start" { Start-WorldState }
+    "stop" { Stop-WorldState }
+    "restart" { Stop-WorldState; Start-WorldState }
+    "status" { Ensure-Runtime; Show-Status }
+    "migrate" { Invoke-Migration }
+    "bootstrap" {
+        Invoke-Migration
+        Push-Location $ServiceRoot
+        try { & $ServicePython -m worldstate.cli bootstrap }
+        finally { Pop-Location }
     }
-    exit 0
-}
-catch {
-    Write-WorldState $_.Exception.Message Red
-    exit 1
+    "build" {
+        Import-Config
+        Ensure-Dependencies
+        & (Get-ToolPath "npm") run build --prefix $UiRoot
+        if ($LASTEXITCODE -ne 0) { throw "Terminal UI build failed." }
+    }
+    "logs" { Ensure-Runtime; Start-Process explorer.exe $LogRoot }
+    "doctor" {
+        Import-Config
+        Write-WorldState "Repository: $RepoRoot"
+        Write-WorldState "Python: $(Get-ToolPath 'python')"
+        Write-WorldState "Node: $(Get-ToolPath 'node')"
+        Write-WorldState "Database: $DatabasePath"
+        Write-WorldState "Research API files: $(Test-Path (Join-Path $ServiceRoot 'pyproject.toml'))"
+        Write-WorldState "Terminal UI files: $(Test-Path (Join-Path $UiRoot 'package.json'))"
+        Show-Status
+    }
+    { $_ -in @(
+        "data-doctor",
+        "sync-official",
+        "sync-calendar",
+        "snapshot-consensus",
+        "estimate-backfill",
+        "backfill",
+        "sync-market",
+        "reconcile-data",
+        "data-status"
+    ) } { Invoke-DataCommand }
 }
