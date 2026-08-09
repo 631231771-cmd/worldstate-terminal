@@ -135,7 +135,7 @@ not live or licensed historical datasets.
   `not_configured`; no paid download was attempted. BLS schedule HTTP 403 is an
   explicit blocked ProviderRun and produces partial/non-zero sync status.
 - GitHub Actions: green for `research-api`, `terminal-ui` and `desktop-check` on run
-  `https://github.com/631231771-cmd/worldstate-terminal/actions/runs/31302012562`.
+  `https://github.com/631231771-cmd/worldstate-terminal/actions/runs/31302442523`.
   PR #8 remains Draft and unmerged.
 
 Do not reuse v0.4 pass counts as v0.5 evidence.
