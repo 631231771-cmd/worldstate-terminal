@@ -1,159 +1,204 @@
----
-project: World State Terminal
-status: phase-11-cpi-event-lab-complete
-updated: 2026-07-30
-branch: feature/world-state-terminal
-phase_1_formal_commit: a458e54d06b32992001693804b49f5f59a1f4019
-phase_2_formal_commit: d144c96a6afcf674e854e80feefbfa66cdbf8549
-phase_3_formal_commit: 3ca562b1264db05beb5bf94dfd819b419bee5263
-phase_4_desktop_chain_commit: 1e9327e6f542a4224f3532b6452f8b4e094b2b84
-phase_5_research_seminar_commit: 86b48c2397d5152d9e7d7304cfca9f40c73090d5
-phase_6_clawfeed_webmcp_commit: 63b380e3b
-phase_7_agent_reach_commit: c86554868
-phase_8_research_desk_commit: ff6cd0be22232661bb9ed0d06bad29d48a447809
-phase_9_event_reaction_commit: 0864f26ec40efc506f8731dcf439f28008ddb696
-phase_10_research_journal_commit: 93adf9169a97e3b021f1c7110dd3fdab97cad9a3
-phase_11_open_source_audit_commit: 79cf4d371
-phase_11_cpi_event_lab_commit: 2984f7e1e
-resume_from: phase-12-nonfarm-payroll-event-bundle
----
+# CURRENT — WorldState Macro Research Terminal
 
-# Current continuation point
+Updated: 2026-08-09
 
-> [!important] Resume here
-> Phase 11 is complete. World State Terminal now has a running US CPI Event
-> Lab that separates verified release values, pre-release consensus snapshots,
-> illustrative or imported market bars, deterministic facts, competing macro
-> explanations, historical comparison, contamination, and data limitations.
->
-> Continue with the nonfarm-payroll bundle, then the multi-stage FOMC event
-> model. Do not weaken the point-in-time, provenance, proxy-label, contamination,
-> minimum-sample, or bounded-language rules added in Phase 11.
+## Product truth
 
-Completion checkpoint:
-`00-checkpoints/2026-07-30-phase-11-cpi-event-lab.md`
+WorldState is a personal macro research and trading-assistance terminal. Its
+daily job is to answer: what was released, how it differed from consensus, how
+cross-assets reacted, what historical analogues show, and how confident an
+evidence-bounded explanation should be.
 
-## What is running
+World Monitor's news wall, world map and geopolitical-monitoring modules are no
+longer part of the active architecture. Their final state is preserved at tag
+`world-monitor-legacy-freeze` and branch `archive/world-monitor-legacy`.
 
-- `WorldStateApp.bat` opens the native desktop shell.
-- `WorldState.bat` controls the API and frontend with `start`, `stop`,
-  `restart`, `status`, `sync`, `doctor`, and `logs`.
-- The API runs at `http://127.0.0.1:8000`.
-- The frontend runs at `http://127.0.0.1:4173`.
-- CPI Event Lab:
-  `http://127.0.0.1:4173/?lang=zh&view=lab&labEvent=0525dad4-8d45-45ed-8e76-f47d22f3ad90`
+## Active branch and milestones
 
-## Product structure
+- Working branch: `feature/v0.6-operational-intelligence`
+- Last committed v0.4 baseline: `16544c373bb32fc9788b72538db49c3fcc2c1337`
+- v0.5 Data Foundation: committed as `4054a66e620db2f5aff9a4c70b6af9be3b9aad94`; local and GitHub CI validation complete
+- Database head in the worktree: `0008_thesis_book`
+- API contract: `/v2`
+- Product version in the worktree: `0.6.0`
+- HEAD: `c072655d9a6d50d9c53c5a64ee85204b979901d7`
+- PR #8: Draft, unmerged; PR #9: Draft, open; do not mark either Ready or merge
 
-The terminal has eight URL-backed workspaces:
+## Daily use
 
-1. `overview` — 今日桌面；
-2. `events` — 事件雷达；
-3. `calendar` — 事件研究工作台；
-4. `lab` — CPI 事件实验室；
-5. `markets` — 资产地图；
-6. `themes` — 国家与主题；
-7. `signals` — 观点与证据；
-8. `library` — 学习、复盘与 AI 导师。
+Use only these launcher layers:
 
-## Phase 11 delivered state
+- Desktop: `C:\Users\Administrator\Desktop\WorldState Terminal.bat`
+- Repository: `WorldStateApp.bat`
+- Maintenance: `WorldState.bat <command>`
 
-- CPI is an event bundle with headline/core MoM and YoY indicators.
-- Each indicator stores actual, consensus, previous, revised previous, unit,
-  source, capture time, version, and point-in-time metadata.
-- Consensus snapshots are append-only and reject snapshots captured after the
-  release time.
-- Surprise analysis covers raw, relative, standardized, direction, composite
-  classification, core/headline conflict, MoM/YoY conflict, and revisions.
-- Market-data contracts support CSV, deterministic fixture, and ordered
-  provider waterfall.
-- Seven instruments are available: GC, SI, DXY, ES, NQ, ZT, and ZN.
-- ZT and ZN are explicitly labelled Treasury-futures price proxies; they are
-  never presented as direct yield observations.
-- Event windows cover T-60, T-15, T+1/5/15/30/60, T+4h, same-day close,
-  next-day close, and day 5, with missing coverage preserved.
-- Earliest significant reaction uses pre-event volatility, normal-minute
-  distribution, per-instrument floors, and two consecutive bars.
-- Reversal, spike-fade, and dip-recovery require adequate window coverage.
-- Historical matching declares the recipe, reports before/after counts, and
-  needs at least five retained samples before probability or percentile output.
-- Facts, historical rules, plausible inference, competing explanations, and
-  unknowns remain separate in the report.
-- Contamination reduces confidence and disables strong causal language.
-- AI is not used to manufacture facts; the shipped report is deterministic.
-- The Event Lab frontend includes an archive, surprise cards, normalized
-  cross-asset chart, reaction table, explanation columns, history, quality,
-  provenance, gaps, contamination, confidence, and a readable review report.
+```powershell
+.\WorldState.bat start
+.\WorldState.bat status
+.\WorldState.bat stop
+.\WorldState.bat data-doctor
+.\WorldState.bat data-status
+```
 
-## Demonstration state
+Terminal: `http://127.0.0.1:4173/#today`
 
-- Verified release: US CPI published on 2024-02-13 at 08:30 America/New_York.
-- Official actuals: headline 0.3% MoM / 3.1% YoY and core 0.4% MoM / 3.9% YoY.
-- Archived consensus: 0.2% / 2.9% / 0.3% / 3.7%.
-- Classification: `全面偏热`.
-- Runtime fixture store: 9 CPI events, 18,963 minute bars, 693 window metrics,
-  and 9 analyses.
-- Historical comparison retains 5 fixed-recipe samples and runs in statistics
-  mode.
-- Confidence is capped at 0.55 because bundled minute paths are labelled
-  deterministic fixtures rather than verified exchange records.
+The duplicate Chinese BAT and obsolete PySide shortcut were hash-verified and
+archived on 2026-07-31. Do not restore them or modify the desktop archive.
 
-## Verification
+## Stable v0.4 research capabilities
 
-- Backend: 58 tests passed, 85.43% coverage.
-- Ruff, strict mypy, TypeScript, focused Biome, safe-HTML guard: passed.
-- Alembic clean migration through revision `0002`: passed for SQLite and
-  PostgreSQL offline SQL generation.
-- Macro production build: passed.
-- Browser: desktop and 430-pixel mobile layouts passed with no document-level
-  horizontal overflow.
-- Runtime: API and frontend launcher services healthy.
+- CPI bundle: headline/core, MoM/YoY, revisions and composite classification.
+- NFP bundle: payrolls, unemployment and wages with cross-unit revision safeguards.
+- FOMC statement, press conference, key-Q&A and end stages with stage reversal.
+- Cross-asset windows, earliest significant observed reaction and reversal.
+- Fixed historical matching with sample thresholds, regime and contamination dimensions.
+- Data quality, proxy and fixture disclosures.
+- Reproducible AnalysisRun manifests/replay and structured Claim → Evidence binding.
+- Experimental `exchange-session-lite` calendar with explicit limitations.
+- Tauri product health verification, foreign-port refusal and AI secret forwarding.
 
-## Important boundaries
+The bundled CPI/NFP/FOMC slices are traceable fixture demonstrations. They are
+not live or licensed historical datasets.
 
-- The bundled CPI actuals and consensus references are traceable; bundled
-  market bars and most comparison cases remain clearly labelled fixtures.
-- Minute bars support only “earliest observed significant reaction”, not
-  exchange-level causal or order-flow precedence.
-- Long-horizon windows remain missing until imported data covers the required
-  session and future trading days.
-- Consensus is currently manual/API/CSV-capable; no paid automatic consensus
-  feed is bundled.
-- Event pollution can be recorded and penalized, but automatic news-overlap
-  detection is not yet comprehensive.
-- Futures rollover, full holiday calendars, and verified session-aware
-  continuous contracts remain future provider work.
-- Macrosynergy is an optional adapter dependency. OpenBB is not required.
-- OpenTerminalUI was used as an architecture reference only. Fincept source and
-  visual identity were not copied.
+## v0.5 Data Foundation implemented; v0.5.1 truthfulness stabilization in progress
 
-## Key files
+- Typed BLS, Federal Reserve, FRED/ALFRED, Trading Economics and Databento adapters.
+- `observed` / `fixture` isolation across core records and analysis queries.
+- Provider entitlement, quota, run, raw artifact and idempotency persistence.
+- Durable sync job/run, calendar snapshot, market-data manifest, reconciliation
+  and bounded backfill-job models in migration `0005_provider_data_foundation`.
+- Follow-up migrations `0006_data_mode_integrity` and `0007_truthfulness_stabilization` upgrade databases that already
+  applied the earlier local 0005 shape; it isolates Observation/ProviderRun/
+  CalendarSnapshot identities by data mode without deleting existing rows.
+- Non-blocking local scheduler and recoverable backfill worker are attached to
+  the Research API lifecycle. First startup catches up today's missed daily
+  work once; every cycle recovers stale runs without blocking desktop startup.
+- v0.5.1 truthfulness policy: Today only returns released, completed and
+  reproducibility-complete research for the requested data mode; Regime never
+  falls back from observed to fixture. Missing credentials/entitlements and
+  paid-download-disabled outcomes are blocked/partial, not failed.
+- Durable official/consensus/market orchestration: BLS releases, FRED/ALFRED
+  observations, Federal Reserve 2015–2020 archives plus current/future meetings,
+  TE snapshots and Databento event-linked manifests.
+- Databento execution requires a fresh provider quote, explicit paid opt-in,
+  credential/entitlement and both per-slice and cumulative USD budget approval.
+  A fallback estimate can inform setup but can never authorize paid download.
+- `/v2/data/providers`, `/v2/data/coverage`, backfill estimate/job/status/cancel
+  API boundaries and corresponding existing-terminal UI panels.
+- CLI/launcher diagnostics for provider status, coverage and backfill estimates.
 
-- Phase progress: `docs/macro/progress/phase-11-cpi-event-lab.md`
-- Open-source audit: `docs/macro/open-source-adoption.md`
-- Third-party notices: `THIRD_PARTY_NOTICES.md`
-- Database models: `services/macro-engine/src/macro_engine/db/models.py`
-- Migration: `services/macro-engine/migrations/versions/0002_cpi_event_lab.py`
-- Event service: `services/macro-engine/src/macro_engine/event_lab/service.py`
-- Surprise engine: `services/macro-engine/src/macro_engine/event_lab/surprise.py`
-- Window engine: `services/macro-engine/src/macro_engine/event_lab/windows.py`
-- Historical matcher: `services/macro-engine/src/macro_engine/event_lab/history.py`
-- Explanation engine:
-  `services/macro-engine/src/macro_engine/event_lab/explanation.py`
-- Market providers:
-  `services/macro-engine/src/macro_engine/market_data/providers.py`
-- API: `services/macro-engine/src/macro_engine/api/events.py`
-- Frontend: `src/macro/MacroApp.ts`
-- Frontend styles: `src/macro/macro-terminal.css`
+## v0.6 Operational Macro Intelligence implemented in checkpoints
 
-## Next priorities
+- `wst-state-v1` deterministic World State engine reads the existing
+  Series/Observation point-in-time layer and returns Growth, Inflation,
+  Liquidity, Policy Tightness, Credit, Risk, Fiscal and External dimensions
+  with score, direction, momentum, coverage, freshness, drivers, evidence IDs
+  and data gaps.  `/v2/world-state` never falls back between data modes.
+- `wst-daily-brief-v1` powers `/v2/daily-brief` and the upgraded Today page:
+  World State, Top Changes, recent releases, market confirmation, revisions,
+  upcoming events and Watch Next are generated deterministically.  AI is not
+  required for the daily entry point.
+- `/v2/market-dashboard` and the Markets workspace show 1D/1W/1M/3M changes,
+  empirical percentiles, provider/granularity, proxy labels and gaps.
+- `/v2/series` and `/v2/series/{canonical_key}` provide Series Explorer
+  search, raw/MoM/YoY/3M annualized/percentile/z-score/moving-average views;
+  transforms never mutate raw vintages.
+- Migration `0008_thesis_book` adds the user-owned Thesis Book.  Thesis
+  creation/update/evaluation and `/v2/research/assistant/context` expose
+  structured context without auto-confirming a user hypothesis.
+- `/v2/global-macro` and the Countries workspace provide a shallow first layer
+  for US, China, Euro Area, Japan and UK.  Uncovered countries are shown as
+  unavailable; the Context Layer cards are a framework, not live coverage.
+- Demo mode has a separate `worldstate_state_fixture` provider and fixture
+  observations for state cards.  They are excluded from observed queries.
 
-1. Reuse EventBundle primitives for nonfarm payrolls: payroll growth,
-   unemployment rate, average hourly earnings MoM/YoY, participation rate, and
-   previous revisions.
-2. Add FOMC stages for statement, press conference start, important Q&A, and
-   end, with stage-specific reaction and changing explanations.
-3. Import verified historical minute bars with session calendars, roll
-   metadata, and real yield observations where licensing permits.
-4. Add official-release ingestion, consensus snapshot workflow, contamination
-   candidates, backfill, and scheduled analysis.
+The v0.6 implementation is a usable local research surface, not a claim of
+complete live global coverage.  Official FRED/BLS/Fed observations, licensed
+consensus and minute market data remain governed by the v0.5 provider and
+entitlement boundaries below.
+
+## Honest incomplete boundaries
+
+- Sync commands and reconciliation are wired and return honest
+  `completed`/`partial`/`blocked` results. The backfill worker consumes approved
+  jobs, retains partial results and cannot bypass paid-data gates.
+- The validation environment has no FRED, Trading Economics or Databento key.
+  Those are the credential blockers; TE historical replay additionally requires
+  PIT entitlement, and Databento additionally requires dataset rights, explicit
+  paid opt-in and budget approval. BLS does not require a key in public mode.
+- BLS schedule HTML returned HTTP 403 from the current validation network. This
+  is an environment/source-access blocker surfaced as a typed error; it is not
+  silently replaced with fixture data. Federal Reserve public pages were
+  independently reachable and verifiable.
+- BLS current API is not a historical vintage archive. It cannot reconstruct
+  old first prints from today's revised series.
+- FOMC historical meetings are sourced from official 2015–2020 archive pages;
+  current/future meetings keep scheduled statement/press stages. Unverified
+  `key_qa` and `press_end` timestamps remain absent rather than being invented.
+- Trading Economics and Databento depend on account entitlements, quotas and
+  licence terms. Raw proprietary/market payloads stay local and are not
+  redistributed.
+- On-time TE T-24h/T-1h/T-5m/T+5m jobs use a current capture. Only missed
+  historical replay requests PIT. TE health is configuration-only and consumes
+  zero calendar quota; a successful sync is the live-health evidence.
+- Analysis uses only bars attributable to release-linked manifests. Short
+  windows use minute bars; long T+1/T+5/session returns require daily or declared
+  session-close data. Databento UTC-day `ohlcv-1d` is an experimental grade-C
+  proxy, not an exchange settlement/close; unavailable semantics produce a gap.
+- DX/VX are futures. ZT/ZN are Treasury-futures price proxies, not exact cash
+  yield basis-point series.
+- Python is not frozen into a sidecar; the current desktop build is not a
+  standalone signed installer for a blank computer.
+- In a no-key observed database, World State, Daily Brief market confirmation,
+  Series Explorer and global country cards can legitimately be empty or
+  partial.  The UI displays those gaps rather than substituting demo rows.
+- The first global layer has reliable observed coverage only where a provider
+  has populated the Series/Observation catalog; the other country cards are
+  scaffolding with explicit `unavailable` status.
+
+## Validation checkpoint
+
+- Migration: fresh → head, 0004 → head, 0005 → head and a real-runtime copy all
+  reach `0008_thesis_book`; the four consensus parent-mode mismatches are
+  reclassified in place and not deleted.
+- The real local database was backed up to
+  `.runtime/backups/worldstate-pre-v06-20260809-191521.db` before upgrade.
+  Its 10,132 legacy FRED demo observations are now explicitly `fixture`.
+- Ruff and strict mypy: green across 92 checked source/test files.
+- Pytest: v0.5 baseline 157 passed; v0.6 final local suite is 166 passed with
+  one dependency deprecation warning.
+- Terminal UI production build: passed; npm audit reported 0 vulnerabilities.
+- Rust/Tauri: fmt/check passed, 4 tests passed, unsigned no-bundle release built.
+- Public-source smoke: BLS public API normalized 70 CPI and 106 NFP observations
+  for 2023–2024; Federal Reserve 2025 calendar resolved to 8 active meetings.
+- FOMC correction replay: the false 2025-08-22 event is soft-invalidated,
+  2025-06-18 is 4.25–4.50 and 2025-10-29 is 3.75–4.00; stale values remain
+  traceable as superseded.
+- Missing-key behavior: FRED, Trading Economics and Databento report
+  `not_configured`; no paid download was attempted. BLS schedule HTTP 403 is an
+  explicit blocked ProviderRun and produces partial/non-zero sync status.
+- GitHub Actions: green for `research-api`, `terminal-ui` and `desktop-check` on
+  run `31310720801`; PR #9 remains Draft and PR #8 remains Draft/unmerged.
+
+Do not reuse v0.4 pass counts as v0.5/v0.6 evidence.
+
+## Next work after v0.6 checkpoint
+
+1. Populate a bounded observed FRED/BLS/Fed dataset and verify the new World
+   State/Daily Brief outputs against official release artifacts.
+2. With legally usable credentials, validate FRED/ALFRED and Trading Economics
+   PIT semantics and Databento estimates/entitlements against real accounts.
+3. Add observed country catalogs only when official sources and availability
+   timestamps are preserved; do not turn the global scaffolding into labels.
+4. Add calendar-driven revision cards and deeper market reaction coverage after
+   the observed data foundation is populated.
+
+Do not add new event types, workspaces, automatic trading, news walls or maps in
+this stabilization scope.
+
+## Non-negotiable boundaries
+
+Do not call correlation unique causation. Do not hide proxy, fixture, manual,
+delayed, contaminated or missing data. Never mix fixture into observed coverage.
+AI only summarizes a validated EvidencePack. Never commit credentials, account
+data or proprietary raw payloads.

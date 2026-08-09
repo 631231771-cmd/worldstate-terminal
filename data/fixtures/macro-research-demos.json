@@ -1,0 +1,162 @@
+{
+  "schema_version": "worldstate-demo-v1",
+  "notice": "Every release and market bar in this file is a visibly labelled research fixture. Official URLs identify the source family but do not make the bundled consensus or price path official.",
+  "releases": [
+    {
+      "release_key": "us-cpi-2024-02-13-demo",
+      "release_type": "US_CPI",
+      "title": "美国消费者价格指数（CPI）",
+      "period_label": "2024-01",
+      "released_at": "2024-02-13T13:30:00Z",
+      "source_timezone": "America/New_York",
+      "source_url": "https://www.bls.gov/news.release/archives/cpi_02132024.htm",
+      "source_name": "U.S. Bureau of Labor Statistics",
+      "contamination_level": "low",
+      "clean_window": true,
+      "confounding_notes": [
+        "官方Actual可由BLS归档核验；共识与价格路径在本包中均作为fixture处理。"
+      ],
+      "stages": [
+        {
+          "key": "release",
+          "title": "CPI指标集合公布",
+          "released_at": "2024-02-13T13:30:00Z"
+        }
+      ],
+      "values": {
+        "headline_mom": {"actual": 0.3, "consensus": 0.2, "previous": 0.3, "revised_previous": 0.2},
+        "headline_yoy": {"actual": 3.1, "consensus": 2.9, "previous": 3.4, "revised_previous": 3.4},
+        "core_mom": {"actual": 0.4, "consensus": 0.3, "previous": 0.3, "revised_previous": 0.3},
+        "core_yoy": {"actual": 3.9, "consensus": 3.7, "previous": 3.9, "revised_previous": 3.9}
+      },
+      "stage_shocks": {
+        "release": {
+          "gold_gc": -0.85,
+          "silver_si": -1.15,
+          "wti_cl": -0.22,
+          "sp500_es": -0.75,
+          "nasdaq_nq": -1.05,
+          "ust2y_zt": -0.18,
+          "ust10y_zn": -0.14,
+          "dollar_dxy": 0.35,
+          "eurusd": -0.32,
+          "usdjpy": 0.38,
+          "vix": 4.2
+        }
+      }
+    },
+    {
+      "release_key": "us-nfp-2024-07-05-demo",
+      "release_type": "US_NFP",
+      "title": "美国就业报告（非农）",
+      "period_label": "2024-06",
+      "released_at": "2024-07-05T12:30:00Z",
+      "source_timezone": "America/New_York",
+      "source_url": "https://www.bls.gov/news.release/archives/empsit_07052024.htm",
+      "source_name": "U.S. Bureau of Labor Statistics",
+      "contamination_level": "none",
+      "clean_window": true,
+      "confounding_notes": [
+        "数值用于演示指标集合、修订和冲突分类；上线研究前应再次核验共识快照。"
+      ],
+      "stages": [
+        {
+          "key": "release",
+          "title": "就业指标集合公布",
+          "released_at": "2024-07-05T12:30:00Z"
+        }
+      ],
+      "values": {
+        "nonfarm_payrolls": {"actual": 206, "consensus": 190, "previous": 272, "revised_previous": 218},
+        "unemployment_rate": {"actual": 4.1, "consensus": 4.0, "previous": 4.0, "revised_previous": 4.0},
+        "average_hourly_earnings_mom": {"actual": 0.3, "consensus": 0.3, "previous": 0.4, "revised_previous": 0.4},
+        "average_hourly_earnings_yoy": {"actual": 3.9, "consensus": 3.9, "previous": 4.1, "revised_previous": 4.1},
+        "labor_force_participation": {"actual": 62.6, "consensus": 62.6, "previous": 62.5, "revised_previous": 62.5}
+      },
+      "stage_shocks": {
+        "release": {
+          "gold_gc": -0.25,
+          "silver_si": -0.35,
+          "wti_cl": 0.12,
+          "sp500_es": 0.15,
+          "nasdaq_nq": 0.05,
+          "ust2y_zt": -0.08,
+          "ust10y_zn": -0.03,
+          "dollar_dxy": 0.12,
+          "eurusd": -0.12,
+          "usdjpy": 0.15,
+          "vix": -1.2
+        }
+      }
+    },
+    {
+      "release_key": "fomc-2024-03-20-demo",
+      "release_type": "FOMC",
+      "title": "美联储利率决议与新闻发布会",
+      "period_label": "2024-03-20",
+      "released_at": "2024-03-20T18:00:00Z",
+      "source_timezone": "America/New_York",
+      "source_url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+      "source_name": "Board of Governors of the Federal Reserve System",
+      "contamination_level": "low",
+      "clean_window": true,
+      "confounding_notes": [
+        "语气分数是WorldState人工核验编码，不是美联储官方数据。",
+        "市场价格路径是用于验证多阶段计算的fixture。"
+      ],
+      "stages": [
+        {"key": "statement", "title": "利率决议、声明与经济预测", "released_at": "2024-03-20T18:00:00Z"},
+        {"key": "press_conference", "title": "主席新闻发布会开始", "released_at": "2024-03-20T18:30:00Z"},
+        {"key": "key_qa", "title": "重要问答阶段", "released_at": "2024-03-20T18:47:00Z"},
+        {"key": "press_end", "title": "新闻发布会结束", "released_at": "2024-03-20T19:30:00Z"}
+      ],
+      "values": {
+        "fed_funds_lower": {"actual": 5.25, "consensus": 5.25, "previous": 5.25, "revised_previous": 5.25, "stage": "statement"},
+        "fed_funds_upper": {"actual": 5.5, "consensus": 5.5, "previous": 5.5, "revised_previous": 5.5, "stage": "statement"},
+        "statement_tone_score": {"actual": -0.4, "consensus": 0.0, "previous": 0.1, "revised_previous": 0.1, "stage": "statement"},
+        "press_conference_tone_score": {"actual": 0.3, "consensus": 0.0, "previous": 0.0, "revised_previous": 0.0, "stage": "press_conference"}
+      },
+      "stage_shocks": {
+        "statement": {
+          "gold_gc": 0.45,
+          "silver_si": 0.6,
+          "wti_cl": 0.15,
+          "sp500_es": 0.45,
+          "nasdaq_nq": 0.6,
+          "ust2y_zt": 0.12,
+          "ust10y_zn": 0.1,
+          "dollar_dxy": -0.2,
+          "eurusd": 0.22,
+          "usdjpy": -0.25,
+          "vix": -2.0
+        },
+        "press_conference": {
+          "gold_gc": -0.65,
+          "silver_si": -0.75,
+          "wti_cl": -0.2,
+          "sp500_es": -0.55,
+          "nasdaq_nq": -0.75,
+          "ust2y_zt": -0.18,
+          "ust10y_zn": -0.08,
+          "dollar_dxy": 0.3,
+          "eurusd": -0.32,
+          "usdjpy": 0.35,
+          "vix": 3.0
+        },
+        "key_qa": {
+          "gold_gc": 0.15,
+          "silver_si": 0.18,
+          "wti_cl": 0.05,
+          "sp500_es": 0.08,
+          "nasdaq_nq": 0.12,
+          "ust2y_zt": 0.04,
+          "ust10y_zn": 0.02,
+          "dollar_dxy": -0.05,
+          "eurusd": 0.05,
+          "usdjpy": -0.04,
+          "vix": -0.4
+        }
+      }
+    }
+  ]
+}
