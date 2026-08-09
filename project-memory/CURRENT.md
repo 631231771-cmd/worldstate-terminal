@@ -21,7 +21,8 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0008_thesis_book`
 - API contract: `/v2`
 - Product version in the worktree: `0.6.0`
-- PR #8: Draft, unmerged; do not mark Ready or merge before final validation
+- HEAD: `c072655d9a6d50d9c53c5a64ee85204b979901d7`
+- PR #8: Draft, unmerged; PR #9: Draft, open; do not mark either Ready or merge
 
 ## Daily use
 
@@ -158,14 +159,14 @@ entitlement boundaries below.
 ## Validation checkpoint
 
 - Migration: fresh → head, 0004 → head, 0005 → head and a real-runtime copy all
-  must reach `0007_truthfulness_stabilization`; the four consensus parent-mode
-  mismatches are reclassified in place and not deleted.
+  reach `0008_thesis_book`; the four consensus parent-mode mismatches are
+  reclassified in place and not deleted.
 - The real local database was backed up to
-  `.runtime/backups/worldstate-pre-v05-final-20260802-2135.db` before upgrade.
+  `.runtime/backups/worldstate-pre-v06-20260809-191521.db` before upgrade.
   Its 10,132 legacy FRED demo observations are now explicitly `fixture`.
 - Ruff and strict mypy: green across 92 checked source/test files.
-- Pytest: v0.5 baseline 157 passed; v0.6 checkpoint suite is 166 passed before
-  final CI.  Coverage is reported from the final verification command below.
+- Pytest: v0.5 baseline 157 passed; v0.6 final local suite is 166 passed with
+  one dependency deprecation warning.
 - Terminal UI production build: passed; npm audit reported 0 vulnerabilities.
 - Rust/Tauri: fmt/check passed, 4 tests passed, unsigned no-bundle release built.
 - Public-source smoke: BLS public API normalized 70 CPI and 106 NFP observations
@@ -177,7 +178,7 @@ entitlement boundaries below.
   `not_configured`; no paid download was attempted. BLS schedule HTTP 403 is an
   explicit blocked ProviderRun and produces partial/non-zero sync status.
 - GitHub Actions: green for `research-api`, `terminal-ui` and `desktop-check` on
-  run `31306285082`; PR #8 remains Draft and unmerged.
+  run `31310720801`; PR #9 remains Draft and PR #8 remains Draft/unmerged.
 
 Do not reuse v0.4 pass counts as v0.5/v0.6 evidence.
 
