@@ -17,6 +17,7 @@ from worldstate.event_engine.types import (
     HistoricalSurpriseObservation,
     IndicatorInput,
 )
+from worldstate.macro_core.regimes import derive_regime
 from worldstate.research_engine.history import compare_historical_events
 
 
@@ -503,3 +504,35 @@ def test_regime_and_contamination_dimensions_report_their_contribution() -> None
     assert inflation["reason"] == "different"
     assert contamination["reason"] == "different"
     assert "contamination" in cast(list[str], detail["used_dimensions"])
+
+
+def test_regime_uses_pre_event_context_and_excludes_post_event_returns() -> None:
+    context: dict[str, object] = {
+        "two_year_yield": 4.5,
+        "two_year_yield_change_20": -0.3,
+        "ten_year_yield": 4.1,
+        "ten_year_real_yield": 1.8,
+        "broad_dollar_index_change_20_percent": 1.2,
+        "vix_close": 27.0,
+    }
+    first = derive_regime(
+        release_type="US_CPI",
+        bundle_direction="hot",
+        surprise_score=2.0,
+        returns={"dollar_dxy:post_5m": 2.0, "sp500_es:post_5m": -2.0},
+        macro_context=context,
+    )
+    second = derive_regime(
+        release_type="US_CPI",
+        bundle_direction="cold",
+        surprise_score=-2.0,
+        returns={"dollar_dxy:post_5m": -3.0, "sp500_es:post_5m": 3.0},
+        macro_context=context,
+    )
+    assert first.dimensions == second.dimensions
+    assert first.dimensions["monetary_policy_regime"] == "high_but_easing"
+    assert first.dimensions["growth_regime"] == "inverted_slowdown_risk"
+    assert first.dimensions["real_yield_regime"] == "high"
+    assert first.dimensions["dollar_regime"] == "strong"
+    assert first.dimensions["risk_regime"] == "risk_off"
+    assert any(item["rule"] == "outcome_leakage_guard" for item in first.evidence)

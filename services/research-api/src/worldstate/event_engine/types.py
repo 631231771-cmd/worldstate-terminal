@@ -108,6 +108,8 @@ class ComputedWindow:
     calendar_name: str = "exchange_session_lite"
     calendar_precision: str = "limited"
     expected_tradable_bars: int | None = None
+    experimental: bool = False
+    limitations: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

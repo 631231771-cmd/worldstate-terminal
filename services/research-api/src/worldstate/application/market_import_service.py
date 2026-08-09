@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -12,11 +13,17 @@ from worldstate.db.models import (
     DataQualityRecord,
     MacroRelease,
     MarketBar,
+    MarketDataManifest,
     MarketInstrument,
     ProviderRun,
     ReleaseStage,
 )
-from worldstate.provider_kit import BarQuery, CsvMarketBarProvider, MarketInstrumentRef
+from worldstate.provider_kit import (
+    BarQuery,
+    CsvMarketBarProvider,
+    MarketBarRecord,
+    MarketInstrumentRef,
+)
 
 
 def _aware(value: datetime) -> datetime:
@@ -40,11 +47,39 @@ async def import_market_csv(
         release = await session.get(MacroRelease, uuid.UUID(release_id))
         if release is None:
             raise LookupError("macro release not found")
+        requested_mode = "fixture" if is_fixture else "observed"
+        if requested_mode != release.data_mode:
+            raise ValueError(
+                "market import data mode must match the target release "
+                f"({release.data_mode})"
+            )
         instrument = await session.scalar(
             select(MarketInstrument).where(MarketInstrument.canonical_key == instrument_key)
         )
         if instrument is None:
             raise LookupError("market instrument not found")
+        content_hash = hashlib.sha256(csv_text.encode()).hexdigest()
+        idempotency_key = (
+            f"csv:{release_id}:{instrument_key}:{provider_key}:{requested_mode}:"
+            f"{content_hash}"
+        )
+        previous_run = await session.scalar(
+            select(ProviderRun).where(
+                ProviderRun.provider_key == provider_key,
+                ProviderRun.operation == "csv_market_bar_import",
+                ProviderRun.idempotency_key == idempotency_key,
+            )
+        )
+        if previous_run is not None and previous_run.status == "completed":
+            return {
+                "release_id": release_id,
+                "instrument_key": instrument_key,
+                "inserted": 0,
+                "updated": 0,
+                "quality_grade": previous_run.quality_grade,
+                "warnings": ["identical import already completed; no rows were rewritten"],
+                "idempotent_replay": True,
+            }
         stages = (
             await session.scalars(
                 select(ReleaseStage).where(ReleaseStage.macro_release_id == release.id)
@@ -103,6 +138,7 @@ async def import_market_csv(
                     select(MarketBar).where(
                         MarketBar.instrument_id == instrument.id,
                         MarketBar.provider_key == provider_key,
+                        MarketBar.data_mode == requested_mode,
                         MarketBar.timestamp >= start,
                         MarketBar.timestamp <= end,
                     )
@@ -133,6 +169,7 @@ async def import_market_csv(
                         futures_contract_id=None,
                         timestamp=item.timestamp,
                         provider_key=provider_key,
+                        data_mode=requested_mode,
                         is_regular_session=None,
                         **values,
                     )
@@ -142,9 +179,9 @@ async def import_market_csv(
                 for key, value in values.items():
                     setattr(row, key, value)
                 updated += 1
-        session.add(
-            ProviderRun(
-                id=uuid.uuid4(),
+        provider_run_id = uuid.uuid4()
+        provider_run = ProviderRun(
+                id=provider_run_id,
                 provider_key=provider_key,
                 operation="csv_market_bar_import",
                 status="completed",
@@ -153,13 +190,89 @@ async def import_market_csv(
                 records_read=len(batch.bars),
                 records_written=inserted + updated,
                 source_artifact_id=None,
+                data_mode=requested_mode,
+                idempotency_key=idempotency_key,
+                request_count=0,
+                estimated_cost_usd=0,
+                actual_cost_usd=0,
+                terms_url=None,
                 quality_grade=quality.quality_grade,
-                input_json={"release_id": release_id, "instrument_key": instrument_key},
+                input_json={
+                    "release_id": release_id,
+                    "instrument_key": instrument_key,
+                    "content_hash": content_hash,
+                },
                 output_json={"inserted": inserted, "updated": updated},
                 warnings_json=batch.warnings,
                 error_message=None,
             )
-        )
+        session.add(provider_run)
+        await session.flush()
+        manifest_ids: list[str] = []
+        bars_by_contract: dict[str, list[MarketBarRecord]] = {}
+        for item in batch.bars:
+            bars_by_contract.setdefault(item.contract_code or "", []).append(item)
+        for contract_code, contract_bars in sorted(bars_by_contract.items()):
+            first = contract_bars[0]
+            manifest_hash = hashlib.sha256(
+                (
+                    f"csv-manifest:{release.id}:{instrument.id}:{provider_key}:"
+                    f"{contract_code}:{content_hash}"
+                ).encode()
+            ).hexdigest()
+            existing_manifest = await session.scalar(
+                select(MarketDataManifest).where(
+                    MarketDataManifest.manifest_hash == manifest_hash
+                )
+            )
+            if existing_manifest is not None:
+                manifest_ids.append(str(existing_manifest.id))
+                continue
+            manifest = MarketDataManifest(
+                id=uuid.uuid4(),
+                manifest_hash=manifest_hash,
+                macro_release_id=release.id,
+                release_stage_id=stages[0].id if stages else None,
+                provider_key=provider_key,
+                dataset="CSV.EVENT_IMPORT",
+                schema_name="ohlcv-1m",
+                instrument_id=instrument.id,
+                futures_contract_id=None,
+                source_symbol=first.source_symbol,
+                contract_code=contract_code or None,
+                start_at=min(item.timestamp for item in contract_bars),
+                end_at=max(item.timestamp for item in contract_bars),
+                interval_seconds=60,
+                row_count=len(contract_bars),
+                size_bytes=len(csv_text.encode()),
+                data_mode=requested_mode,
+                quality_grade=quality.quality_grade,
+                is_aggregated=False,
+                aggregation_method=None,
+                aggregation_version=None,
+                contract_selection_rule="explicit CSV event import contract column",
+                continuous_resolution_json={},
+                roll_status="manual_import",
+                estimated_cost_usd=0,
+                actual_cost_usd=0,
+                provider_run_id=provider_run_id,
+                sync_job_run_id=None,
+                source_artifact_id=None,
+                metadata_json={
+                    "source_content_hash": content_hash,
+                    "no_cross_contract_splice": True,
+                    "verified": verified,
+                    "fixture": is_fixture,
+                },
+            )
+            session.add(manifest)
+            await session.flush()
+            manifest_ids.append(str(manifest.id))
+        provider_run.output_json = {
+            "inserted": inserted,
+            "updated": updated,
+            "manifest_ids": manifest_ids,
+        }
         return {
             "release_id": release_id,
             "instrument_key": instrument_key,
@@ -167,6 +280,8 @@ async def import_market_csv(
             "updated": updated,
             "quality_grade": quality.quality_grade,
             "warnings": batch.warnings,
+            "idempotent_replay": False,
+            "manifest_ids": manifest_ids,
         }
 
 

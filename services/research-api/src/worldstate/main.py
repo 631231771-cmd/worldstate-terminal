@@ -13,7 +13,12 @@ from prometheus_client import make_asgi_app
 
 from worldstate import __version__
 from worldstate.api import router
-from worldstate.application.bootstrap_service import bootstrap_research_data
+from worldstate.application.backfill_worker import BackfillWorker
+from worldstate.application.bootstrap_service import (
+    bootstrap_research_data,
+    initialize_research_catalog,
+)
+from worldstate.application.scheduler_runtime import SchedulerRuntime
 from worldstate.config import Settings
 from worldstate.db.session import create_engine
 from worldstate.logging import configure_logging
@@ -28,9 +33,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.settings = resolved
         app.state.database_engine = create_engine(resolved.database_url)
-        await bootstrap_research_data(app.state.database_engine)
-        yield
-        await app.state.database_engine.dispose()
+        await initialize_research_catalog(app.state.database_engine)
+        if resolved.demo_mode:
+            await bootstrap_research_data(app.state.database_engine)
+        scheduler: SchedulerRuntime | None = None
+        backfill_worker: BackfillWorker | None = None
+        if resolved.scheduler_enabled:
+            scheduler = SchedulerRuntime(app.state.database_engine, resolved)
+            backfill_worker = BackfillWorker(app.state.database_engine, resolved)
+            # Both start methods only create background tasks. Provider/network
+            # work cannot delay the health endpoint or desktop startup.
+            scheduler.start()
+            backfill_worker.start()
+        app.state.scheduler_runtime = scheduler
+        app.state.backfill_worker = backfill_worker
+        try:
+            yield
+        finally:
+            if backfill_worker is not None:
+                await backfill_worker.stop()
+            if scheduler is not None:
+                await scheduler.stop()
+            await app.state.database_engine.dispose()
 
     app = FastAPI(
         title="WorldState Macro Research API",

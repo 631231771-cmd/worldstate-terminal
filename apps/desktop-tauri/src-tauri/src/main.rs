@@ -14,6 +14,14 @@ use tauri::{AppHandle, Manager, RunEvent};
 const KEYRING_SERVICE: &str = "worldstate-terminal";
 const API_URL: &str = "http://127.0.0.1:8000/v2/health";
 const EXPECTED_PRODUCT: &str = "worldstate-terminal";
+const ALLOWED_SECRET_NAMES: [&str; 6] = [
+    "OPENAI_API_KEY",
+    "WORLDSTATE_AI_COMPATIBLE_API_KEY",
+    "FRED_API_KEY",
+    "BLS_API_KEY",
+    "TRADING_ECONOMICS_API_KEY",
+    "DATABENTO_API_KEY",
+];
 
 #[derive(Default)]
 struct ResearchApiState {
@@ -67,6 +75,10 @@ async fn verified_health() -> bool {
 fn secret_environment<'a>(
     openai: Option<&'a str>,
     compatible: Option<&'a str>,
+    fred: Option<&'a str>,
+    bls: Option<&'a str>,
+    trading_economics: Option<&'a str>,
+    databento: Option<&'a str>,
 ) -> Vec<(&'static str, &'a str)> {
     let mut values = Vec::new();
     if let Some(value) = openai {
@@ -75,7 +87,26 @@ fn secret_environment<'a>(
     if let Some(value) = compatible {
         values.push(("WORLDSTATE_AI_COMPATIBLE_API_KEY", value));
     }
+    if let Some(value) = fred {
+        values.push(("FRED_API_KEY", value));
+    }
+    if let Some(value) = bls {
+        values.push(("BLS_API_KEY", value));
+    }
+    if let Some(value) = trading_economics {
+        values.push(("TRADING_ECONOMICS_API_KEY", value));
+    }
+    if let Some(value) = databento {
+        values.push(("DATABENTO_API_KEY", value));
+    }
     values
+}
+
+fn read_secret(name: &str) -> Option<String> {
+    Entry::new(KEYRING_SERVICE, name)
+        .ok()
+        .and_then(|entry| entry.get_password().ok())
+        .filter(|value| !value.trim().is_empty())
 }
 
 fn development_root() -> PathBuf {
@@ -155,14 +186,12 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         .and_then(Path::parent)
         .unwrap_or_else(|| Path::new(&service_root));
     let python_path = service_root.join("src");
-    let openai_secret = Entry::new(KEYRING_SERVICE, "OPENAI_API_KEY")
-        .ok()
-        .and_then(|entry| entry.get_password().ok())
-        .filter(|value| !value.trim().is_empty());
-    let compatible_secret = Entry::new(KEYRING_SERVICE, "WORLDSTATE_AI_COMPATIBLE_API_KEY")
-        .ok()
-        .and_then(|entry| entry.get_password().ok())
-        .filter(|value| !value.trim().is_empty());
+    let openai_secret = read_secret("OPENAI_API_KEY");
+    let compatible_secret = read_secret("WORLDSTATE_AI_COMPATIBLE_API_KEY");
+    let fred_secret = read_secret("FRED_API_KEY");
+    let bls_secret = read_secret("BLS_API_KEY");
+    let trading_economics_secret = read_secret("TRADING_ECONOMICS_API_KEY");
+    let databento_secret = read_secret("DATABENTO_API_KEY");
 
     let mut migration_command = Command::new(&python);
     migration_command
@@ -171,8 +200,14 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         .env("WORLDSTATE_DATABASE_URL", &database_url)
         .env("WORLDSTATE_ROOT", worldstate_root)
         .env("PYTHONPATH", &python_path);
-    let secret_environment =
-        secret_environment(openai_secret.as_deref(), compatible_secret.as_deref());
+    let secret_environment = secret_environment(
+        openai_secret.as_deref(),
+        compatible_secret.as_deref(),
+        fred_secret.as_deref(),
+        bls_secret.as_deref(),
+        trading_economics_secret.as_deref(),
+        databento_secret.as_deref(),
+    );
     for (name, secret) in &secret_environment {
         migration_command.env(name, secret);
     }
@@ -292,10 +327,31 @@ mod tests {
 
     #[test]
     fn compatible_secret_is_mapped_to_the_backend_environment() {
-        let values = secret_environment(None, Some("secret-value"));
+        let values = secret_environment(None, Some("secret-value"), None, None, None, None);
         assert_eq!(
             values,
             vec![("WORLDSTATE_AI_COMPATIBLE_API_KEY", "secret-value")]
+        );
+    }
+
+    #[test]
+    fn data_provider_secrets_are_mapped_without_values_in_status() {
+        let values = secret_environment(
+            None,
+            None,
+            Some("fred-secret"),
+            Some("bls-secret"),
+            Some("te-secret"),
+            Some("databento-secret"),
+        );
+        assert_eq!(
+            values.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+            vec![
+                "FRED_API_KEY",
+                "BLS_API_KEY",
+                "TRADING_ECONOMICS_API_KEY",
+                "DATABENTO_API_KEY"
+            ]
         );
     }
 
@@ -311,8 +367,7 @@ mod tests {
 
 #[tauri::command]
 fn save_api_secret(name: String, value: String) -> Result<(), String> {
-    let allowed = ["OPENAI_API_KEY", "WORLDSTATE_AI_COMPATIBLE_API_KEY"];
-    if !allowed.contains(&name.as_str()) {
+    if !ALLOWED_SECRET_NAMES.contains(&name.as_str()) {
         return Err("Unsupported secret name".into());
     }
     Entry::new(KEYRING_SERVICE, &name)

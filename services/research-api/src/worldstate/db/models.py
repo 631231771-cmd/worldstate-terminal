@@ -23,6 +23,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -126,7 +127,8 @@ class Observation(Base):
             "series_id",
             "period_start",
             "vintage_date",
-            name="uq_observations_series_period_vintage",
+            "data_mode",
+            name="uq_observations_series_period_vintage_mode",
         ),
         Index("ix_observations_series_period", "series_id", "period_start"),
         Index("ix_observations_series_available", "series_id", "available_at"),
@@ -147,6 +149,7 @@ class Observation(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     is_preliminary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_revised: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
     quality_flags: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
     source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
@@ -154,11 +157,14 @@ class Observation(Base):
 class SourceArtifact(TimestampMixin, Base):
     __tablename__ = "source_artifacts"
     __table_args__ = (
-        UniqueConstraint("provider_key", "content_hash", name="uq_source_artifact_hash"),
+        UniqueConstraint(
+            "provider_key", "content_hash", "data_mode", name="uq_source_artifact_hash_mode"
+        ),
         Index("ix_source_artifacts_published", "published_at", "provider_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    provider_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("provider_runs.id"))
     source_key: Mapped[str] = mapped_column(String(255), nullable=False)
     provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
     artifact_type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -167,9 +173,13 @@ class SourceArtifact(TimestampMixin, Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_type: Mapped[str | None] = mapped_column(String(255))
+    byte_length: Mapped[int | None] = mapped_column(BigInteger)
+    content_bytes: Mapped[bytes | None] = mapped_column(LargeBinary)
     license_name: Mapped[str | None] = mapped_column(String(128))
     citation_text: Mapped[str | None] = mapped_column(Text)
     is_fixture: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSON_DOCUMENT, default=dict, nullable=False
     )
@@ -197,7 +207,9 @@ class Indicator(TimestampMixin, Base):
 class MacroRelease(TimestampMixin, Base):
     __tablename__ = "macro_releases"
     __table_args__ = (
-        UniqueConstraint("release_type", "released_at", name="uq_macro_release_type_time"),
+        UniqueConstraint(
+            "release_type", "released_at", "data_mode", name="uq_macro_release_type_time_mode"
+        ),
         Index("ix_macro_releases_released", "released_at", "release_type"),
     )
 
@@ -212,6 +224,7 @@ class MacroRelease(TimestampMixin, Base):
     source_timezone: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     data_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
     source_artifact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("source_artifacts.id"))
     primary_quality_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("data_quality_records.id")
@@ -263,7 +276,8 @@ class ReleaseValue(Base):
             "value_kind",
             "data_version",
             "captured_at",
-            name="uq_release_value_vintage",
+            "data_mode",
+            name="uq_release_value_vintage_mode",
         ),
         Index(
             "ix_release_values_point_in_time",
@@ -288,6 +302,7 @@ class ReleaseValue(Base):
     valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     is_initial: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
     source_artifact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("source_artifacts.id"))
     quality_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("data_quality_records.id"))
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
@@ -303,7 +318,8 @@ class ConsensusSnapshot(Base):
             "indicator_id",
             "captured_at",
             "source_name",
-            name="uq_consensus_snapshot",
+            "data_mode",
+            name="uq_consensus_snapshot_mode",
         ),
         Index(
             "ix_consensus_release_indicator_time",
@@ -324,9 +340,13 @@ class ConsensusSnapshot(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     quality_grade: Mapped[str] = mapped_column(String(16), nullable=False)
     is_manual: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
     verification_notes: Mapped[str | None] = mapped_column(Text)
     source_artifact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("source_artifacts.id"))
     quality_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("data_quality_records.id"))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -386,7 +406,8 @@ class MarketBar(Base):
             "interval_seconds",
             "provider_key",
             "contract_code",
-            name="uq_market_bar_provider_time",
+            "data_mode",
+            name="uq_market_bar_provider_time_mode",
         ),
         Index(
             "ix_market_bars_instrument_time",
@@ -411,6 +432,7 @@ class MarketBar(Base):
     close_value: Mapped[Decimal] = mapped_column(DECIMAL_VALUE, nullable=False)
     volume: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
     provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
     source_symbol: Mapped[str] = mapped_column(String(128), nullable=False)
     contract_code: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     is_regular_session: Mapped[bool | None] = mapped_column(Boolean)
@@ -470,6 +492,7 @@ class AnalysisRun(Base):
     parameters_json: Mapped[dict[str, Any]] = mapped_column(
         JSON_DOCUMENT, default=dict, nullable=False
     )
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
     # Immutable v0.4 manifests.  Existing v3 runs are explicitly marked legacy.
     input_snapshot_hash: Mapped[str | None] = mapped_column(String(64))
     config_hash: Mapped[str | None] = mapped_column(String(64))
@@ -784,7 +807,16 @@ class ReportArtifact(Base):
 
 class ProviderRun(Base):
     __tablename__ = "provider_runs"
-    __table_args__ = (Index("ix_provider_runs_provider_started", "provider_key", "started_at"),)
+    __table_args__ = (
+        Index("ix_provider_runs_provider_started", "provider_key", "started_at"),
+        UniqueConstraint(
+            "provider_key",
+            "operation",
+            "idempotency_key",
+            "data_mode",
+            name="uq_provider_run_idempotency_mode",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -795,8 +827,330 @@ class ProviderRun(Base):
     records_read: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     records_written: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     source_artifact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("source_artifacts.id"))
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255))
+    request_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    estimated_cost_usd: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    actual_cost_usd: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    terms_url: Mapped[str | None] = mapped_column(String(2048))
     quality_grade: Mapped[str] = mapped_column(String(16), default="UNKNOWN", nullable=False)
     input_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
     output_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
     warnings_json: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class ProviderEntitlement(TimestampMixin, Base):
+    """Latest known provider capability, including explicit access failures."""
+
+    __tablename__ = "provider_entitlements"
+    __table_args__ = (
+        UniqueConstraint("provider_key", "capability", name="uq_provider_entitlement"),
+        Index("ix_provider_entitlements_status", "provider_key", "status"),
+        CheckConstraint(
+            "status IN ('unknown','granted','denied','expired','not_configured')",
+            name="ck_provider_entitlement_status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    capability: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="unknown", nullable=False)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    provider_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("provider_runs.id"))
+    source_artifact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("source_artifacts.id"))
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    terms_url: Mapped[str | None] = mapped_column(String(2048))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+
+
+class ProviderQuota(TimestampMixin, Base):
+    """Point-in-time quota/cost allowance for a provider billing period."""
+
+    __tablename__ = "provider_quotas"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider_key", "quota_key", "period_start", name="uq_provider_quota_period"
+        ),
+        Index("ix_provider_quotas_period", "provider_key", "period_end"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    quota_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    limit_value: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    used_value: Mapped[Decimal] = mapped_column(DECIMAL_VALUE, default=0, nullable=False)
+    remaining_value: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    warning_threshold: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    provider_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("provider_runs.id"))
+    source_artifact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("source_artifacts.id"))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+
+
+class SyncJob(TimestampMixin, Base):
+    """Durable local schedule definition; it contains no API credentials."""
+
+    __tablename__ = "sync_jobs"
+    __table_args__ = (
+        UniqueConstraint("job_key", name="uq_sync_job_key"),
+        Index("ix_sync_jobs_due", "enabled", "next_run_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    job_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider_key: Mapped[str | None] = mapped_column(String(64))
+    operation: Mapped[str] = mapped_column(String(128), nullable=False)
+    schedule_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    schedule_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    retry_backoff_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    last_scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+
+
+class SyncJobRun(Base):
+    """One recoverable execution attempt of a sync definition."""
+
+    __tablename__ = "sync_job_runs"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_sync_job_run_idempotency"),
+        Index("ix_sync_job_runs_status_schedule", "status", "scheduled_for"),
+        Index("ix_sync_job_runs_job_started", "sync_job_id", "started_at"),
+        CheckConstraint(
+            "status IN ('pending','running','retry_wait','completed','failed','cancelled')",
+            name="ck_sync_job_run_status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    sync_job_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sync_jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    provider_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("provider_runs.id"))
+    source_artifact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("source_artifacts.id"))
+    retry_of_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sync_job_runs.id"))
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    records_read: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    records_written: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    checkpoint_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    input_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+    output_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+    error_type: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class DataReconciliationRecord(TimestampMixin, Base):
+    """Non-destructive comparison between authoritative and secondary observations."""
+
+    __tablename__ = "data_reconciliation_records"
+    __table_args__ = (
+        UniqueConstraint("reconciliation_key", name="uq_data_reconciliation_key"),
+        Index("ix_data_reconciliation_status", "status", "detected_at"),
+        Index("ix_data_reconciliation_subject", "subject_type", "subject_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    reconciliation_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    reconciliation_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    field_name: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), default="info", nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
+    authoritative_provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    comparison_provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    authoritative_artifact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("source_artifacts.id")
+    )
+    comparison_artifact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("source_artifacts.id")
+    )
+    sync_job_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sync_job_runs.id"))
+    authoritative_value_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    comparison_value_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    difference_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolution_action: Mapped[str | None] = mapped_column(String(64))
+    resolution_notes: Mapped[str | None] = mapped_column(Text)
+
+
+class MarketDataManifest(Base):
+    """Immutable description of one downloaded or derived market dataset slice."""
+
+    __tablename__ = "market_data_manifests"
+    __table_args__ = (
+        UniqueConstraint("manifest_hash", name="uq_market_data_manifest_hash"),
+        Index(
+            "ix_market_data_manifest_coverage",
+            "macro_release_id",
+            "instrument_id",
+            "interval_seconds",
+            "start_at",
+            "end_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    manifest_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    macro_release_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("macro_releases.id", ondelete="CASCADE"), nullable=False
+    )
+    release_stage_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("release_stages.id"))
+    provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    dataset: Mapped[str] = mapped_column(String(128), nullable=False)
+    schema_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("market_instruments.id"), nullable=False
+    )
+    futures_contract_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("futures_contracts.id")
+    )
+    source_symbol: Mapped[str] = mapped_column(String(128), nullable=False)
+    contract_code: Mapped[str | None] = mapped_column(String(64))
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
+    quality_grade: Mapped[str] = mapped_column(String(16), default="UNKNOWN", nullable=False)
+    is_aggregated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    aggregation_method: Mapped[str | None] = mapped_column(String(128))
+    aggregation_version: Mapped[str | None] = mapped_column(String(64))
+    contract_selection_rule: Mapped[str | None] = mapped_column(Text)
+    continuous_resolution_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    roll_status: Mapped[str | None] = mapped_column(String(32))
+    estimated_cost_usd: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    actual_cost_usd: Mapped[Decimal | None] = mapped_column(DECIMAL_VALUE)
+    provider_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("provider_runs.id"))
+    sync_job_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sync_job_runs.id"))
+    source_artifact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("source_artifacts.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+
+
+class BackfillJob(TimestampMixin, Base):
+    """Persisted cost estimate and execution state for a bounded backfill."""
+
+    __tablename__ = "backfill_jobs"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_backfill_job_idempotency"),
+        Index("ix_backfill_jobs_status", "status", "requested_at"),
+        CheckConstraint(
+            "status IN ('estimated','pending','running','completed',"
+            "'failed','cancelled','rejected')",
+            name="ck_backfill_job_status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    event_types_json: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    instruments_json: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    datasets_json: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    estimated_event_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    estimated_record_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    estimated_size_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    estimated_cost_usd: Mapped[Decimal] = mapped_column(DECIMAL_VALUE, default=0, nullable=False)
+    budget_limit_usd: Mapped[Decimal] = mapped_column(DECIMAL_VALUE, default=0, nullable=False)
+    paid_download_allowed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    execution_allowed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    existing_record_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    downloaded_record_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    progress: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    current_stage: Mapped[str | None] = mapped_column(String(64))
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sync_job_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sync_job_runs.id"))
+    estimate_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class CalendarSnapshot(Base):
+    """Traceable provider calendar payload used to schedule event-time work."""
+
+    __tablename__ = "calendar_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider_key",
+            "calendar_kind",
+            "captured_at",
+            "content_hash",
+            "data_mode",
+            name="uq_calendar_snapshot_mode",
+        ),
+        Index("ix_calendar_snapshots_range", "calendar_kind", "period_start", "period_end"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    calendar_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
+    is_point_in_time: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    provider_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("provider_runs.id"))
+    source_artifact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("source_artifacts.id"))
+    payload_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

@@ -1,6 +1,8 @@
 """Typed settings for the local-first WorldState research service."""
 
 import os
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -81,6 +83,84 @@ class Settings(BaseSettings):
     fred_api_key: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices("FRED_API_KEY", "WORLDSTATE_FRED_API_KEY"),
+    )
+    bls_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("BLS_API_KEY", "WORLDSTATE_BLS_API_KEY"),
+    )
+    trading_economics_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "TRADING_ECONOMICS_API_KEY",
+            "WORLDSTATE_TRADING_ECONOMICS_API_KEY",
+        ),
+    )
+    databento_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DATABENTO_API_KEY", "WORLDSTATE_DATABENTO_API_KEY"),
+    )
+    data_start_date: date = Field(
+        default=date(2015, 1, 1),
+        validation_alias="WORLDSTATE_DATA_START_DATE",
+    )
+    market_intraday_pre_minutes: int = Field(
+        default=90,
+        ge=1,
+        le=24 * 60,
+        validation_alias="WORLDSTATE_MARKET_INTRADAY_PRE_MINUTES",
+    )
+    market_intraday_post_minutes: int = Field(
+        default=240,
+        ge=1,
+        le=24 * 60,
+        validation_alias="WORLDSTATE_MARKET_INTRADAY_POST_MINUTES",
+    )
+    market_daily_pre_days: int = Field(
+        default=5,
+        ge=0,
+        le=30,
+        validation_alias="WORLDSTATE_MARKET_DAILY_PRE_DAYS",
+    )
+    market_daily_post_days: int = Field(
+        default=5,
+        ge=0,
+        le=30,
+        validation_alias="WORLDSTATE_MARKET_DAILY_POST_DAYS",
+    )
+    databento_max_estimated_cost_usd: Decimal = Field(
+        default=Decimal("0"),
+        ge=0,
+        validation_alias="WORLDSTATE_DATABENTO_MAX_ESTIMATED_COST_USD",
+    )
+    allow_paid_download: bool = Field(
+        default=False,
+        validation_alias="WORLDSTATE_ALLOW_PAID_DOWNLOAD",
+    )
+    demo_mode: bool = Field(default=False, validation_alias="WORLDSTATE_DEMO_MODE")
+    scheduler_enabled: bool = Field(
+        default=True,
+        validation_alias="WORLDSTATE_SCHEDULER_ENABLED",
+    )
+    provider_timeout_seconds: float = Field(
+        default=20.0,
+        ge=1.0,
+        le=120.0,
+        validation_alias="WORLDSTATE_PROVIDER_TIMEOUT_SECONDS",
+    )
+    provider_retry_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=8,
+        validation_alias="WORLDSTATE_PROVIDER_RETRY_ATTEMPTS",
+    )
+    trading_economics_monthly_quota: int | None = Field(
+        default=None,
+        ge=1,
+        validation_alias="WORLDSTATE_TRADING_ECONOMICS_MONTHLY_QUOTA",
+    )
+    trading_economics_pit_entitled: bool = Field(
+        default=False,
+        validation_alias="WORLDSTATE_TRADING_ECONOMICS_PIT_ENTITLED",
     )
     openbb_enabled: bool = Field(default=False, validation_alias="WORLDSTATE_OPENBB_ENABLED")
     openai_api_key: SecretStr | None = Field(default=None, validation_alias="OPENAI_API_KEY")

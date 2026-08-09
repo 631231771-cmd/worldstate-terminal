@@ -11,6 +11,7 @@ import hashlib
 import json
 import uuid
 from collections import defaultdict
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from itertools import pairwise
@@ -21,11 +22,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from worldstate.ai_researcher.claims import deterministic_claims, validate_claims
+from worldstate.application.data_foundation_service import redact_sensitive_text
+from worldstate.application.market_selection_service import select_release_market_data
 from worldstate.config import repository_root
 from worldstate.db.models import (
     AnalysisRun,
     ConsensusSnapshot,
     DataQualityRecord,
+    DataReconciliationRecord,
     EventWindowDefinition,
     EventWindowResult,
     EvidenceItem,
@@ -35,14 +39,17 @@ from worldstate.db.models import (
     Indicator,
     MacroRelease,
     MarketBar,
+    MarketDataManifest,
     MarketInstrument,
     MarketReaction,
+    Observation,
     ProviderRun,
     RegimeSnapshot,
     ReleaseStage,
     ReleaseValue,
     ReportArtifact,
     ResearchClaim,
+    Series,
     SourceArtifact,
 )
 from worldstate.event_engine.explanation import build_structured_explanation
@@ -59,8 +66,11 @@ from worldstate.event_engine.types import (
     IndicatorInput,
 )
 from worldstate.event_engine.windows import (
+    MINUTE_WINDOW_SPECS,
     WINDOW_SPECS,
+    apply_direction_reversals,
     calculate_event_windows,
+    calculate_session_close_windows,
     detect_earliest_reaction,
 )
 from worldstate.macro_core.catalog import (
@@ -72,8 +82,8 @@ from worldstate.market_core.catalog import INSTRUMENTS
 from worldstate.provider_kit import MarketBarRecord, generate_scenario_bars
 from worldstate.research_engine.history import compare_historical_events, magnitude_bucket
 
-METHODOLOGY_VERSION = "macro-event-engine-v0.4"
-CODE_VERSION = "macro-research-terminal-v0.4"
+METHODOLOGY_VERSION = "macro-event-engine-v0.5-data-foundation"
+CODE_VERSION = "macro-research-terminal-v0.5"
 _NAMESPACE = uuid.UUID("fbf59be7-d632-4f3c-a5a0-104425f478c2")
 
 
@@ -123,7 +133,17 @@ async def _ensure_catalog(session: AsyncSession) -> None:
     }
     now = datetime.now(UTC)
     for indicator_definition in INDICATORS:
-        if indicator_definition.key in existing_indicators:
+        existing_indicator = existing_indicators.get(indicator_definition.key)
+        if existing_indicator is not None:
+            existing_indicator.name = indicator_definition.name
+            existing_indicator.family = indicator_definition.family
+            existing_indicator.unit = indicator_definition.unit
+            existing_indicator.periodicity = indicator_definition.periodicity
+            existing_indicator.description = indicator_definition.description
+            existing_indicator.hotter_when_higher = indicator_definition.hotter_when_higher
+            existing_indicator.bundle_weight = indicator_definition.bundle_weight
+            existing_indicator.active = True
+            existing_indicator.metadata_json = {"catalog_version": CODE_VERSION}
             continue
         session.add(
             Indicator(
@@ -148,7 +168,20 @@ async def _ensure_catalog(session: AsyncSession) -> None:
         row.canonical_key: row for row in (await session.scalars(select(MarketInstrument))).all()
     }
     for instrument_definition in INSTRUMENTS:
-        if instrument_definition.key in existing_instruments:
+        existing_instrument = existing_instruments.get(instrument_definition.key)
+        if existing_instrument is not None:
+            existing_instrument.symbol = instrument_definition.symbol
+            existing_instrument.title = instrument_definition.title
+            existing_instrument.asset_class = instrument_definition.asset_class
+            existing_instrument.instrument_type = instrument_definition.instrument_type
+            existing_instrument.exchange = instrument_definition.exchange
+            existing_instrument.quote_unit = instrument_definition.quote_unit
+            existing_instrument.measurement_type = instrument_definition.measurement_type
+            existing_instrument.source_timezone = instrument_definition.timezone
+            existing_instrument.is_proxy = instrument_definition.is_proxy
+            existing_instrument.proxy_for = instrument_definition.proxy_for
+            existing_instrument.active = True
+            existing_instrument.metadata_json = {"catalog_version": CODE_VERSION}
             continue
         session.add(
             MarketInstrument(
@@ -219,6 +252,7 @@ async def _seed_release(session: AsyncSession, fixture: dict[str, Any]) -> uuid.
             license_name="Source-site terms apply",
             citation_text=f"{fixture['source_name']}: {fixture['source_url']}",
             is_fixture=True,
+            data_mode="fixture",
             metadata_json={
                 "fixture_file": "data/fixtures/macro-research-demos.json",
                 "notice": "Official source family plus non-official research fixture fields.",
@@ -262,6 +296,7 @@ async def _seed_release(session: AsyncSession, fixture: dict[str, Any]) -> uuid.
             source_timezone=str(fixture["source_timezone"]),
             status="released",
             data_version="fixture-v1",
+            data_mode="fixture",
             source_artifact_id=artifact_id,
             primary_quality_id=quality_id,
             contamination_level=str(fixture["contamination_level"]),
@@ -330,6 +365,7 @@ async def _seed_release(session: AsyncSession, fixture: dict[str, Any]) -> uuid.
                     valid_from=released_at,
                     captured_at=released_at,
                     is_initial=value_kind == "actual",
+                    data_mode="fixture",
                     source_artifact_id=artifact_id,
                     quality_id=quality_id,
                     metadata_json={
@@ -349,6 +385,7 @@ async def _seed_release(session: AsyncSession, fixture: dict[str, Any]) -> uuid.
                 captured_at=captured_at,
                 quality_grade="C",
                 is_manual=True,
+                data_mode="fixture",
                 verification_notes=(
                     "Fixture snapshot captured before T0; replaceable provider boundary."
                 ),
@@ -369,10 +406,10 @@ async def _seed_release(session: AsyncSession, fixture: dict[str, Any]) -> uuid.
         "nasdaq_nq": "NQ-DEMO",
         "ust2y_zt": "ZT-DEMO",
         "ust10y_zn": "ZN-DEMO",
-        "dollar_dxy": "SPOT",
+        "dollar_dxy": "DX-DEMO",
         "eurusd": "SPOT",
         "usdjpy": "SPOT",
-        "vix": "INDEX",
+        "vix": "VX-DEMO",
     }
     contract_ids: dict[str, uuid.UUID | None] = {}
     for key, instrument in instruments.items():
@@ -461,6 +498,7 @@ async def _seed_release(session: AsyncSession, fixture: dict[str, Any]) -> uuid.
                     close_value=bar.close_value,
                     volume=bar.volume,
                     provider_key="fixture",
+                    data_mode="fixture",
                     source_symbol=bar.source_symbol,
                     contract_code=bar.contract_code or "",
                     is_regular_session=None,
@@ -470,6 +508,50 @@ async def _seed_release(session: AsyncSession, fixture: dict[str, Any]) -> uuid.
                 )
                 for bar in bars
             ]
+        )
+        manifest_hash = hashlib.sha256(
+            (
+                f"fixture:{release_id}:{instrument.id}:{contract_ids[key]}:"
+                f"{bars[0].timestamp.isoformat()}:{bars[-1].timestamp.isoformat()}"
+            ).encode()
+        ).hexdigest()
+        session.add(
+            MarketDataManifest(
+                id=_stable_uuid(f"market-manifest:{release_key}:{key}:ohlcv-1m"),
+                manifest_hash=manifest_hash,
+                macro_release_id=release_id,
+                release_stage_id=stage_ids[str(fixture["stages"][0]["key"])],
+                provider_key="fixture",
+                dataset="WORLDSTATE.FIXTURE",
+                schema_name="ohlcv-1m",
+                instrument_id=instrument.id,
+                futures_contract_id=contract_ids[key],
+                source_symbol=bars[0].source_symbol,
+                contract_code=bars[0].contract_code,
+                start_at=bars[0].timestamp,
+                end_at=bars[-1].timestamp,
+                interval_seconds=60,
+                row_count=len(bars),
+                size_bytes=None,
+                data_mode="fixture",
+                quality_grade="C",
+                is_aggregated=False,
+                aggregation_method=None,
+                aggregation_version=None,
+                contract_selection_rule="deterministic fixture contract at T0",
+                continuous_resolution_json={},
+                roll_status="fixture",
+                estimated_cost_usd=Decimal("0"),
+                actual_cost_usd=Decimal("0"),
+                provider_run_id=None,
+                sync_job_run_id=None,
+                source_artifact_id=artifact_id,
+                metadata_json={
+                    "fixture": True,
+                    "no_cross_contract_splice": True,
+                    "source_content_hash": manifest_hash,
+                },
+            )
         )
     session.add(
         ProviderRun(
@@ -482,6 +564,12 @@ async def _seed_release(session: AsyncSession, fixture: dict[str, Any]) -> uuid.
             records_read=1,
             records_written=1,
             source_artifact_id=artifact_id,
+            data_mode="fixture",
+            idempotency_key=f"fixture-seed:{release_key}",
+            request_count=0,
+            estimated_cost_usd=Decimal("0"),
+            actual_cost_usd=Decimal("0"),
+            terms_url=None,
             quality_grade="C",
             input_json={"release_key": release_key},
             output_json={"data_mode": "fixture"},
@@ -500,18 +588,22 @@ async def bootstrap_research_data(engine: AsyncEngine) -> dict[str, object]:
     factory = _factory(engine)
     async with factory() as session, session.begin():
         await _ensure_catalog(session)
-        release_types = set(
-            (await session.scalars(select(MacroRelease.release_type).distinct())).all()
-        )
         for fixture in _load_demo_releases():
-            if str(fixture["release_type"]) in release_types:
-                continue
-            created.append(await _seed_release(session, fixture))
-            release_types.add(str(fixture["release_type"]))
+            release_id = await _seed_release(session, fixture)
+            current_run = await session.scalar(
+                select(AnalysisRun.id).where(
+                    AnalysisRun.macro_release_id == release_id,
+                    AnalysisRun.code_version == CODE_VERSION,
+                    AnalysisRun.status == "completed",
+                )
+            )
+            if current_run is None:
+                created.append(release_id)
         for release_type in ("US_CPI", "US_NFP", "FOMC"):
             latest_release = await session.scalar(
                 select(MacroRelease)
                 .where(MacroRelease.release_type == release_type)
+                .where(MacroRelease.data_mode == "fixture")
                 .order_by(MacroRelease.scheduled_at.desc())
             )
             if latest_release is None:
@@ -543,6 +635,305 @@ async def bootstrap_research_data(engine: AsyncEngine) -> dict[str, object]:
     return {"state": "ready", "created_release_ids": [str(item) for item in created], **counts}
 
 
+async def initialize_research_catalog(engine: AsyncEngine) -> None:
+    """Seed only stable indicator/instrument/window catalogs, never demo releases."""
+
+    factory = _factory(engine)
+    async with factory() as session, session.begin():
+        await _ensure_catalog(session)
+
+
+def _value_source_priority(provider_key: str) -> int:
+    if provider_key in {"bls_official", "federal_reserve_fomc"}:
+        return 50
+    if provider_key == "trading_economics":
+        return 40
+    if provider_key == "manual":
+        return 30
+    if "csv" in provider_key:
+        return 20
+    if provider_key in {"worldstate_fixture", "fixture"}:
+        return 10
+    return 15
+
+
+async def _artifact_lookup(
+    session: AsyncSession,
+    artifact_ids: set[uuid.UUID],
+) -> dict[uuid.UUID, SourceArtifact]:
+    if not artifact_ids:
+        return {}
+    return {
+        row.id: row
+        for row in (
+            await session.scalars(select(SourceArtifact).where(SourceArtifact.id.in_(artifact_ids)))
+        ).all()
+    }
+
+
+def _artifact_for(
+    artifact_id: uuid.UUID | None,
+    artifacts: dict[uuid.UUID, SourceArtifact],
+) -> SourceArtifact | None:
+    return artifacts.get(artifact_id) if artifact_id is not None else None
+
+
+def _select_release_values(
+    rows: list[ReleaseValue],
+    artifacts: dict[uuid.UUID, SourceArtifact],
+) -> dict[tuple[uuid.UUID, str], ReleaseValue]:
+    grouped: dict[tuple[uuid.UUID, str], list[ReleaseValue]] = defaultdict(list)
+    for row in rows:
+        if row.metadata_json.get("superseded"):
+            continue
+        if (
+            row.metadata_json.get("historical_initial_status")
+            == "not_reconstructable_from_current_bls_api"
+        ):
+            continue
+        # Event surprise uses the first published actual. Later revisions stay
+        # queryable but may never replace the event-time actual in a replay.
+        if row.value_kind == "actual" and not row.is_initial:
+            continue
+        grouped[(row.indicator_id, row.value_kind)].append(row)
+
+    selected: dict[tuple[uuid.UUID, str], ReleaseValue] = {}
+    for identity, candidates in grouped.items():
+        selected[identity] = max(
+            candidates,
+            key=lambda row: (
+                _value_source_priority(
+                    artifact.provider_key
+                    if (artifact := _artifact_for(row.source_artifact_id, artifacts))
+                    else "unknown"
+                ),
+                -_aware(row.captured_at).timestamp(),
+                str(row.id),
+            ),
+        )
+    return selected
+
+
+def _consensus_priority(
+    snapshot: ConsensusSnapshot,
+    artifact: SourceArtifact | None,
+) -> int:
+    source = snapshot.source_name.lower()
+    provider_key = artifact.provider_key if artifact is not None else ""
+    # The same licensed response bytes can legitimately be observed by both a
+    # current capture and a historical PIT query. SourceArtifact deduplication
+    # therefore cannot carry snapshot-level PIT semantics: use the immutable
+    # metadata stored on the ConsensusSnapshot itself.
+    pit_verified = bool(snapshot.metadata_json.get("pit_verified"))
+    if provider_key == "trading_economics" or "trading economics" in source:
+        return 50 if pit_verified else 35
+    if snapshot.is_manual:
+        if "csv" in source:
+            return 25
+        return 40 if snapshot.quality_grade.upper() in {"A", "B"} else 20
+    if "fixture" in source:
+        return 10
+    return 30
+
+
+def _select_consensus_snapshots(
+    rows: list[ConsensusSnapshot],
+    artifacts: dict[uuid.UUID, SourceArtifact],
+) -> dict[uuid.UUID, ConsensusSnapshot]:
+    grouped: dict[uuid.UUID, list[ConsensusSnapshot]] = defaultdict(list)
+    for row in rows:
+        grouped[row.indicator_id].append(row)
+    return {
+        indicator_id: max(
+            candidates,
+            key=lambda snapshot: (
+                _consensus_priority(
+                    snapshot,
+                    _artifact_for(snapshot.source_artifact_id, artifacts),
+                ),
+                _aware(snapshot.captured_at).timestamp(),
+                str(snapshot.id),
+            ),
+        )
+        for indicator_id, candidates in grouped.items()
+    }
+
+
+async def _pre_event_regime_context(
+    session: AsyncSession,
+    cutoff: datetime,
+    *,
+    data_mode: str,
+) -> dict[str, object]:
+    """Build a strictly pre-event PIT context from stored FRED/ALFRED vintages."""
+
+    native_ids = {"DGS2", "DGS10", "DFII10", "DTWEXBGS", "VIXCLS"}
+    rows = (
+        await session.execute(
+            select(Series.native_id, Observation)
+            .join(Observation, Observation.series_id == Series.id)
+            .where(
+                Series.native_id.in_(native_ids),
+                Observation.data_mode == data_mode,
+                Observation.value.is_not(None),
+                Observation.period_start < cutoff.date(),
+                Observation.vintage_date <= cutoff.date(),
+                Observation.available_at.is_not(None),
+                Observation.available_at < cutoff,
+            )
+            .order_by(
+                Series.native_id,
+                Observation.period_start,
+                Observation.vintage_date,
+            )
+        )
+    ).all()
+    by_series_period: dict[tuple[str, object], Observation] = {}
+    for native_id, observation in rows:
+        by_series_period[(str(native_id), observation.period_start)] = observation
+    histories: dict[str, list[Observation]] = defaultdict(list)
+    for (native_id, _period), observation in by_series_period.items():
+        histories[native_id].append(observation)
+    for history in histories.values():
+        history.sort(key=lambda item: item.period_start)
+
+    context: dict[str, object] = {
+        "as_of": cutoff.isoformat(),
+        "source": f"FRED/ALFRED stored point-in-time {data_mode} observations",
+        "data_mode": data_mode,
+        "series": {},
+    }
+    serialized_series: dict[str, object] = {}
+    aliases = {
+        "DGS2": "two_year_yield",
+        "DGS10": "ten_year_yield",
+        "DFII10": "ten_year_real_yield",
+        "DTWEXBGS": "broad_dollar_index",
+        "VIXCLS": "vix_close",
+    }
+    for native_id, alias in aliases.items():
+        history = histories.get(native_id, [])
+        if not history:
+            continue
+        latest = history[-1]
+        lookback = history[-21] if len(history) >= 21 else history[0]
+        latest_value = float(latest.value) if latest.value is not None else None
+        lookback_value = float(lookback.value) if lookback.value is not None else None
+        change = (
+            latest_value - lookback_value
+            if latest_value is not None and lookback_value is not None
+            else None
+        )
+        percent_change = (
+            change / abs(lookback_value) * 100
+            if change is not None and lookback_value is not None and lookback_value != 0
+            else None
+        )
+        context[alias] = latest_value
+        context[f"{alias}_change_20"] = change
+        context[f"{alias}_change_20_percent"] = percent_change
+        serialized_series[native_id] = {
+            "value": latest_value,
+            "period_start": latest.period_start.isoformat(),
+            "vintage_date": latest.vintage_date.isoformat(),
+            "available_at": (
+                _aware(latest.available_at).isoformat() if latest.available_at else None
+            ),
+            "lookback_period_start": lookback.period_start.isoformat(),
+            "source_hash": latest.source_hash,
+        }
+    context["series"] = serialized_series
+    context["missing_series"] = sorted(native_ids - set(histories))
+    return context
+
+
+async def select_analysis_inputs(
+    session: AsyncSession,
+    release: MacroRelease,
+) -> tuple[
+    dict[tuple[uuid.UUID, str], ReleaseValue],
+    dict[uuid.UUID, ConsensusSnapshot],
+    dict[uuid.UUID, SourceArtifact],
+]:
+    """Select the exact point-in-time actual and consensus inputs used by analysis."""
+
+    cutoff = _aware(release.released_at or release.scheduled_at)
+    values = list(
+        (
+            await session.scalars(
+                select(ReleaseValue)
+                .where(
+                    ReleaseValue.macro_release_id == release.id,
+                    ReleaseValue.data_mode == release.data_mode,
+                )
+                .order_by(ReleaseValue.captured_at)
+            )
+        ).all()
+    )
+    consensus = list(
+        (
+            await session.scalars(
+                select(ConsensusSnapshot)
+                .where(
+                    ConsensusSnapshot.macro_release_id == release.id,
+                    ConsensusSnapshot.data_mode == release.data_mode,
+                    ConsensusSnapshot.captured_at < cutoff,
+                    ConsensusSnapshot.quality_grade.in_(("A", "B", "C")),
+                )
+                .order_by(ConsensusSnapshot.captured_at)
+            )
+        ).all()
+    )
+    artifacts = await _artifact_lookup(
+        session,
+        {row.source_artifact_id for row in values if row.source_artifact_id is not None}
+        | {row.source_artifact_id for row in consensus if row.source_artifact_id is not None},
+    )
+    selected_values, selected_consensus = select_analysis_inputs_from_rows(
+        release,
+        values=values,
+        consensus=consensus,
+        artifacts=artifacts,
+    )
+    return selected_values, selected_consensus, artifacts
+
+
+def select_analysis_inputs_from_rows(
+    release: MacroRelease,
+    *,
+    values: list[ReleaseValue],
+    consensus: list[ConsensusSnapshot],
+    artifacts: dict[uuid.UUID, SourceArtifact],
+) -> tuple[
+    dict[tuple[uuid.UUID, str], ReleaseValue],
+    dict[uuid.UUID, ConsensusSnapshot],
+]:
+    """Apply the analysis input policy to an already-loaded release batch.
+
+    Coverage reporting uses this same selector so a row being stored cannot be
+    confused with the row being eligible for point-in-time analysis.
+    """
+
+    cutoff = _aware(release.released_at or release.scheduled_at)
+    eligible_values = [
+        row
+        for row in values
+        if row.macro_release_id == release.id and row.data_mode == release.data_mode
+    ]
+    eligible_consensus = [
+        row
+        for row in consensus
+        if row.macro_release_id == release.id
+        and row.data_mode == release.data_mode
+        and _aware(row.captured_at) < cutoff
+        and row.quality_grade in {"A", "B", "C"}
+    ]
+    return (
+        _select_release_values(eligible_values, artifacts),
+        _select_consensus_snapshots(eligible_consensus, artifacts),
+    )
+
+
 async def _value_inputs(
     session: AsyncSession,
     release: MacroRelease,
@@ -552,29 +943,9 @@ async def _value_inputs(
         await session.scalars(select(Indicator).where(Indicator.indicator_key.in_(keys)))
     ).all()
     indicators = {row.indicator_key: row for row in indicator_rows}
-    values = (
-        await session.scalars(
-            select(ReleaseValue)
-            .where(ReleaseValue.macro_release_id == release.id)
-            .order_by(ReleaseValue.captured_at)
-        )
-    ).all()
-    latest_values: dict[tuple[uuid.UUID, str], ReleaseValue] = {}
-    for row in values:
-        latest_values[(row.indicator_id, row.value_kind)] = row
-    consensus = (
-        await session.scalars(
-            select(ConsensusSnapshot)
-            .where(
-                ConsensusSnapshot.macro_release_id == release.id,
-                ConsensusSnapshot.captured_at <= (release.released_at or release.scheduled_at),
-            )
-            .order_by(ConsensusSnapshot.captured_at)
-        )
-    ).all()
-    latest_consensus: dict[uuid.UUID, ConsensusSnapshot] = {}
-    for consensus_row in consensus:
-        latest_consensus[consensus_row.indicator_id] = consensus_row
+    latest_values, latest_consensus, input_artifacts = await select_analysis_inputs(
+        session, release
+    )
 
     inputs: list[IndicatorInput] = []
     serialized: dict[str, dict[str, object]] = {}
@@ -607,6 +978,14 @@ async def _value_inputs(
             "previous": _float(previous.value) if previous else None,
             "revised_previous": _float(revised.value) if revised else None,
             "consensus_source": snapshot.source_name if snapshot else None,
+            "actual_source": (
+                artifact.provider_key
+                if actual
+                and (artifact := _artifact_for(actual.source_artifact_id, input_artifacts))
+                else None
+            ),
+            "actual_release_value_id": str(actual.id) if actual else None,
+            "consensus_snapshot_id": str(snapshot.id) if snapshot else None,
             "consensus_captured_at": (
                 _aware(snapshot.captured_at).isoformat() if snapshot else None
             ),
@@ -646,34 +1025,20 @@ async def _historical_surprises(
                 MacroRelease.release_type == release.release_type,
                 MacroRelease.id != release.id,
                 MacroRelease.released_at < cutoff,
+                MacroRelease.data_mode == release.data_mode,
+                MacroRelease.status != "invalidated",
             )
             .order_by(MacroRelease.released_at)
         )
     ).all()
     output: dict[str, list[HistoricalSurpriseObservation]] = {key: [] for key in indicators}
     for prior in historical:
+        selected_values, selected_consensus, _artifacts = await select_analysis_inputs(
+            session, prior
+        )
         for key, indicator in indicators.items():
-            actual = await session.scalar(
-                select(ReleaseValue)
-                .where(
-                    ReleaseValue.macro_release_id == prior.id,
-                    ReleaseValue.indicator_id == indicator.id,
-                    ReleaseValue.value_kind == "actual",
-                )
-                .order_by(ReleaseValue.captured_at)
-                .limit(1)
-            )
-            consensus = await session.scalar(
-                select(ConsensusSnapshot)
-                .where(
-                    ConsensusSnapshot.macro_release_id == prior.id,
-                    ConsensusSnapshot.indicator_id == indicator.id,
-                    ConsensusSnapshot.captured_at
-                    <= _aware(prior.released_at or prior.scheduled_at),
-                )
-                .order_by(ConsensusSnapshot.captured_at.desc())
-                .limit(1)
-            )
+            actual = selected_values.get((indicator.id, "actual"))
+            consensus = selected_consensus.get(indicator.id)
             if actual and consensus and actual.value is not None:
                 output[key].append(
                     HistoricalSurpriseObservation(
@@ -706,7 +1071,11 @@ async def _historical_cases(
 ) -> list[HistoricalCase]:
     releases = (
         await session.scalars(
-            select(MacroRelease).where(MacroRelease.release_type == release.release_type)
+            select(MacroRelease).where(
+                MacroRelease.release_type == release.release_type,
+                MacroRelease.data_mode == release.data_mode,
+                MacroRelease.status != "invalidated",
+            )
         )
     ).all()
     output: list[HistoricalCase] = []
@@ -770,7 +1139,7 @@ async def _historical_cases(
                 release_type=candidate.release_type,
                 regime_dimensions=dict(regime.dimensions_json) if regime else {},
                 analysis_run_id=str(run.id),
-                is_fixture=run.parameters_json.get("data_mode") == "fixture",
+                is_fixture=run.data_mode == "fixture",
                 proxy_instrument_count=sum(
                     1 for _window, _definition, instrument in rows if instrument.is_proxy
                 ),
@@ -788,6 +1157,8 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
         release = await session.get(MacroRelease, release_uuid)
         if release is None:
             raise LookupError("macro release not found")
+        if release.status == "invalidated":
+            raise LookupError("macro release was invalidated by provider reconciliation")
         started_at = datetime.now(UTC)
         run = AnalysisRun(
             id=uuid.uuid4(),
@@ -805,6 +1176,7 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
             earliest_reactions_json=[],
             data_gaps_json=[],
             parameters_json={},
+            data_mode=release.data_mode,
         )
         session.add(run)
         await session.flush()
@@ -843,31 +1215,44 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
         }
         if not stages:
             raise ValueError("release has no stages")
-        lower = min(
-            _aware(stage.released_at or stage.scheduled_at) for stage in stages
-        ) - timedelta(minutes=60)
-        upper = max(
-            _aware(stage.released_at or stage.scheduled_at) for stage in stages
-        ) + timedelta(days=7)
-        bars = (
-            await session.scalars(
-                select(MarketBar)
-                .where(
-                    MarketBar.timestamp >= lower,
-                    MarketBar.timestamp <= upper,
-                    MarketBar.interval_seconds == 60,
+        market_selection = await select_release_market_data(session, release, list(stages))
+        instruments_by_id = {row.id: row for row in instruments}
+        selected_instrument_ids = {
+            instrument_id for instrument_id, _interval in market_selection.series
+        }
+        instruments = [row for row in instruments if row.id in selected_instrument_ids]
+        market_manifest = [
+            series.snapshot(
+                instrument_key=(
+                    instruments_by_id[series.instrument_id].canonical_key
+                    if series.instrument_id in instruments_by_id
+                    else str(series.instrument_id)
                 )
-                .order_by(MarketBar.timestamp)
             )
-        ).all()
-        bars_by_instrument: dict[uuid.UUID, list[MarketBar]] = defaultdict(list)
-        for bar in bars:
-            bars_by_instrument[bar.instrument_id].append(bar)
+            for _identity, series in sorted(
+                market_selection.series.items(),
+                key=lambda item: (
+                    instruments_by_id[item[0][0]].canonical_key
+                    if item[0][0] in instruments_by_id
+                    else str(item[0][0]),
+                    item[0][1],
+                ),
+            )
+        ]
+        bars = [
+            bar
+            for _identity, series in sorted(
+                market_selection.series.items(),
+                key=lambda item: (str(item[0][0]), item[0][1]),
+            )
+            for bar in series.bars
+        ]
 
         release_values = (
             await session.scalars(
                 select(ReleaseValue)
                 .where(ReleaseValue.macro_release_id == release.id)
+                .where(ReleaseValue.data_mode == release.data_mode)
                 .order_by(ReleaseValue.captured_at, ReleaseValue.id)
             )
         ).all()
@@ -876,36 +1261,24 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
                 select(ConsensusSnapshot)
                 .where(
                     ConsensusSnapshot.macro_release_id == release.id,
+                    ConsensusSnapshot.data_mode == release.data_mode,
                     ConsensusSnapshot.captured_at
                     <= _aware(release.released_at or release.scheduled_at),
                 )
                 .order_by(ConsensusSnapshot.captured_at, ConsensusSnapshot.id)
             )
         ).all()
-        market_manifest = [
-            {
-                "market_bar_id": row.id,
-                "instrument_id": str(row.instrument_id),
-                "contract_id": str(row.futures_contract_id) if row.futures_contract_id else None,
-                "provider_key": row.provider_key,
-                "source_symbol": row.source_symbol,
-                "contract_code": row.contract_code,
-                "timestamp": _aware(row.timestamp).isoformat(),
-                "interval_seconds": row.interval_seconds,
-                "open": str(row.open_value),
-                "high": str(row.high_value),
-                "low": str(row.low_value),
-                "close": str(row.close_value),
-                "volume": str(row.volume) if row.volume is not None else None,
-                "quality_id": str(row.quality_id) if row.quality_id else None,
-            }
-            for row in bars
-        ]
         market_hash = _stable_hash(market_manifest)
+        regime_context = await _pre_event_regime_context(
+            session,
+            _aware(release.released_at or release.scheduled_at),
+            data_mode=release.data_mode,
+        )
         release_snapshot = {
             "release_id": str(release.id),
             "release_key": release.release_key,
             "release_type": release.release_type,
+            "data_mode": release.data_mode,
             "scheduled_at": _aware(release.scheduled_at).isoformat(),
             "released_at": _aware(release.released_at or release.scheduled_at).isoformat(),
             "contamination_level": release.contamination_level,
@@ -918,19 +1291,25 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
                 ]
                 for key, observations in history.items()
             },
+            "pre_event_regime_context": regime_context,
         }
         algorithm_versions = {
-            "surprise": "surprise-v0.4",
-            "history": "macro-history-v0.4-fixed",
-            "windows": "exchange-session-lite-v0.4",
+            "surprise": "surprise-v0.5",
+            "history": "macro-history-v0.5-mode-isolated",
+            "windows": "manifest-isolated-mixed-granularity-v0.5",
+            "market_selection": "release-manifest-series-v1",
         }
         rule_versions = {
-            "regime": "macro-regime-v0.4",
+            "regime": "macro-regime-v0.5-pre-event-pit",
             "explanation": "deterministic-explanation-v3",
         }
         analysis_parameters = {
             "minimum_z_score_sample": 20,
+            "historical_data_mode": release.data_mode,
             "calendar_precision": "exchange_session_lite",
+            "long_window_policy": (
+                "provider session-close when declared; UTC-day daily bars are experimental"
+            ),
             "contamination_policy": "exclude_high_penalize_mismatch_v1",
         }
         run.release_snapshot_json = release_snapshot
@@ -940,24 +1319,33 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
         run.market_dataset_manifest_json = market_manifest
         run.market_dataset_hash = market_hash
         run.provider_manifest_json = [
-            json.loads(item)
-            for item in sorted(
-                {
-                    json.dumps(
-                        {
-                            "provider_key": row.provider_key,
-                            "source_symbol": row.source_symbol,
-                            "contract_code": row.contract_code,
-                        },
-                        sort_keys=True,
-                    )
-                    for row in bars
-                }
+            {
+                "provider_key": series.provider_key,
+                "instrument_id": str(series.instrument_id),
+                "interval_seconds": series.interval_seconds,
+                "dataset": series.dataset,
+                "schema_name": series.schema_name,
+                "source_symbol": series.source_symbol,
+                "contract_code": series.contract_code,
+                "futures_contract_id": (
+                    str(series.futures_contract_id) if series.futures_contract_id else None
+                ),
+                "manifest_ids": [str(item) for item in series.manifest_ids],
+            }
+            for _identity, series in sorted(
+                market_selection.series.items(),
+                key=lambda item: (str(item[0][0]), item[0][1]),
             )
         ]
-        run.source_artifact_ids_json = [
-            str(row.source_artifact_id) for row in release_values if row.source_artifact_id
-        ]
+        run.source_artifact_ids_json = sorted(
+            {str(row.source_artifact_id) for row in release_values if row.source_artifact_id}
+            | {
+                str(manifest.source_artifact_id)
+                for series in market_selection.series.values()
+                for manifest in series.manifests
+                if manifest.source_artifact_id
+            }
+        )
         run.algorithm_versions_json = algorithm_versions
         run.rule_versions_json = rule_versions
         run.analysis_parameters_json = analysis_parameters
@@ -995,6 +1383,7 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
         quality_by_id = {row.id: row for row in quality_rows}
         quality_grades = [row.quality_grade for row in quality_rows]
         is_fixture = any(row.is_fixture for row in quality_rows)
+        run.data_mode = "fixture" if is_fixture else release.data_mode
 
         stage_windows: dict[str, dict[str, dict[str, ComputedWindow]]] = {}
         earliest_rows: list[dict[str, object]] = []
@@ -1005,33 +1394,57 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
             stage_windows[stage_key] = {}
             stage_reactions: list[tuple[MarketInstrument, Any]] = []
             for instrument in instruments:
-                rows = bars_by_instrument.get(instrument.id, [])
-                if not rows:
-                    continue
-                records = [_bar_record(row, instrument.canonical_key) for row in rows]
-                grade = next(
+                minute_series = market_selection.get(instrument.id, 60)
+                daily_series = market_selection.get(instrument.id, 86_400)
+                minute_rows = list(minute_series.bars) if minute_series else []
+                daily_rows = list(daily_series.bars) if daily_series else []
+                minute_records = [_bar_record(row, instrument.canonical_key) for row in minute_rows]
+                daily_records = [_bar_record(row, instrument.canonical_key) for row in daily_rows]
+                minute_grade = next(
                     (
                         quality_by_id[row.quality_id].quality_grade
-                        for row in rows
+                        for row in minute_rows
                         if row.quality_id in quality_by_id
                     ),
-                    "UNKNOWN",
+                    minute_series.quality_grade if minute_series else "UNKNOWN",
                 )
-                computed = calculate_event_windows(
-                    records,
+                daily_grade = next(
+                    (
+                        quality_by_id[row.quality_id].quality_grade
+                        for row in daily_rows
+                        if row.quality_id in quality_by_id
+                    ),
+                    daily_series.quality_grade if daily_series else "UNKNOWN",
+                )
+                short_windows = calculate_event_windows(
+                    minute_records,
                     release_at=stage_at,
                     interval_seconds=60,
-                    source_grade=grade,
+                    source_grade=minute_grade,
+                    specs=MINUTE_WINDOW_SPECS,
                     instrument_key=instrument.canonical_key,
                 )
+                long_windows = calculate_session_close_windows(
+                    daily_records,
+                    release_at=stage_at,
+                    source_grade=daily_grade,
+                    instrument_key=instrument.canonical_key,
+                    session_close_semantics=(
+                        daily_series.session_close_semantics if daily_series else "unavailable"
+                    ),
+                    limitations=(daily_series.limitations if daily_series else ()),
+                )
+                computed = apply_direction_reversals([*short_windows, *long_windows])
                 stage_windows[stage_key][instrument.canonical_key] = {
                     item.key: item for item in computed
                 }
-                provider_key = rows[0].provider_key
                 for item in computed:
                     definition = window_definitions.get(item.key)
                     if definition is None:
                         continue
+                    selected_series = (
+                        daily_series if item.granularity_seconds == 86_400 else minute_series
+                    )
                     session.add(
                         EventWindowResult(
                             id=uuid.uuid4(),
@@ -1056,7 +1469,9 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
                             dip_recovery=item.dip_recovery,
                             direction_reversal=item.direction_reversal,
                             granularity_seconds=item.granularity_seconds,
-                            provider_key=provider_key,
+                            provider_key=(
+                                selected_series.provider_key if selected_series else "unavailable"
+                            ),
                             quality_grade=item.quality_grade,
                             missing_reason=item.missing_reason,
                             calculated_at=datetime.now(UTC),
@@ -1066,12 +1481,31 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
                                 "calendar": item.calendar_name,
                                 "calendar_precision": item.calendar_precision,
                                 "expected_tradable_bars": item.expected_tradable_bars,
+                                "experimental": item.experimental,
+                                "limitations": list(item.limitations),
+                                "manifest_ids": (
+                                    [str(value) for value in selected_series.manifest_ids]
+                                    if selected_series
+                                    else []
+                                ),
+                                "dataset": (selected_series.dataset if selected_series else None),
+                                "schema_name": (
+                                    selected_series.schema_name if selected_series else None
+                                ),
+                                "contract_code": (
+                                    selected_series.contract_code if selected_series else None
+                                ),
+                                "futures_contract_id": (
+                                    str(selected_series.futures_contract_id)
+                                    if selected_series and selected_series.futures_contract_id
+                                    else None
+                                ),
                             },
                         )
                     )
                 earliest = detect_earliest_reaction(
                     instrument.canonical_key,
-                    records,
+                    minute_records,
                     release_at=stage_at,
                     interval_seconds=60,
                 )
@@ -1092,8 +1526,13 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
                             "limitation": earliest.limitation,
                         }
                     )
+                strength_candidates = [
+                    item
+                    for item in computed
+                    if item.return_percent is not None and not item.experimental
+                ] or computed
                 strongest = max(
-                    computed,
+                    strength_candidates,
                     key=lambda item: abs(item.return_percent or 0.0),
                 )
                 reaction_records.append(
@@ -1125,10 +1564,23 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
                         dip_recovery=any(item.dip_recovery for item in computed),
                         direction_reversal=any(item.direction_reversal for item in computed),
                         granularity_seconds=60,
-                        limitations_json=(
-                            [earliest.limitation]
-                            if earliest is not None
-                            else ["No volatility-adjusted significant reaction was observed."]
+                        limitations_json=list(
+                            dict.fromkeys(
+                                (
+                                    [earliest.limitation]
+                                    if earliest is not None
+                                    else [
+                                        "No volatility-adjusted significant reaction was "
+                                        "observed from the selected minute series."
+                                    ]
+                                )
+                                + (
+                                    list(minute_series.limitations)
+                                    if minute_series
+                                    else ["Event-linked minute series is unavailable."]
+                                )
+                                + list(daily_series.limitations if daily_series else ())
+                            )
                         ),
                     )
                 )
@@ -1199,6 +1651,7 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
             bundle_direction=bundle.direction,
             surprise_score=bundle.score,
             returns=current_returns,
+            macro_context=regime_context,
         )
         regime_hash = hashlib.sha256(
             json.dumps(
@@ -1206,6 +1659,7 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
                     "release_id": str(release.id),
                     "labels": regime.labels,
                     "evidence": regime.evidence,
+                    "pre_event_context": regime_context,
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -1215,7 +1669,7 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
         regime_row = RegimeSnapshot(
             id=uuid.uuid4(),
             as_of=_aware(release.released_at or release.scheduled_at),
-            methodology_version="macro-regime-v1",
+            methodology_version="macro-regime-v2-pre-event-pit",
             labels_json=list(regime.labels),
             dimensions_json=regime.dimensions,
             evidence_json=list(regime.evidence),
@@ -1301,9 +1755,10 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
         for stage in stages:
             stage_at = _aware(stage.released_at or stage.scheduled_at)
             for instrument in instruments:
+                minute_series = market_selection.get(instrument.id, 60)
                 records = [
                     _bar_record(row, instrument.canonical_key)
-                    for row in bars_by_instrument.get(instrument.id, [])
+                    for row in (minute_series.bars if minute_series else ())
                 ]
                 earliest = detect_earliest_reaction(
                     instrument.canonical_key,
@@ -1328,6 +1783,49 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
                 historical=historical,
             ),
         )
+        market_data_gaps: list[str] = []
+        if not market_selection.series:
+            market_data_gaps.append(
+                "No event-linked market manifest with matching provider/contract bars was "
+                "available; cross-asset reaction analysis is unavailable."
+            )
+        missing_minute = [
+            instrument.canonical_key
+            for instrument in instruments
+            if market_selection.get(instrument.id, 60) is None
+        ]
+        if missing_minute:
+            market_data_gaps.append(
+                "Short event windows are unavailable for event-linked minute series: "
+                f"{', '.join(sorted(missing_minute))}."
+            )
+        missing_daily = [
+            instrument.canonical_key
+            for instrument in instruments
+            if market_selection.get(instrument.id, 86_400) is None
+        ]
+        experimental_daily = [
+            instrument.canonical_key
+            for instrument in instruments
+            if (series := market_selection.get(instrument.id, 86_400)) is not None
+            and series.session_close_semantics == "utc_day"
+        ]
+        if missing_daily:
+            market_data_gaps.append(
+                "T+1/T+5 session-close windows are unavailable for event-linked daily "
+                f"series: {', '.join(sorted(missing_daily))}."
+            )
+        if experimental_daily:
+            market_data_gaps.append(
+                "T+1/T+5 windows use experimental UTC-day proxies, not exchange "
+                f"settlement prices: {', '.join(sorted(experimental_daily))}."
+            )
+        if market_selection.rejected_manifest_ids:
+            market_data_gaps.append(
+                "Alternative event-linked provider/contract manifests were excluded to "
+                "prevent cross-provider or cross-contract mixing."
+            )
+        structured["data_gaps"] = list(dict.fromkeys([*structured["data_gaps"], *market_data_gaps]))
 
         indicator_surprises = {
             item.key: {
@@ -1377,7 +1875,7 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
             "component_direction": component_direction,
             "indicator_surprises": indicator_surprises,
             "historical": historical,
-            "data_mode": "fixture" if is_fixture else "observed",
+            "data_mode": run.data_mode,
             "regime": {
                 "labels": list(regime.labels),
                 "dimensions": regime.dimensions,
@@ -1641,6 +2139,7 @@ async def analyze_release(
                     earliest_reactions_json=[],
                     data_gaps_json=["analysis did not complete"],
                     parameters_json={},
+                    data_mode=release.data_mode,
                     release_snapshot_json={
                         "release_id": str(release.id),
                         "released_at": _aware(
@@ -1651,7 +2150,7 @@ async def analyze_release(
                     idempotency_key=idempotency_key,
                     failure_stage="analysis_transaction",
                     error_type=type(exc).__name__,
-                    error_message=str(exc)[:2000],
+                    error_message=redact_sensitive_text(exc)[:2000],
                 )
                 session.add(failed)
         raise
@@ -1704,13 +2203,20 @@ async def list_releases(
     *,
     release_type: str | None = None,
     limit: int = 100,
+    data_mode: str = "observed",
 ) -> list[dict[str, object]]:
-    await bootstrap_research_data(engine)
     factory = _factory(engine)
     async with factory() as session:
-        query = select(MacroRelease).order_by(MacroRelease.scheduled_at.desc()).limit(limit)
+        query = (
+            select(MacroRelease)
+            .where(MacroRelease.status != "invalidated")
+            .order_by(MacroRelease.scheduled_at.desc())
+            .limit(limit)
+        )
         if release_type:
             query = query.where(MacroRelease.release_type == release_type)
+        if data_mode != "all":
+            query = query.where(MacroRelease.data_mode == data_mode)
         releases = (await session.scalars(query)).all()
         output: list[dict[str, object]] = []
         for release in releases:
@@ -1731,9 +2237,7 @@ async def list_releases(
                     "surprise_score": run.composite_surprise_score if run else None,
                     "confidence": run.confidence if run else 0.0,
                     "analysis_status": run.status if run else "pending",
-                    "data_mode": (
-                        str(run.parameters_json.get("data_mode", "unknown")) if run else "unknown"
-                    ),
+                    "data_mode": run.data_mode if run else release.data_mode,
                     "clean_window": release.clean_window,
                     "contamination_level": release.contamination_level,
                 }
@@ -1748,12 +2252,29 @@ async def _release_quality(
     ids: set[uuid.UUID] = set()
     if release.primary_quality_id:
         ids.add(release.primary_quality_id)
+    run = await _latest_run(session, release.id)
+    selection_series = (
+        [
+            item
+            for item in run.market_dataset_manifest_json
+            if isinstance(item, dict)
+            and item.get("selection_version") == "release-manifest-series-v1"
+        ]
+        if run
+        else []
+    )
+    for item in selection_series:
+        for bar in item.get("selected_bars", []):
+            if not isinstance(bar, dict) or not bar.get("quality_id"):
+                continue
+            with suppress(ValueError):
+                ids.add(uuid.UUID(str(bar["quality_id"])))
     stage_times = (
         await session.scalars(
             select(ReleaseStage).where(ReleaseStage.macro_release_id == release.id)
         )
     ).all()
-    if stage_times:
+    if stage_times and not selection_series:
         lower = min(_aware(item.scheduled_at) for item in stage_times) - timedelta(minutes=60)
         upper = max(_aware(item.scheduled_at) for item in stage_times) + timedelta(hours=4)
         ids.update(
@@ -1764,6 +2285,7 @@ async def _release_quality(
                     .where(
                         MarketBar.timestamp >= lower,
                         MarketBar.timestamp <= upper,
+                        MarketBar.data_mode == release.data_mode,
                         MarketBar.quality_id.is_not(None),
                     )
                     .distinct()
@@ -1784,11 +2306,279 @@ async def _release_quality(
     )
 
 
+async def _release_data_provenance(
+    session: AsyncSession,
+    release: MacroRelease,
+    artifact: SourceArtifact | None,
+    run: AnalysisRun | None,
+) -> dict[str, object]:
+    """Assemble release-level provenance without exposing licensed raw payloads."""
+
+    all_manifest_rows = (
+        await session.execute(
+            select(MarketDataManifest, MarketInstrument, FuturesContract)
+            .join(MarketInstrument, MarketInstrument.id == MarketDataManifest.instrument_id)
+            .outerjoin(
+                FuturesContract,
+                FuturesContract.id == MarketDataManifest.futures_contract_id,
+            )
+            .where(
+                MarketDataManifest.macro_release_id == release.id,
+                MarketDataManifest.data_mode == release.data_mode,
+            )
+            .order_by(MarketInstrument.canonical_key, MarketDataManifest.start_at)
+        )
+    ).all()
+    selection_series = (
+        [
+            item
+            for item in run.market_dataset_manifest_json
+            if isinstance(item, dict)
+            and item.get("selection_version") == "release-manifest-series-v1"
+        ]
+        if run
+        else []
+    )
+    selected_manifest_ids = {
+        str(manifest.get("manifest_id"))
+        for item in selection_series
+        for manifest in item.get("manifests", [])
+        if isinstance(manifest, dict) and manifest.get("manifest_id")
+    }
+    manifest_rows = (
+        [row for row in all_manifest_rows if str(row[0].id) in selected_manifest_ids]
+        if selection_series
+        else list(all_manifest_rows)
+    )
+    selected_values, selected_consensus, input_artifacts = await select_analysis_inputs(
+        session, release
+    )
+    consensus = max(
+        selected_consensus.values(),
+        key=lambda item: _aware(item.captured_at),
+        default=None,
+    )
+    consensus_artifact = (
+        input_artifacts.get(consensus.source_artifact_id)
+        if consensus and consensus.source_artifact_id
+        else None
+    )
+    release_value_ids = sorted(
+        {
+            str(value.id)
+            for (_indicator_id, value_kind), value in selected_values.items()
+            if value_kind in {"actual", "previous", "revised_previous"} and value.value is not None
+        }
+    )
+    manifest_ids = [
+        str(manifest.id)
+        for manifest, _instrument, _contract in manifest_rows
+        if manifest.row_count > 0
+    ]
+    reconciliation_subjects = {
+        str(release.id),
+        release.release_key,
+        *release_value_ids,
+        *manifest_ids,
+    }
+    reconciliations = (
+        await session.scalars(
+            select(DataReconciliationRecord).where(
+                DataReconciliationRecord.data_mode == release.data_mode,
+                DataReconciliationRecord.subject_id.in_(reconciliation_subjects),
+            )
+        )
+    ).all()
+
+    gaps: list[str] = []
+    if artifact is None:
+        gaps.append("official source artifact is missing")
+    if consensus is None:
+        gaps.append("eligible pre-release consensus snapshot is missing")
+    if not manifest_rows:
+        gaps.append("event market dataset manifest is missing")
+    if run and not selection_series:
+        gaps.append(
+            "analysis run predates release-linked provider/contract market selection provenance"
+        )
+    expected_reconciliation_subjects = {*release_value_ids, *manifest_ids}
+    relevant_reconciliations = [
+        row for row in reconciliations if row.subject_id in expected_reconciliation_subjects
+    ]
+    covered_reconciliation_subjects = {row.subject_id for row in relevant_reconciliations}
+    missing_reconciliation_subjects = sorted(
+        expected_reconciliation_subjects - covered_reconciliation_subjects
+    )
+    if expected_reconciliation_subjects and not relevant_reconciliations:
+        gaps.append("data reconciliation has not run for this release")
+    elif missing_reconciliation_subjects:
+        gaps.append("data reconciliation covers only part of this release")
+    if release.data_mode == "fixture":
+        gaps.append("fixture data is a demonstration, not an observed market record")
+    if run:
+        gaps.extend(str(item) for item in run.data_gaps_json)
+    gaps = list(dict.fromkeys(gaps))
+
+    manifest_hash = run.market_dataset_hash if run else None
+    datasets = sorted({manifest.dataset for manifest, _instrument, _contract in manifest_rows})
+    schemas = sorted({manifest.schema_name for manifest, _instrument, _contract in manifest_rows})
+    range_start = min(
+        (_aware(manifest.start_at) for manifest, _instrument, _contract in manifest_rows),
+        default=None,
+    )
+    range_end = max(
+        (_aware(manifest.end_at) for manifest, _instrument, _contract in manifest_rows),
+        default=None,
+    )
+    # Release-level comparisons (time, unit and reference period) may use the
+    # release id rather than a value/manifest id.  They do not satisfy missing
+    # value coverage, but any mismatch must still prevent a complete result.
+    statuses = {row.status for row in reconciliations}
+    reconciliation_complete = (
+        bool(expected_reconciliation_subjects)
+        and not missing_reconciliation_subjects
+        and bool(relevant_reconciliations)
+        and statuses <= {"matched", "resolved"}
+    )
+    if not expected_reconciliation_subjects:
+        reconciliation_status = "not_applicable"
+    elif not relevant_reconciliations:
+        reconciliation_status = "not_run"
+    elif statuses - {"matched", "resolved"}:
+        reconciliation_status = "attention_required"
+    elif missing_reconciliation_subjects:
+        reconciliation_status = "partial"
+    else:
+        reconciliation_status = "complete"
+    reconciliation_notes = [
+        f"{row.reconciliation_type}:{row.field_name or row.subject_type}={row.status}"
+        for row in reconciliations
+    ]
+
+    return {
+        "official_source": (
+            {
+                "provider_key": artifact.provider_key,
+                "display_name": artifact.title,
+                "source_url": artifact.source_url,
+                "artifact_id": str(artifact.id),
+                "retrieved_at": _aware(artifact.retrieved_at).isoformat(),
+                "content_hash": artifact.content_hash,
+            }
+            if artifact
+            else None
+        ),
+        "consensus_source": (
+            {
+                "provider_key": (
+                    consensus_artifact.provider_key if consensus_artifact else consensus.source_name
+                ),
+                "source_name": consensus.source_name,
+                "source_url": consensus.source_url,
+                "artifact_id": (str(consensus_artifact.id) if consensus_artifact else None),
+                "snapshot_id": str(consensus.id),
+                "captured_at": _aware(consensus.captured_at).isoformat(),
+                "quality_grade": consensus.quality_grade,
+            }
+            if consensus
+            else None
+        ),
+        "consensus_captured_at": (_aware(consensus.captured_at).isoformat() if consensus else None),
+        "market_dataset": (
+            {
+                "provider_key": ", ".join(
+                    sorted(
+                        {
+                            manifest.provider_key
+                            for manifest, _instrument, _contract in manifest_rows
+                        }
+                    )
+                ),
+                "dataset": ", ".join(datasets),
+                "schema": ", ".join(schemas),
+                "manifest_hash": manifest_hash,
+                "range_start": range_start.isoformat() if range_start else None,
+                "range_end": range_end.isoformat() if range_end else None,
+                "granularity": ", ".join(
+                    sorted(
+                        {
+                            f"{manifest.interval_seconds}s"
+                            for manifest, _instrument, _contract in manifest_rows
+                        }
+                    )
+                ),
+                "selection_policy": (
+                    "release-manifest-series-v1" if selection_series else "legacy_unscoped"
+                ),
+                "selected_manifest_ids": sorted(selected_manifest_ids),
+            }
+            if manifest_rows
+            else None
+        ),
+        "contracts": [
+            {
+                "instrument_key": instrument.canonical_key,
+                "instrument_title": instrument.title,
+                "symbol": instrument.symbol,
+                "contract_code": manifest.contract_code,
+                "provider_symbol": (
+                    contract.provider_symbol if contract else manifest.source_symbol
+                ),
+                "instrument_id": (
+                    str(contract.id)
+                    if contract and contract.metadata_json.get("provider_instrument_id") is None
+                    else (
+                        str(contract.metadata_json.get("provider_instrument_id"))
+                        if contract
+                        else None
+                    )
+                ),
+                "dataset": manifest.dataset,
+                "expiry": (
+                    contract.expiry_date.isoformat() if contract and contract.expiry_date else None
+                ),
+                "first_notice": (
+                    str(contract.metadata_json.get("first_notice"))
+                    if contract and contract.metadata_json.get("first_notice")
+                    else None
+                ),
+                "last_trade": (
+                    contract.last_trade_date.isoformat()
+                    if contract and contract.last_trade_date
+                    else None
+                ),
+                "roll_status": manifest.roll_status,
+                "selection_rule": manifest.contract_selection_rule,
+            }
+            for manifest, instrument, contract in manifest_rows
+        ],
+        "analysis_market_input": (
+            {
+                "market_dataset_hash": run.market_dataset_hash,
+                "series": selection_series,
+            }
+            if run and selection_series
+            else None
+        ),
+        "data_mode": release.data_mode,
+        "reconciled": reconciliation_complete,
+        "reconciliation_status": reconciliation_status,
+        "reconciliation_notes": reconciliation_notes,
+        "reconciliation_summary": {
+            "expected_subject_count": len(expected_reconciliation_subjects),
+            "covered_subject_count": len(covered_reconciliation_subjects),
+            "comparison_record_count": len(reconciliations),
+            "missing_subject_ids": missing_reconciliation_subjects,
+            "partial_comparisons_are_complete": False,
+        },
+        "data_gaps": gaps,
+    }
+
+
 async def get_release_detail(
     engine: AsyncEngine,
     release_id: str,
 ) -> dict[str, object] | None:
-    await bootstrap_research_data(engine)
     factory = _factory(engine)
     async with factory() as session:
         try:
@@ -1823,6 +2613,7 @@ async def get_release_detail(
             if release.source_artifact_id
             else None
         )
+        data_provenance = await _release_data_provenance(session, release, artifact, run)
         return {
             "id": str(release.id),
             "release_key": release.release_key,
@@ -1837,6 +2628,7 @@ async def get_release_detail(
             "source_timezone": release.source_timezone,
             "status": release.status,
             "data_version": release.data_version,
+            "data_mode": run.data_mode if run else release.data_mode,
             "bundle": {
                 "classification": (run.composite_classification if run else bundle.classification),
                 "score": run.composite_surprise_score if run else bundle.score,
@@ -1906,6 +2698,7 @@ async def get_release_detail(
                 if artifact
                 else None
             ),
+            "data_provenance": data_provenance,
             "data_quality": [_quality_dict(item) for item in quality],
         }
 
@@ -1990,6 +2783,13 @@ async def get_release_windows(
                     "calendar_name": window.metadata_json.get("calendar"),
                     "calendar_precision": window.metadata_json.get("calendar_precision"),
                     "expected_tradable_bars": window.metadata_json.get("expected_tradable_bars"),
+                    "experimental": bool(window.metadata_json.get("experimental", False)),
+                    "limitations": list(window.metadata_json.get("limitations", [])),
+                    "manifest_ids": list(window.metadata_json.get("manifest_ids", [])),
+                    "dataset": window.metadata_json.get("dataset"),
+                    "schema_name": window.metadata_json.get("schema_name"),
+                    "contract_code": window.metadata_json.get("contract_code"),
+                    "futures_contract_id": window.metadata_json.get("futures_contract_id"),
                 }
             )
         reactions = (
@@ -2056,47 +2856,88 @@ async def get_release_timeline(
             return {"release_id": release_id, "stages": [], "series": {}}
         lower = min(_aware(item.scheduled_at) for item in stages) - timedelta(minutes=60)
         upper = max(_aware(item.scheduled_at) for item in stages) + timedelta(minutes=60)
-        rows = (
-            await session.execute(
-                select(MarketBar, MarketInstrument)
-                .join(MarketInstrument, MarketInstrument.id == MarketBar.instrument_id)
-                .where(
-                    MarketBar.timestamp >= lower,
-                    MarketBar.timestamp <= upper,
-                    MarketBar.interval_seconds == 60,
-                )
-                .order_by(MarketInstrument.canonical_key, MarketBar.timestamp)
-            )
-        ).all()
-        grouped: dict[str, list[tuple[MarketBar, MarketInstrument]]] = defaultdict(list)
-        for bar, instrument in rows:
-            grouped[instrument.canonical_key].append((bar, instrument))
-        series: dict[str, object] = {}
-        for key, items in grouped.items():
-            pre = [
-                bar
-                for bar, _instrument in items
-                if _aware(bar.timestamp) < lower + timedelta(minutes=60)
+        instruments = {
+            str(row.id): row
+            for row in (
+                await session.scalars(select(MarketInstrument).order_by(MarketInstrument.id))
+            ).all()
+        }
+        run = await _latest_run(session, release.id)
+        snapshots = (
+            [
+                item
+                for item in run.market_dataset_manifest_json
+                if isinstance(item, dict)
+                and item.get("selection_version") == "release-manifest-series-v1"
+                and item.get("interval_seconds") == 60
             ]
-            baseline = pre[-1].close_value if pre else items[0][0].close_value
-            instrument = items[0][1]
-            series[key] = {
+            if run
+            else []
+        )
+        if not snapshots:
+            live_selection = await select_release_market_data(session, release, list(stages))
+            snapshots = [
+                selected.snapshot(
+                    instrument_key=(
+                        instruments[str(selected.instrument_id)].canonical_key
+                        if str(selected.instrument_id) in instruments
+                        else str(selected.instrument_id)
+                    )
+                )
+                for (_instrument_id, interval), selected in live_selection.series.items()
+                if interval == 60
+            ]
+        series: dict[str, object] = {}
+        for snapshot in snapshots:
+            instrument = instruments.get(str(snapshot.get("instrument_id")))
+            if instrument is None:
+                continue
+            points = [
+                item
+                for item in snapshot.get("selected_bars", [])
+                if isinstance(item, dict)
+                and lower <= _aware(datetime.fromisoformat(str(item["timestamp"]))) <= upper
+            ]
+            if not points:
+                continue
+            points.sort(key=lambda item: str(item["timestamp"]))
+            pre = [
+                item
+                for item in points
+                if _aware(datetime.fromisoformat(str(item["timestamp"])))
+                < lower + timedelta(minutes=60)
+            ]
+            baseline = Decimal(str((pre[-1] if pre else points[0])["close"]))
+            series[instrument.canonical_key] = {
                 "title": instrument.title,
                 "symbol": instrument.symbol,
                 "is_proxy": instrument.is_proxy,
                 "proxy_for": instrument.proxy_for,
+                "provider_key": snapshot.get("provider_key"),
+                "contract_code": snapshot.get("contract_code"),
+                "manifest_ids": [
+                    item.get("manifest_id")
+                    for item in snapshot.get("manifests", [])
+                    if isinstance(item, dict)
+                ],
                 "points": [
                     {
-                        "timestamp": _aware(bar.timestamp).isoformat(),
-                        "value": _float(bar.close_value),
+                        "timestamp": str(item["timestamp"]),
+                        "value": _float(Decimal(str(item["close"]))),
                         "normalized_percent": (
-                            float((bar.close_value - baseline) / baseline * Decimal(100))
+                            float(
+                                (Decimal(str(item["close"])) - baseline) / baseline * Decimal(100)
+                            )
                             if baseline != 0
                             else None
                         ),
-                        "volume": _float(bar.volume),
+                        "volume": (
+                            _float(Decimal(str(item["volume"])))
+                            if item.get("volume") is not None
+                            else None
+                        ),
                     }
-                    for bar, _instrument in items
+                    for item in points
                 ],
             }
         return {
@@ -2125,9 +2966,27 @@ async def get_release_historical(
             release_uuid = uuid.UUID(release_id)
         except ValueError:
             return None
+        release = await session.get(MacroRelease, release_uuid)
+        if release is None:
+            return None
         run = await _latest_run(session, release_uuid)
         if run is None:
-            return None
+            return {
+                "release_id": release_id,
+                "analysis_run_id": None,
+                "mode": "not_analyzed",
+                "reliability": "unavailable",
+                "pre_filter_count": 0,
+                "post_filter_count": 0,
+                "filters": [],
+                "metrics": {},
+                "similar_cases": [],
+                "warning": (
+                    "No AnalysisRun exists for this release. Historical probabilities and "
+                    "percentiles are unavailable until eligible actual, consensus and market "
+                    "inputs have been analyzed."
+                ),
+            }
         return {
             "release_id": release_id,
             "analysis_run_id": str(run.id),
@@ -2370,6 +3229,7 @@ async def create_manual_release(
                 license_name=None,
                 citation_text=f"{source_name}: {source_url}",
                 is_fixture=False,
+                data_mode="observed",
                 metadata_json={"entry_mode": "manual"},
             )
         )
@@ -2411,6 +3271,7 @@ async def create_manual_release(
                 source_timezone=source_timezone,
                 status="released" if released_at else "scheduled",
                 data_version="manual-v1",
+                data_mode="observed",
                 source_artifact_id=artifact_id,
                 primary_quality_id=quality_id,
                 contamination_level=contamination_level,
@@ -2490,6 +3351,7 @@ async def create_manual_release(
                         valid_from=captured_at,
                         captured_at=captured_at,
                         is_initial=value_kind == "actual",
+                        data_mode="observed",
                         source_artifact_id=artifact_id,
                         quality_id=quality_id,
                         metadata_json={"entry_mode": "manual"},

@@ -3,8 +3,11 @@ import { api } from "../../api/client";
 import { CrossAssetChart } from "../../components/CrossAssetChart";
 import { Badge, Meter, Panel, StateMessage } from "../../components/Primitives";
 import type {
+  ContractProvenance,
   ExplanationsResponse,
   HistoricalResponse,
+  MarketDatasetProvenance,
+  ProvenanceSource,
   ReleaseDetail,
   ReleaseSummary,
   ResearchClaim,
@@ -41,6 +44,70 @@ function evidenceText(value: Record<string, unknown> | string) {
       value.unknown ??
       JSON.stringify(value),
   );
+}
+
+function instrumentPresentation(key: string, symbol: string, fallbackTitle: string) {
+  const normalizedKey = key.toLowerCase();
+  const normalizedSymbol = symbol.toUpperCase();
+  if (normalizedKey === "zt" || normalizedKey.endsWith("_zt") || /^ZT(?:$|[^A-Z]|[FGHJKMNQUVXZ]\d)/.test(normalizedSymbol)) {
+    return {
+      title: "2年期美债期货价格",
+      note: "ZT · 现金收益率代理",
+      isProxy: true,
+    };
+  }
+  if (normalizedKey === "zn" || normalizedKey.endsWith("_zn") || /^ZN(?:$|[^A-Z]|[FGHJKMNQUVXZ]\d)/.test(normalizedSymbol)) {
+    return {
+      title: "10年期美债期货价格",
+      note: "ZN · 现金收益率代理",
+      isProxy: true,
+    };
+  }
+  if (normalizedKey === "dx" || normalizedKey.endsWith("_dx") || /^DX(?!Y)(?:$|[^A-Z]|[FGHJKMNQUVXZ]\d)/.test(normalizedSymbol)) {
+    return {
+      title: "美元指数期货",
+      note: "DX · ICE Futures US，非现货 DXY",
+      isProxy: false,
+    };
+  }
+  if (normalizedKey === "vx" || normalizedKey.endsWith("_vx") || /^VX(?:$|[^A-Z]|[FGHJKMNQUVXZ]\d)/.test(normalizedSymbol)) {
+    return {
+      title: "波动率期货",
+      note: "VX · CFE，代表波动率预期而非现货 VIX",
+      isProxy: false,
+    };
+  }
+  return { title: fallbackTitle, note: symbol, isProxy: false };
+}
+
+function sourceTitle(source: ProvenanceSource | string | null | undefined, fallback = "未返回") {
+  if (!source) return fallback;
+  if (typeof source === "string") return source;
+  return source.display_name ?? source.source_name ?? source.provider_key ?? fallback;
+}
+
+function sourceMeta(source: ProvenanceSource | string | null | undefined) {
+  if (!source || typeof source === "string") return null;
+  return source.snapshot_id ?? source.artifact_id ?? source.content_hash?.slice(0, 12) ?? null;
+}
+
+function datasetTitle(dataset: MarketDatasetProvenance | string | null | undefined) {
+  if (!dataset) return "数据集未返回";
+  if (typeof dataset === "string") return dataset;
+  return [dataset.provider_key, dataset.dataset, dataset.schema].filter(Boolean).join(" · ") || "数据集未返回";
+}
+
+function reconciliationText(
+  status: string | null | undefined,
+  expected = 0,
+  covered = 0,
+) {
+  if (status === "complete" || status === "matched") return `完整对账 ${covered} / ${expected}`;
+  if (status === "partial") return `仅部分对账 ${covered} / ${expected}，不能视为完整`;
+  if (status === "attention_required") return `已对账 ${covered} / ${expected}，但存在差异或未解决检查`;
+  if (status === "not_applicable") return "当前发布没有需要执行的对账对象";
+  if (status === "not_run") return `尚未对账 0 / ${expected}`;
+  return "对账状态未返回";
 }
 
 export function EventLabWorkspace({
@@ -100,19 +167,43 @@ export function EventLabWorkspace({
     () =>
       Array.from(
         new Map(
-          selectedWindows.map((item) => [
-            item.instrument_key,
-            {
-              key: item.instrument_key,
-              title: item.instrument_title,
-              symbol: item.symbol,
-              isProxy: item.is_proxy,
-            },
-          ]),
+          selectedWindows.map((item) => {
+            const presentation = instrumentPresentation(item.instrument_key, item.symbol, item.instrument_title);
+            return [
+              item.instrument_key,
+              {
+                key: item.instrument_key,
+                title: presentation.title,
+                symbol: item.symbol,
+                note: presentation.note,
+                isProxy: presentation.isProxy || item.is_proxy,
+              },
+            ] as const;
+          }),
         ).values(),
       ),
     [selectedWindows],
   );
+  const presentationTimeline = useMemo(() => {
+    if (!data) return null;
+    return {
+      ...data.timeline,
+      series: Object.fromEntries(
+        Object.entries(data.timeline.series).map(([key, series]) => {
+          const presentation = instrumentPresentation(key, series.symbol, series.title);
+          return [
+            key,
+            {
+              ...series,
+              title: presentation.title,
+              is_proxy: presentation.isProxy || series.is_proxy,
+              proxy_for: presentation.isProxy ? presentation.note : series.proxy_for,
+            },
+          ];
+        }),
+      ),
+    } satisfies TimelineResponse;
+  }, [data]);
 
   if (!release) {
     return <StateMessage title="还没有可研究的事件" detail="先导入或建立一场宏观发布。" />;
@@ -129,6 +220,42 @@ export function EventLabWorkspace({
   const { detail, timeline, historical, explanations, claims } = data;
   const confidence = detail.latest_analysis?.confidence ?? explanations.confidence ?? 0;
   const runId = detail.latest_analysis?.id ?? "—";
+  const provenance = detail.data_provenance;
+  const dataMode = provenance?.data_mode ?? detail.data_mode ?? (detail.source?.is_fixture ? "fixture" : "unknown");
+  const consensusSources = Array.from(
+    new Set(Object.values(detail.values).map((item) => item.consensus_source).filter((item): item is string => Boolean(item))),
+  );
+  const consensusCapturedAt =
+    provenance?.consensus_captured_at ??
+    Object.values(detail.values).map((item) => item.consensus_captured_at).filter((item): item is string => Boolean(item)).sort().at(-1) ??
+    null;
+  const officialSource = provenance?.official_source ?? detail.source?.provider_key ?? null;
+  const consensusSource = provenance?.consensus_source ?? (consensusSources.join(" / ") || null);
+  const marketContracts: ContractProvenance[] = provenance?.contracts?.length
+    ? provenance.contracts
+    : Array.from(
+        new Map(
+          data.windows.items.map((item) => [
+            item.instrument_key,
+            {
+              instrument_key: item.instrument_key,
+              instrument_title: item.instrument_title,
+              symbol: item.symbol,
+              contract_code: item.contract_code ?? null,
+              dataset: item.dataset ?? null,
+            },
+          ]),
+        ).values(),
+      );
+  const provenanceGaps = Array.from(
+    new Set([...(provenance?.data_gaps ?? []), ...(detail.latest_analysis?.data_gaps ?? [])]),
+  );
+  const reconciliationSummary = provenance?.reconciliation_summary;
+  const reconciliationCopy = reconciliationText(
+    provenance?.reconciliation_status,
+    reconciliationSummary?.expected_subject_count ?? 0,
+    reconciliationSummary?.covered_subject_count ?? 0,
+  );
 
   const askAssistant = async () => {
     setAssistantBusy(true);
@@ -154,7 +281,10 @@ export function EventLabWorkspace({
           <h1>{detail.title}</h1>
           <p class="event-hero__classification">{detail.bundle.classification}</p>
           <div class="badge-row">
-            {detail.source?.is_fixture ? <Badge tone="warn">FIXTURE 演示数据</Badge> : null}
+            <Badge tone={dataMode === "observed" ? "good" : dataMode === "fixture" ? "warn" : "neutral"}>
+              DATA MODE · {dataMode.toUpperCase()}
+            </Badge>
+            {dataMode === "fixture" ? <Badge tone="warn">FIXTURE 演示数据</Badge> : null}
             <Badge tone={detail.contamination.clean_window ? "good" : "bad"}>
               {detail.contamination.clean_window ? "清洁事件窗口" : "窗口受到污染"}
             </Badge>
@@ -208,13 +338,68 @@ export function EventLabWorkspace({
                 <div><dt>Z-score</dt><dd>{value.surprise?.surprise_z == null ? "历史样本不足，未计算 Z-score" : number(value.surprise.surprise_z)}</dd></div>
                 <div><dt>历史样本</dt><dd>{value.surprise?.history_sample_count ?? "—"}</dd></div>
               </dl>
-              <p>共识快照：{value.consensus_captured_at ? new Date(value.consensus_captured_at).toLocaleString("zh-CN") : "缺失"}</p>
+              <p>共识：{value.consensus_source ?? "来源缺失"} · {value.consensus_captured_at ? new Date(value.consensus_captured_at).toLocaleString("zh-CN") : "快照时间缺失"}</p>
             </article>
           ))}
         </div>
         <div class="reason-strip">
           {detail.bundle.reasons.map((reason) => <span key={reason}>{reason}</span>)}
         </div>
+      </Panel>
+
+      <Panel title="数据血缘与合约快照" eyebrow="OFFICIAL → PIT CONSENSUS → MARKET DATA">
+        <div class="lineage-grid">
+          <article>
+            <span>官方 Actual / Revision</span>
+            <strong>{sourceTitle(officialSource, "官方来源未返回")}</strong>
+            <p>{sourceMeta(officialSource) ? `快照 ${sourceMeta(officialSource)}` : detail.source?.content_hash ? `Artifact ${detail.source.content_hash.slice(0, 12)}` : "尚无SourceArtifact快照信息"}</p>
+          </article>
+          <article>
+            <span>事件前 PIT Consensus</span>
+            <strong>{sourceTitle(consensusSource, "共识来源未配置")}</strong>
+            <p>{consensusCapturedAt ? new Date(consensusCapturedAt).toLocaleString("zh-CN") : "合格快照时间缺失"}{sourceMeta(consensusSource) ? ` · 快照 ${sourceMeta(consensusSource)}` : ""}</p>
+          </article>
+          <article>
+            <span>市场数据集</span>
+            <strong>{datasetTitle(provenance?.market_dataset)}</strong>
+            <p>{typeof provenance?.market_dataset === "object" && provenance.market_dataset?.manifest_hash ? `Manifest ${provenance.market_dataset.manifest_hash.slice(0, 12)}` : "逐合约信息见下表"}</p>
+          </article>
+          <article>
+            <span>模式 / 对账</span>
+            <strong>{dataMode}</strong>
+            <p>{reconciliationCopy}</p>
+          </article>
+        </div>
+
+        {marketContracts.length ? (
+          <div class="table-wrap contract-table-wrap">
+            <table class="contract-table">
+              <thead><tr><th>资产定义</th><th>实际合约</th><th>Provider Symbol</th><th>Dataset</th><th>到期 / Roll</th></tr></thead>
+              <tbody>
+                {marketContracts.map((contract) => {
+                  const presentation = instrumentPresentation(contract.instrument_key, contract.symbol ?? "", contract.instrument_title ?? contract.instrument_key);
+                  return (
+                    <tr key={`${contract.instrument_key}:${contract.contract_code ?? "none"}`}>
+                      <td><strong>{presentation.title}</strong><span>{presentation.note}</span></td>
+                      <td><strong>{contract.contract_code ?? "合约未返回"}</strong><span>{contract.selection_rule ?? "选择规则未返回"}</span></td>
+                      <td>{contract.provider_symbol ?? "—"}</td>
+                      <td>{contract.dataset ?? (typeof provenance?.market_dataset === "object" ? provenance.market_dataset?.dataset : provenance?.market_dataset) ?? "—"}</td>
+                      <td>{contract.expiry ?? contract.last_trade ?? "—"}<span>{contract.roll_status ?? "roll状态未返回"}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div class="empty-panel"><strong>合约快照尚未返回</strong><p>当前分析仍可查看，但不能据此确认具体合约或roll状态。</p></div>
+        )}
+
+        <div class="semantic-disclosure">
+          <p><strong>DX / VX：</strong>均为期货。DX代表美元指数期货，VX代表波动率预期，不是现货DXY或现货VIX。</p>
+          <p><strong>ZT / ZN：</strong>显示美债期货价格变化，只作为现金收益率的代理；这里不输出伪精确的收益率bp变化。</p>
+        </div>
+        {provenanceGaps.length ? <div class="data-gap-strip"><strong>数据缺口</strong>{provenanceGaps.map((gap) => <span key={gap}>{gap}</span>)}</div> : null}
       </Panel>
 
       <div class="two-column">
@@ -256,7 +441,7 @@ export function EventLabWorkspace({
             </button>
           ))}
         </div>
-        <CrossAssetChart timeline={timeline} />
+        <CrossAssetChart timeline={presentationTimeline ?? timeline} />
       </Panel>
 
       <Panel title="多窗口反应矩阵" eyebrow="EVENT WINDOWS">
@@ -276,7 +461,7 @@ export function EventLabWorkspace({
                 <tr key={instrument.key}>
                   <td>
                     <strong>{instrument.title}</strong>
-                    <span>{instrument.symbol} {instrument.isProxy ? "· 代理" : ""}</span>
+                    <span>{instrument.note} {instrument.isProxy ? "· 代理" : ""}</span>
                   </td>
                   {WINDOW_ORDER.map((key) => {
                     const item = windowMap.get(`${instrument.key}:${key}`);

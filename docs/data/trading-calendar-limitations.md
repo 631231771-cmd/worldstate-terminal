@@ -14,3 +14,9 @@ experimental. Product-specific settlement times, every exchange notice,
 weather/emergency closures and licensed expiry/roll schedules are not complete.
 The API and Event Lab therefore label the calendar name, `exchange_session_lite`
 precision, expected tradable bars and coverage with every window.
+
+Short event windows use one-minute bars. T+1/T+5/session horizons use a daily or
+provider-declared session-close observation only. Databento `ohlcv-1d` is a
+UTC-day aggregate and is therefore disclosed as an experimental grade-C proxy,
+not an exchange settlement/close. If daily semantics cannot be established, the
+window remains unavailable rather than falling back to the last arbitrary bar.

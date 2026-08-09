@@ -20,8 +20,9 @@ def derive_regime(
     bundle_direction: str,
     surprise_score: float | None,
     returns: dict[str, float | None],
+    macro_context: dict[str, object] | None = None,
 ) -> RegimeResult:
-    """Produce explicit, intentionally limited event-time regime dimensions."""
+    """Derive a pre-event regime without leaking the event's later market outcome."""
     dimensions = {
         "inflation_regime": "unknown",
         "growth_regime": "unknown",
@@ -33,91 +34,110 @@ def derive_regime(
     }
     labels: list[str] = []
     evidence: list[dict[str, object]] = []
-    if release_type == "US_CPI":
-        value = (
-            "rising_or_hot"
-            if bundle_direction == "hot"
-            else "falling_or_cool"
-            if bundle_direction == "cold"
-            else "mixed"
+    context = macro_context or {}
+
+    def numeric(key: str) -> float | None:
+        value = context.get(key)
+        return float(value) if isinstance(value, int | float) else None
+
+    two_year = numeric("two_year_yield")
+    two_year_change = numeric("two_year_yield_change_20")
+    ten_year = numeric("ten_year_yield")
+    if two_year is not None:
+        policy = (
+            "high_and_rising"
+            if two_year >= 4 and (two_year_change or 0) >= 0.20
+            else "high_but_easing"
+            if two_year >= 4 and (two_year_change or 0) <= -0.20
+            else "easing"
+            if (two_year_change or 0) <= -0.20
+            else "stable_or_mixed"
         )
-        dimensions["inflation_regime"] = value
-        labels.append(f"inflation:{value}")
+        dimensions["monetary_policy_regime"] = policy
+        labels.append(f"policy:{policy}")
         evidence.append(
             {
-                "rule": "latest_cpi_bundle",
-                "dimension": "inflation_regime",
-                "value": value,
-                "surprise": surprise_score,
-            }
-        )
-    elif release_type == "US_NFP":
-        value = (
-            "accelerating_or_strong"
-            if bundle_direction == "hot"
-            else "slowing_or_weak"
-            if bundle_direction == "cold"
-            else "mixed"
-        )
-        dimensions["growth_regime"] = value
-        labels.append(f"growth:{value}")
-        evidence.append(
-            {
-                "rule": "latest_nfp_bundle",
-                "dimension": "growth_regime",
-                "value": value,
-                "surprise": surprise_score,
-            }
-        )
-    else:
-        value = (
-            "high_for_longer_or_hawkish"
-            if bundle_direction == "hot"
-            else "easing_expectations_or_dovish"
-            if bundle_direction == "cold"
-            else "mixed"
-        )
-        dimensions["monetary_policy_regime"] = value
-        labels.append(f"policy:{value}")
-        evidence.append(
-            {
-                "rule": "latest_fomc_bundle",
+                "rule": "pre_event_two_year_yield_level_and_20_observation_change",
                 "dimension": "monetary_policy_regime",
-                "value": value,
-                "surprise": surprise_score,
+                "value": policy,
+                "level": two_year,
+                "change_20": two_year_change,
+                "point_in_time": True,
             }
         )
-    dollar = returns.get("dollar_dxy:post_5m")
-    if dollar is not None:
-        value = "strong" if dollar > 0.05 else "weak" if dollar < -0.05 else "mixed"
+    if two_year is not None and ten_year is not None:
+        curve = ten_year - two_year
+        growth = (
+            "inverted_slowdown_risk"
+            if curve < 0
+            else "positive_curve"
+            if curve > 0.75
+            else "flat_or_mixed"
+        )
+        dimensions["growth_regime"] = growth
+        labels.append(f"growth:{growth}")
+        evidence.append(
+            {
+                "rule": "pre_event_ten_year_minus_two_year_curve",
+                "dimension": "growth_regime",
+                "value": growth,
+                "curve_percentage_points": curve,
+                "point_in_time": True,
+            }
+        )
+
+    real_yield = numeric("ten_year_real_yield")
+    if real_yield is not None:
+        value = "high" if real_yield >= 1.5 else "low" if real_yield <= 0.5 else "moderate"
+        dimensions["real_yield_regime"] = value
+        labels.append(f"real_yield:{value}")
+        evidence.append(
+            {
+                "rule": "pre_event_ten_year_real_yield_level",
+                "dimension": "real_yield_regime",
+                "value": value,
+                "level": real_yield,
+                "point_in_time": True,
+            }
+        )
+
+    dollar_change = numeric("broad_dollar_index_change_20_percent")
+    if dollar_change is not None:
+        value = "strong" if dollar_change >= 1 else "weak" if dollar_change <= -1 else "mixed"
         dimensions["dollar_regime"] = value
         labels.append(f"dollar:{value}")
         evidence.append(
             {
-                "rule": "dxy_5m",
+                "rule": "pre_event_broad_dollar_20_observation_change",
                 "dimension": "dollar_regime",
                 "value": value,
-                "return_percent": dollar,
+                "change_percent": dollar_change,
+                "point_in_time": True,
             }
         )
-    equity, vix = returns.get("sp500_es:post_5m"), returns.get("vix:post_5m")
-    if equity is not None and vix is not None:
-        risk = (
-            "risk_on"
-            if equity > 0 and vix < 0
-            else "risk_off"
-            if equity < 0 and vix > 0
-            else "mixed"
-        )
+
+    vix = numeric("vix_close")
+    if vix is not None:
+        volatility = "high" if vix >= 25 else "low" if vix <= 15 else "moderate"
+        risk = "risk_off" if vix >= 25 else "risk_on" if vix <= 15 else "mixed"
         dimensions["risk_regime"] = risk
-        dimensions["volatility_regime"] = "high" if abs(vix) >= 2 else "low"
-        labels.extend((f"risk:{risk}", f"volatility:{dimensions['volatility_regime']}"))
+        dimensions["volatility_regime"] = volatility
+        labels.extend((f"risk:{risk}", f"volatility:{volatility}"))
         evidence.append(
             {
-                "rule": "es_vix_confirmation",
-                "risk": risk,
-                "vix_return_percent": vix,
-                "es_return_percent": equity,
+                "rule": "pre_event_vix_close_level",
+                "risk_regime": risk,
+                "volatility_regime": volatility,
+                "vix_close": vix,
+                "point_in_time": True,
+            }
+        )
+    if returns:
+        evidence.append(
+            {
+                "rule": "outcome_leakage_guard",
+                "excluded_dimensions": sorted(returns),
+                "note": "Post-event returns are excluded from regime classification.",
             }
         )
     gaps = tuple(
@@ -125,5 +145,5 @@ def derive_regime(
         for key, value in dimensions.items()
         if value == "unknown"
     )
-    confidence = min(0.85, 0.35 + 0.12 * len(evidence))
+    confidence = min(0.85, 0.15 + 0.12 * sum("dimension" in item for item in evidence))
     return RegimeResult(tuple(labels), dimensions, tuple(evidence), confidence, gaps)

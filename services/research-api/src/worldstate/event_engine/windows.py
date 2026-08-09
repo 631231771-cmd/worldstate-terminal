@@ -34,6 +34,8 @@ WINDOW_SPECS = (
     WindowSpec("next_close", "下一交易日收盘", 0, 113400, True),
     WindowSpec("day_5_close", "五个交易日后收盘", 0, 545400, True),
 )
+MINUTE_WINDOW_SPECS = tuple(spec for spec in WINDOW_SPECS if not spec.session_based)
+SESSION_CLOSE_WINDOW_SPECS = tuple(spec for spec in WINDOW_SPECS if spec.session_based)
 
 _MIN_SIGNIFICANCE_PERCENT = {
     "gold_gc": 0.04,
@@ -234,6 +236,12 @@ def calculate_event_windows(
         )
         for spec in specs
     ]
+    return apply_direction_reversals(calculated)
+
+
+def apply_direction_reversals(calculated: list[ComputedWindow]) -> list[ComputedWindow]:
+    """Apply one shared short-response anchor across minute and long windows."""
+
     anchor = next(
         (
             item
@@ -258,6 +266,214 @@ def calculate_event_windows(
         )
         for row in calculated
     ]
+
+
+def _missing_session_window(
+    *,
+    release_at: datetime,
+    spec: WindowSpec,
+    instrument_key: str | None,
+    source_grade: str,
+    reason: str,
+    limitations: tuple[str, ...],
+    experimental: bool,
+    calendar_precision: str,
+) -> ComputedWindow:
+    end_at = resolve_session_window_end(release_at, spec.key, instrument_key)
+    return ComputedWindow(
+        key=spec.key,
+        label=spec.label,
+        start_at=release_at,
+        end_at=end_at,
+        start_value=None,
+        end_value=None,
+        change_absolute=None,
+        return_percent=None,
+        max_up_percent=None,
+        max_down_percent=None,
+        realized_volatility=None,
+        volume_change_percent=None,
+        coverage_ratio=0.0,
+        direction="missing",
+        spike_fade=False,
+        dip_recovery=False,
+        direction_reversal=False,
+        granularity_seconds=86_400,
+        quality_grade="D" if source_grade != "UNKNOWN" else "UNKNOWN",
+        missing_reason=reason,
+        calendar_name=calendar_for_instrument(instrument_key),
+        calendar_precision=calendar_precision,
+        expected_tradable_bars={"us_cash_close": 1, "next_close": 2, "day_5_close": 6}[
+            spec.key
+        ],
+        experimental=experimental,
+        limitations=limitations,
+    )
+
+
+def calculate_session_close_windows(
+    bars: list[MarketBarRecord],
+    *,
+    release_at: datetime,
+    source_grade: str,
+    instrument_key: str | None,
+    session_close_semantics: str,
+    limitations: tuple[str, ...] = (),
+    specs: tuple[WindowSpec, ...] = SESSION_CLOSE_WINDOW_SPECS,
+) -> list[ComputedWindow]:
+    """Calculate close horizons from event-linked daily/session-close observations.
+
+    Databento ``ohlcv-1d`` bars are UTC-day aggregates. They may provide an
+    explicitly experimental horizon proxy, but never an exchange settlement.
+    """
+
+    ordered = sorted(bars, key=lambda item: item.timestamp)
+    if not ordered:
+        return [
+            _missing_session_window(
+                release_at=release_at,
+                spec=spec,
+                instrument_key=instrument_key,
+                source_grade=source_grade,
+                reason="event_linked_daily_or_session_close_bars_unavailable",
+                limitations=(
+                    *limitations,
+                    "No release-linked daily or provider-declared session-close series was "
+                    "available for this long window.",
+                ),
+                experimental=False,
+                calendar_precision="unavailable",
+            )
+            for spec in specs
+        ]
+    if session_close_semantics not in {"exchange_session_close", "utc_day"}:
+        return [
+            _missing_session_window(
+                release_at=release_at,
+                spec=spec,
+                instrument_key=instrument_key,
+                source_grade=source_grade,
+                reason="daily_boundary_semantics_unverified",
+                limitations=(
+                    *limitations,
+                    "Daily timestamps do not declare exchange session-close or UTC-day "
+                    "semantics, so long-window returns were not calculated.",
+                ),
+                experimental=False,
+                calendar_precision="unverified_daily_boundary",
+            )
+            for spec in specs
+        ]
+
+    experimental = session_close_semantics == "utc_day"
+    boundary_limitation = (
+        "UTC-day OHLC is only an experimental long-horizon proxy; it is not an exchange "
+        "settlement or session-close price."
+    )
+    effective_limitations = (
+        (*limitations, boundary_limitation) if experimental else limitations
+    )
+    if experimental:
+        baseline_rows = [bar for bar in ordered if bar.timestamp.date() < release_at.date()]
+    else:
+        baseline_rows = [bar for bar in ordered if bar.timestamp < release_at]
+    baseline = baseline_rows[-1] if baseline_rows else None
+    output: list[ComputedWindow] = []
+    expected_by_key = {"us_cash_close": 1, "next_close": 2, "day_5_close": 6}
+    for spec in specs:
+        end_at = resolve_session_window_end(release_at, spec.key, instrument_key)
+        if experimental:
+            sample = [
+                bar
+                for bar in ordered
+                if release_at.date() <= bar.timestamp.date() <= end_at.date()
+            ]
+            target_rows = [bar for bar in sample if bar.timestamp.date() == end_at.date()]
+        else:
+            sample = [bar for bar in ordered if release_at <= bar.timestamp <= end_at]
+            target_rows = [bar for bar in sample if bar.timestamp.date() == end_at.date()]
+        expected = expected_by_key[spec.key]
+        coverage = min(1.0, len(sample) / expected)
+        if baseline is None or not sample or not target_rows:
+            output.append(
+                _missing_session_window(
+                    release_at=release_at,
+                    spec=spec,
+                    instrument_key=instrument_key,
+                    source_grade=source_grade,
+                    reason="long_window_baseline_or_target_bar_missing",
+                    limitations=effective_limitations,
+                    experimental=experimental,
+                    calendar_precision=(
+                        "experimental_utc_day"
+                        if experimental
+                        else "provider_session_close"
+                    ),
+                )
+            )
+            continue
+        start_value = baseline.close_value
+        end_value = target_rows[-1].close_value
+        return_percent = _percent_change(end_value, start_value)
+        high_returns = [
+            value
+            for bar in sample
+            if (value := _percent_change(bar.high_value, start_value)) is not None
+        ]
+        low_returns = [
+            value
+            for bar in sample
+            if (value := _percent_change(bar.low_value, start_value)) is not None
+        ]
+        path = [start_value, *(bar.close_value for bar in sample)]
+        returns = _log_returns(path)
+        realized = (
+            pstdev(returns) * math.sqrt(len(returns)) * 100
+            if len(returns) >= 2
+            else 0.0
+        )
+        grade = _quality_for_coverage(source_grade, coverage)
+        if experimental and grade in {"A", "B"}:
+            grade = "C"
+        missing_reason = (
+            "experimental_utc_day_boundary_not_exchange_settlement"
+            if experimental
+            else "incomplete_session_close_coverage"
+            if coverage < 0.8
+            else None
+        )
+        output.append(
+            ComputedWindow(
+                key=spec.key,
+                label=spec.label,
+                start_at=release_at,
+                end_at=end_at,
+                start_value=start_value,
+                end_value=end_value,
+                change_absolute=end_value - start_value,
+                return_percent=return_percent,
+                max_up_percent=max(high_returns) if high_returns else None,
+                max_down_percent=min(low_returns) if low_returns else None,
+                realized_volatility=realized,
+                volume_change_percent=None,
+                coverage_ratio=coverage,
+                direction=_direction(return_percent),
+                spike_fade=False,
+                dip_recovery=False,
+                direction_reversal=False,
+                granularity_seconds=86_400,
+                quality_grade=grade,
+                missing_reason=missing_reason,
+                calendar_name=calendar_for_instrument(instrument_key),
+                calendar_precision=(
+                    "experimental_utc_day" if experimental else "provider_session_close"
+                ),
+                expected_tradable_bars=expected,
+                experimental=experimental,
+                limitations=effective_limitations,
+            )
+        )
+    return output
 
 
 def detect_earliest_reaction(

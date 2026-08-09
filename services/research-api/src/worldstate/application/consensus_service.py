@@ -51,6 +51,7 @@ async def append_consensus(
             captured_at=_aware(captured_at),
             quality_grade=quality_grade,
             is_manual=is_manual,
+            data_mode=release.data_mode,
             verification_notes=verification_notes,
             source_artifact_id=None,
             quality_id=None,

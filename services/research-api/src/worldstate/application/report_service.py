@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from worldstate.application.analysis_orchestrator import _factory, _latest_run
-from worldstate.db.models import Explanation, ReportArtifact
+from worldstate.db.models import Explanation, MacroRelease, ReportArtifact
 
 
 async def get_release_explanations(
@@ -20,9 +20,33 @@ async def get_release_explanations(
             release_uuid = uuid.UUID(release_id)
         except ValueError:
             return None
+        release = await session.get(MacroRelease, release_uuid)
+        if release is None:
+            return None
         run = await _latest_run(session, release_uuid)
         if run is None:
-            return None
+            return {
+                "release_id": release_id,
+                "analysis_run_id": None,
+                "facts": [],
+                "explanations": [],
+                "confidence": 0.0,
+                "data_gaps": [
+                    (
+                        "No AnalysisRun exists for this release; evidence-bounded explanations "
+                        "remain unavailable until eligible inputs are present and analyzed."
+                    )
+                ],
+                "report": (
+                    "尚未生成事件复盘：当前发布尚无可重放的 AnalysisRun。请先补齐合格的实际值、"
+                    "T0 前共识与事件关联行情，再运行分析。"
+                ),
+                "report_validation": {
+                    "valid": True,
+                    "mode": "deterministic_pending_analysis",
+                    "claims_validated": 0,
+                },
+            }
         explanations = (
             await session.scalars(
                 select(Explanation)

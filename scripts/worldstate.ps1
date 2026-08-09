@@ -1,7 +1,9 @@
 param(
-    [ValidateSet("launch", "start", "stop", "restart", "status", "doctor", "logs", "migrate", "bootstrap", "build")]
+    [ValidateSet("launch", "start", "stop", "restart", "status", "doctor", "logs", "migrate", "bootstrap", "build", "data-doctor", "sync-official", "sync-calendar", "snapshot-consensus", "estimate-backfill", "backfill", "sync-market", "reconcile-data", "data-status")]
     [string]$Command = "start",
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$CommandArgs = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,15 +89,23 @@ function Get-WorldStateHealth {
 
 function Ensure-Config {
     Ensure-Runtime
-    if (Test-Path -LiteralPath $ConfigPath) { return }
     $databaseUrl = "sqlite+aiosqlite:///$($DatabasePath.Replace('\', '/'))"
-    $lines = @(
+    $defaults = @(
         "# WorldState Macro Research Terminal local configuration"
         "WORLDSTATE_DATABASE_URL=$databaseUrl"
         "WORLDSTATE_API_URL=http://127.0.0.1:8000"
         "WORLDSTATE_DEFAULT_LOCALE=zh-CN"
         "WORLDSTATE_DEFAULT_TIMEZONE=Asia/Shanghai"
         "WORLDSTATE_STRICT_POINT_IN_TIME=true"
+        "WORLDSTATE_DATA_START_DATE=2015-01-01"
+        "WORLDSTATE_MARKET_INTRADAY_PRE_MINUTES=90"
+        "WORLDSTATE_MARKET_INTRADAY_POST_MINUTES=240"
+        "WORLDSTATE_MARKET_DAILY_PRE_DAYS=5"
+        "WORLDSTATE_MARKET_DAILY_POST_DAYS=5"
+        "WORLDSTATE_DATABENTO_MAX_ESTIMATED_COST_USD=0"
+        "WORLDSTATE_ALLOW_PAID_DOWNLOAD=false"
+        "WORLDSTATE_DEMO_MODE=false"
+        "WORLDSTATE_SCHEDULER_ENABLED=true"
         "WORLDSTATE_AI_PROVIDER=auto"
         "WORLDSTATE_AI_MODEL=gpt-5.6-sol"
         "WORLDSTATE_AI_BASE_URL=https://api.openai.com/v1"
@@ -103,9 +113,37 @@ function Ensure-Config {
         "OLLAMA_BASE_URL="
         "WORLDSTATE_OLLAMA_MODEL=qwen3:8b"
         "FRED_API_KEY="
+        "BLS_API_KEY="
+        "TRADING_ECONOMICS_API_KEY="
+        "WORLDSTATE_TRADING_ECONOMICS_PIT_ENTITLED=false"
+        "DATABENTO_API_KEY="
     )
-    Set-Content -LiteralPath $ConfigPath -Value $lines -Encoding UTF8
-    Write-WorldState "Created local configuration: .runtime\worldstate.env" Green
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        Set-Content -LiteralPath $ConfigPath -Value $defaults -Encoding UTF8
+        Write-WorldState "Created local configuration: .runtime\worldstate.env" Green
+        return
+    }
+    $existing = @(Get-Content -LiteralPath $ConfigPath)
+    $knownKeys = [System.Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($line in $existing) {
+        $trimmed = $line.Trim()
+        if ($trimmed -and -not $trimmed.StartsWith("#") -and $trimmed.Contains("=")) {
+            [void]$knownKeys.Add($trimmed.Split("=", 2)[0].Trim())
+        }
+    }
+    $missing = @(
+        $defaults | Where-Object {
+            $_ -and -not $_.StartsWith("#") -and
+            -not $knownKeys.Contains($_.Split("=", 2)[0].Trim())
+        }
+    )
+    if ($missing.Count -gt 0) {
+        Add-Content -LiteralPath $ConfigPath -Value @("", "# v0.5 data foundation", $missing) `
+            -Encoding UTF8
+        Write-WorldState "Added missing v0.5 settings to local configuration." Green
+    }
 }
 
 function Import-Config {
@@ -152,6 +190,20 @@ function Invoke-Migration {
         if ($LASTEXITCODE -ne 0) { throw "Database migration failed." }
     }
     finally { Pop-Location }
+}
+
+function Invoke-DataCommand {
+    Invoke-Migration
+    Push-Location $ServiceRoot
+    try {
+        & $ServicePython -m worldstate.cli $Command @CommandArgs
+        $dataExitCode = $LASTEXITCODE
+    }
+    finally { Pop-Location }
+    if ($dataExitCode -ne 0) {
+        Write-WorldState "Data command '$Command' did not complete (exit $dataExitCode)." Yellow
+        exit $dataExitCode
+    }
 }
 
 function Get-PidPath {
@@ -393,4 +445,15 @@ switch ($Command) {
         Write-WorldState "Terminal UI files: $(Test-Path (Join-Path $UiRoot 'package.json'))"
         Show-Status
     }
+    { $_ -in @(
+        "data-doctor",
+        "sync-official",
+        "sync-calendar",
+        "snapshot-consensus",
+        "estimate-backfill",
+        "backfill",
+        "sync-market",
+        "reconcile-data",
+        "data-status"
+    ) } { Invoke-DataCommand }
 }

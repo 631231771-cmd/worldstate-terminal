@@ -1,4 +1,9 @@
 import type {
+  BackfillEstimate,
+  BackfillJob,
+  BackfillRequest,
+  DataCoverageResponse,
+  DataProvidersResponse,
   ExplanationsResponse,
   HistoricalResponse,
   Instrument,
@@ -12,7 +17,11 @@ import type {
 const configuredBase = import.meta.env.VITE_RESEARCH_API_URL as string | undefined;
 export const API_BASE = configuredBase?.replace(/\/$/, "") ?? "";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  acceptedErrorStatuses: readonly number[] = [],
+): Promise<T> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 15_000);
   try {
@@ -24,7 +33,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         ...init?.headers,
       },
     });
-    if (!response.ok) {
+    if (!response.ok && !acceptedErrorStatuses.includes(response.status)) {
       const detail = await response.text();
       throw new Error(detail || `HTTP ${response.status}`);
     }
@@ -33,6 +42,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     window.clearTimeout(timeout);
   }
 }
+
+const PROVIDER_NAMES: Record<string, string> = {
+  fred_alfred: "FRED / ALFRED",
+  bls_official: "BLS",
+  federal_reserve_fomc: "Federal Reserve",
+  trading_economics_consensus: "Trading Economics",
+  databento_market: "Databento",
+};
 
 export const api = {
   health: () =>
@@ -64,6 +81,60 @@ export const api = {
   instruments: () => request<Instrument[]>("/v2/instruments"),
   dataQuality: () => request<Record<string, unknown>>("/v2/data-quality"),
   providerRuns: () => request<Array<Record<string, unknown>>>("/v2/provider-runs"),
+  dataProviders: async (): Promise<DataProvidersResponse> => {
+    try {
+      return await request<DataProvidersResponse>("/v2/data/providers");
+    } catch {
+      const legacy = await request<{
+        items: Array<{
+          provider_key: string;
+          latest_status?: string | null;
+          latest_completed_at?: string | null;
+          quality_grade?: string | null;
+          operations?: string[];
+        }>;
+      }>("/v2/providers");
+      return {
+        items: legacy.items.map((item) => ({
+          provider_id: item.provider_key,
+          display_name: PROVIDER_NAMES[item.provider_key] ?? item.provider_key,
+          configured: false,
+          healthy: item.latest_status === "completed" ? true : null,
+          entitlement: null,
+          status: "legacy_status_only",
+          last_success_at: item.latest_completed_at ?? null,
+          last_error: null,
+          quota: null,
+          data_range: null,
+          quality_grade: item.quality_grade ?? null,
+          next_planned_snapshot: null,
+          capabilities: item.operations ?? [],
+        })),
+      };
+    }
+  },
+  dataCoverage: () => request<DataCoverageResponse>("/v2/data/coverage"),
+  estimateBackfill: (input: BackfillRequest) => {
+    const query = new URLSearchParams({
+      start_date: input.start_date,
+      end_date: input.end_date,
+      event_types: input.event_types.join(","),
+      assets: input.assets.join(","),
+    });
+    return request<BackfillEstimate>(`/v2/data/backfill/estimate?${query.toString()}`);
+  },
+  startBackfill: (input: BackfillRequest & { estimate_id?: string | null }) =>
+    request<BackfillJob>(
+      "/v2/data/backfill",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
+      [424],
+    ),
+  backfillJob: (id: string) => request<BackfillJob>(`/v2/data/backfill/${id}`),
+  cancelBackfill: (id: string) =>
+    request<BackfillJob>(`/v2/data/backfill/${id}/cancel`, { method: "POST" }),
   methodology: () => request<Record<string, unknown>>("/v2/methodology"),
   regime: () => request<Record<string, unknown>>("/v2/regime"),
   assistant: (releaseId: string, question: string) =>

@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+
+BackfillEventType = Literal["US_CPI", "US_NFP", "FOMC"]
+BackfillAsset = Literal["GC", "SI", "CL", "ES", "NQ", "ZT", "ZN", "DX", "VX"]
+
+
+def _default_backfill_events() -> list[BackfillEventType]:
+    return ["US_CPI", "US_NFP", "FOMC"]
+
+
+def _default_backfill_assets() -> list[BackfillAsset]:
+    return ["GC", "SI", "CL", "ES", "NQ", "ZT", "ZN", "DX", "VX"]
 
 
 class StrictModel(BaseModel):
@@ -65,6 +76,24 @@ class MarketCsvImportInput(StrictModel):
     source_url: str | None = None
     verified: bool = False
     is_fixture: bool = False
+
+
+class BackfillRequestInput(StrictModel):
+    start_date: date
+    end_date: date
+    event_types: list[BackfillEventType] = Field(default_factory=_default_backfill_events)
+    assets: list[BackfillAsset] = Field(default_factory=_default_backfill_assets)
+    estimate_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_range(self) -> BackfillRequestInput:
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must not be before start_date")
+        if not self.event_types:
+            raise ValueError("at least one event type is required")
+        if not self.assets:
+            raise ValueError("at least one asset is required")
+        return self
 
 
 class AssistantInput(StrictModel):

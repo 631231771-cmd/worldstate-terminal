@@ -277,7 +277,7 @@ def compare_historical_events(
         },
         "pre_filter_count": len(candidates),
         "post_filter_count": len(pool),
-        "filter_recipe": "macro-history-v0.4-fixed",
+        "filter_recipe": "macro-history-v0.5-mode-isolated",
         "contamination_policy": CONTAMINATION_POLICY,
         "filters": filter_steps,
         "metrics": metrics,

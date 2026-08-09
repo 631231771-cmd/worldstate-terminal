@@ -57,6 +57,7 @@ export interface ReleaseDetail {
   source_timezone: string;
   status: string;
   data_version: string;
+  data_mode?: "observed" | "fixture" | "manual" | string;
   bundle: {
     classification: string;
     score: number | null;
@@ -111,7 +112,66 @@ export interface ReleaseDetail {
     is_fixture: boolean;
     citation: string;
   } | null;
+  data_provenance?: ReleaseDataProvenance | null;
   data_quality: DataQuality[];
+}
+
+export interface ProvenanceSource {
+  provider_key?: string;
+  display_name?: string;
+  source_name?: string;
+  source_url?: string | null;
+  artifact_id?: string | null;
+  snapshot_id?: string | null;
+  captured_at?: string | null;
+  retrieved_at?: string | null;
+  content_hash?: string | null;
+  quality_grade?: string | null;
+}
+
+export interface MarketDatasetProvenance {
+  provider_key?: string;
+  dataset?: string;
+  schema?: string;
+  manifest_hash?: string | null;
+  range_start?: string | null;
+  range_end?: string | null;
+  granularity?: string | null;
+}
+
+export interface ContractProvenance {
+  instrument_key: string;
+  instrument_title?: string;
+  symbol?: string;
+  contract_code?: string | null;
+  provider_symbol?: string | null;
+  instrument_id?: string | null;
+  dataset?: string | null;
+  expiry?: string | null;
+  first_notice?: string | null;
+  last_trade?: string | null;
+  roll_status?: string | null;
+  selection_rule?: string | null;
+}
+
+export interface ReleaseDataProvenance {
+  official_source?: ProvenanceSource | string | null;
+  consensus_source?: ProvenanceSource | string | null;
+  consensus_captured_at?: string | null;
+  market_dataset?: MarketDatasetProvenance | string | null;
+  contracts?: ContractProvenance[];
+  data_mode?: "observed" | "fixture" | "manual" | string;
+  reconciled?: boolean | null;
+  reconciliation_status?: string | null;
+  reconciliation_notes?: string[];
+  reconciliation_summary?: {
+    expected_subject_count: number;
+    covered_subject_count: number;
+    comparison_record_count?: number;
+    missing_subject_ids: string[];
+    partial_comparisons_are_complete: boolean;
+  } | null;
+  data_gaps?: string[];
 }
 
 export interface WindowResult {
@@ -137,11 +197,18 @@ export interface WindowResult {
   direction_reversal: boolean;
   granularity_seconds: number;
   provider_key: string;
+  dataset?: string | null;
+  contract_code?: string | null;
   quality_grade: string;
   missing_reason: string | null;
   calendar_name?: string;
   calendar_precision?: string;
   expected_tradable_bars?: number;
+  experimental?: boolean;
+  limitations?: string[];
+  manifest_ids?: string[];
+  schema_name?: string | null;
+  futures_contract_id?: string | null;
 }
 
 export interface ResearchClaim {
@@ -215,7 +282,7 @@ export interface Explanation {
 
 export interface ExplanationsResponse {
   release_id: string;
-  analysis_run_id: string;
+  analysis_run_id: string | null;
   facts: Array<Record<string, unknown> | string>;
   explanations: Explanation[];
   confidence: number;
@@ -226,7 +293,7 @@ export interface ExplanationsResponse {
 
 export interface HistoricalResponse {
   release_id: string;
-  analysis_run_id: string;
+  analysis_run_id: string | null;
   mode: string;
   reliability: string;
   pre_filter_count: number;
@@ -267,4 +334,133 @@ export interface Instrument {
   measurement_type: string;
   is_proxy: boolean;
   proxy_for: string | null;
+}
+
+export interface ProviderQuota {
+  used: number | null;
+  limit: number | null;
+  remaining: number | null;
+  period: string | null;
+  resets_at?: string | null;
+}
+
+export interface ProviderDataRange {
+  start: string | null;
+  end: string | null;
+}
+
+export interface DataProviderStatus {
+  provider_id: string;
+  display_name: string;
+  configured: boolean;
+  healthy: boolean | null;
+  entitlement: string | null;
+  status: string;
+  last_success_at: string | null;
+  last_error: string | null;
+  quota: ProviderQuota | null;
+  data_range: ProviderDataRange | null;
+  quality_grade: string | null;
+  next_planned_snapshot?: string | null;
+  capabilities: string[];
+}
+
+export interface DataProvidersResponse {
+  items: DataProviderStatus[];
+  checked_at?: string | null;
+  data_mode?: string;
+}
+
+export interface CoverageDimension {
+  status: string;
+  mode?: string | null;
+  data_mode?: string | null;
+  quality?: string | null;
+  quality_grade?: string | null;
+  available?: boolean;
+  stored?: boolean;
+  analysis_eligible?: boolean;
+  record_count?: number;
+  stored_record_count?: number;
+  analysis_eligible_record_count?: number;
+  stored_item_count?: number | null;
+  last_updated_at?: string | null;
+  missing_reason?: string | null;
+  eligibility_reason?: string | null;
+}
+
+export interface DataCoverageRow {
+  event_type: string;
+  title?: string;
+  actual: CoverageDimension;
+  consensus: CoverageDimension;
+  intraday: CoverageDimension;
+  daily: CoverageDimension;
+  source_quality: string | CoverageDimension | null;
+  source_quality_basis?: {
+    assessed_record_count: number;
+    grades: string[];
+    ungraded_eligible_actuals: number;
+  };
+}
+
+export interface DataCoverageResponse {
+  items: DataCoverageRow[];
+  as_of?: string | null;
+  data_mode?: string;
+  observed_only?: boolean;
+}
+
+export interface BackfillRequest {
+  start_date: string;
+  end_date: string;
+  event_types: string[];
+  assets: string[];
+}
+
+export interface BackfillDatasetEstimate {
+  dataset: string;
+  assets?: string[];
+  estimated_records?: number | null;
+  estimated_bytes?: number | null;
+  estimated_cost_usd?: number | null;
+}
+
+export interface BackfillEstimate {
+  estimate_id?: string | null;
+  start_date: string;
+  end_date: string;
+  event_count: number;
+  asset_count: number;
+  datasets: BackfillDatasetEstimate[];
+  minute_range?: string;
+  pre_minutes?: number;
+  post_minutes?: number;
+  estimated_records: number;
+  estimated_bytes: number;
+  estimated_cost_usd: number;
+  budget_limit_usd: number | null;
+  allow_execute: boolean;
+  already_available_records?: number;
+  records_to_download?: number;
+  blocked_reason?: string | null;
+  provider_status?: string | null;
+}
+
+export interface BackfillJob {
+  id: string;
+  status: string;
+  progress_percent: number;
+  current_stage?: string | null;
+  events_total?: number;
+  events_completed?: number;
+  downloaded_records?: number;
+  skipped_records?: number;
+  failed_records?: number;
+  estimated_cost_usd?: number | null;
+  actual_cost_usd?: number | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  last_error?: string | null;
+  can_cancel?: boolean;
 }

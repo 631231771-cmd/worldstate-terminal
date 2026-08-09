@@ -6,6 +6,7 @@ import asyncio
 import uuid
 from datetime import UTC, date, datetime
 from secrets import compare_digest
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy import select, text
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from worldstate import __version__
 from worldstate.ai_researcher import answer_question
+from worldstate.api.v2.data_router import data_router, data_write_router
 from worldstate.api.v2.schemas import (
     AssistantInput,
     ConsensusInput,
@@ -26,7 +28,6 @@ from worldstate.application.analysis_persistence import (
     get_analysis_manifest,
     replay_analysis_run,
 )
-from worldstate.application.bootstrap_service import bootstrap_research_data
 from worldstate.application.consensus_service import append_consensus
 from worldstate.application.evidence_service import get_evidence_pack
 from worldstate.application.market_import_service import import_market_csv
@@ -103,6 +104,15 @@ def required[T](result: T | None, message: str = "macro release not found") -> T
     return result
 
 
+def requested_data_mode(
+    request: Request,
+    explicit: Literal["observed", "fixture", "all"] | None = None,
+) -> Literal["observed", "fixture", "all"]:
+    if explicit is not None:
+        return explicit
+    return "all" if request.app.state.settings.demo_mode else "observed"
+
+
 @router.get("/health", tags=["system"])
 async def health(request: Request) -> dict[str, object]:
     settings: Settings = request.app.state.settings
@@ -126,6 +136,16 @@ async def health(request: Request) -> dict[str, object]:
         "methodology_version": METHODOLOGY_VERSION,
         "ai_provider": settings.resolved_ai_provider,
         "writes_enabled": settings.writes_available,
+        "demo_mode": settings.demo_mode,
+        "scheduler_enabled": settings.scheduler_enabled,
+        "paid_download_enabled": settings.allow_paid_download,
+        "data_foundation": {
+            "demo_mode": settings.demo_mode,
+            "scheduler_enabled": settings.scheduler_enabled,
+            "paid_download_enabled": settings.allow_paid_download,
+            "databento_budget_limit_usd": float(settings.databento_max_estimated_cost_usd),
+            "credentials_exposed": False,
+        },
     }
 
 
@@ -215,7 +235,11 @@ async def analysis_claims(run_id: str, request: Request) -> object:
 
 @router.get("/today", tags=["research"])
 async def today(request: Request) -> dict[str, object]:
-    items = await list_releases(request.app.state.database_engine, limit=100)
+    items = await list_releases(
+        request.app.state.database_engine,
+        limit=100,
+        data_mode=requested_data_mode(request),
+    )
     current = date.today()
     scheduled_today = [
         item
@@ -237,7 +261,11 @@ async def calendar(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> dict[str, object]:
-    items = await list_releases(request.app.state.database_engine, limit=500)
+    items = await list_releases(
+        request.app.state.database_engine,
+        limit=500,
+        data_mode=requested_data_mode(request),
+    )
     lower = date_from or date.today()
     upper = date_to or lower
     visible = [
@@ -259,11 +287,13 @@ async def releases(
     request: Request,
     release_type: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
 ) -> list[dict[str, object]]:
     return await list_releases(
         request.app.state.database_engine,
         release_type=release_type,
         limit=limit,
+        data_mode=requested_data_mode(request, data_mode),
     )
 
 
@@ -329,11 +359,17 @@ async def release_consensus(release_id: str, request: Request) -> object:
         raise HTTPException(status_code=404, detail="macro release not found") from None
     factory = async_sessionmaker(request.app.state.database_engine, expire_on_commit=False)
     async with factory() as session:
+        release = await session.get(MacroRelease, release_uuid)
+        if release is None:
+            raise HTTPException(status_code=404, detail="macro release not found")
         rows = (
             await session.execute(
                 select(ConsensusSnapshot, Indicator)
                 .join(Indicator, Indicator.id == ConsensusSnapshot.indicator_id)
-                .where(ConsensusSnapshot.macro_release_id == release_uuid)
+                .where(
+                    ConsensusSnapshot.macro_release_id == release_uuid,
+                    ConsensusSnapshot.data_mode == release.data_mode,
+                )
                 .order_by(ConsensusSnapshot.captured_at)
             )
         ).all()
@@ -351,7 +387,8 @@ async def release_consensus(release_id: str, request: Request) -> object:
                     "quality_grade": snapshot.quality_grade,
                     "is_manual": snapshot.is_manual,
                     "verification_notes": snapshot.verification_notes,
-                    "available_before_t0": True,
+                    "available_before_t0": snapshot.captured_at < release.scheduled_at,
+                    "metadata": snapshot.metadata_json,
                 }
                 for snapshot, indicator in rows
             ],
@@ -543,7 +580,6 @@ async def analysis_run(run_id: str, request: Request) -> object:
 
 @router.get("/instruments", tags=["market"])
 async def instruments(request: Request) -> list[dict[str, object]]:
-    await bootstrap_research_data(request.app.state.database_engine)
     factory = async_sessionmaker(request.app.state.database_engine, expire_on_commit=False)
     async with factory() as session:
         rows = (
@@ -653,3 +689,8 @@ async def research_assistant(payload: AssistantInput, request: Request) -> dict[
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+# Data Foundation has public read routes and separately protected state-changing routes.
+router.include_router(data_router)
+router.include_router(data_write_router, dependencies=[Depends(require_write_access)])

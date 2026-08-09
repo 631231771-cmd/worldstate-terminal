@@ -83,6 +83,7 @@ async def create_manual_release(
                 license_name=None,
                 citation_text=f"{source_name}: {source_url}",
                 is_fixture=False,
+                data_mode="observed",
                 metadata_json={"entry_mode": "manual"},
             )
         )
@@ -124,6 +125,7 @@ async def create_manual_release(
                 source_timezone=source_timezone,
                 status="released" if released_at else "scheduled",
                 data_version="manual-v1",
+                data_mode="observed",
                 source_artifact_id=artifact_id,
                 primary_quality_id=quality_id,
                 contamination_level=contamination_level,
@@ -202,6 +204,7 @@ async def create_manual_release(
                         valid_from=captured_at,
                         captured_at=captured_at,
                         is_initial=value_kind == "actual",
+                        data_mode="observed",
                         source_artifact_id=artifact_id,
                         quality_id=quality_id,
                         metadata_json={"entry_mode": "manual"},

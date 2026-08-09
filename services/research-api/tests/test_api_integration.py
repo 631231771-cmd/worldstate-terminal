@@ -64,7 +64,7 @@ def test_cpi_research_is_evidence_bounded(
 
     assert detail["bundle"]["classification"]
     assert {"headline_mom", "headline_yoy", "core_mom", "core_yoy"} <= set(detail["values"])
-    assert historical["filter_recipe"] == "macro-history-v0.4-fixed"
+    assert historical["filter_recipe"] == "macro-history-v0.5-mode-isolated"
     assert historical["pre_filter_count"] >= historical["post_filter_count"]
     if historical["post_filter_count"] < 15:
         assert all(
@@ -143,6 +143,19 @@ def test_manual_release_consensus_csv_and_analysis_workflow(client: TestClient) 
     created = client.post("/v2/releases", json=release_payload)
     assert created.status_code == 200, created.text
     release_id = created.json()["release_id"]
+
+    # A valid observed release is visible before its first AnalysisRun.  Research
+    # projections must disclose the missing run instead of making Event Lab fail
+    # with a misleading "macro release not found" response.
+    pending_history = client.get(f"/v2/releases/{release_id}/historical-matches")
+    pending_explanations = client.get(f"/v2/releases/{release_id}/explanations")
+    assert pending_history.status_code == 200
+    assert pending_history.json()["analysis_run_id"] is None
+    assert pending_history.json()["mode"] == "not_analyzed"
+    assert pending_explanations.status_code == 200
+    assert pending_explanations.json()["analysis_run_id"] is None
+    assert pending_explanations.json()["confidence"] == 0.0
+    assert pending_explanations.json()["data_gaps"]
 
     for indicator_key, value in {
         "headline_mom": 0.3,
@@ -288,13 +301,15 @@ def test_consensus_and_market_mutations_change_new_run_hashes(
     consensus_manifest = client.get(f"/v2/analysis-runs/{consensus_run}/manifest").json()
     assert consensus_manifest["input_snapshot_hash"] != old_manifest["input_snapshot_hash"]
 
-    released_at = detail["released_at"]
-    csv_text = "\n".join(
-        (
-            "timestamp,instrument_key,open,high,low,close,volume",
-            f"{released_at},gold_gc,2370,2372,2368,2369,1",
+    released_at = datetime.fromisoformat(detail["released_at"])
+    csv_rows = ["timestamp,instrument_key,open,high,low,close,volume"]
+    for index in range(301):
+        timestamp = released_at - timedelta(minutes=60) + timedelta(minutes=index)
+        close = 2370 + index / 100
+        csv_rows.append(
+            f"{timestamp.isoformat()},gold_gc,{close},{close + 1},{close - 1},{close},1"
         )
-    )
+    csv_text = "\n".join(csv_rows)
     imported = client.post(
         f"/v2/releases/{release_id}/market-bars/import",
         json={
@@ -303,6 +318,7 @@ def test_consensus_and_market_mutations_change_new_run_hashes(
             "provider_key": "hash_mutation_test",
             "source_name": "Hash mutation test",
             "verified": True,
+            "is_fixture": True,
         },
     )
     assert imported.status_code == 200, imported.text

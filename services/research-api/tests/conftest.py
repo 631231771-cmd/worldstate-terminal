@@ -25,7 +25,13 @@ def client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
         await engine.dispose()
 
     asyncio.run(create_schema())
-    settings = Settings(database_url=database_url, ai_provider="none", log_level="WARNING")
+    settings = Settings(
+        database_url=database_url,
+        ai_provider="none",
+        log_level="WARNING",
+        demo_mode=True,
+        scheduler_enabled=False,
+    )
     with TestClient(create_app(settings)) as test_client:
         yield test_client
 

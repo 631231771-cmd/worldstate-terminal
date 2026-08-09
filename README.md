@@ -1,41 +1,32 @@
 # WorldState Terminal
 
-WorldState Terminal（世界状态终端）是一个个人使用、local-first 的宏观研究与交易辅助终端。它围绕一个问题组织所有数据与页面：
+WorldState Terminal（世界状态终端）是一款个人使用、local-first 的宏观研究与交易辅助终端。它围绕一个问题组织数据与页面：
 
 > 宏观事件公布后，市场为什么这样定价？
 
-它不是 World Monitor 的延伸，也不是新闻墙、世界地图或自动交易系统。当前主线是美国 CPI、非农和 FOMC 事件，结合 point-in-time 发布值、共识快照、跨资产事件窗口、历史匹配与受证据约束的解释。
+它不是新闻墙、世界地图、自动交易系统，也不把相关性写成唯一因果。当前研究主线固定为美国 CPI、非农和 FOMC，并结合 point-in-time 发布值、发布前共识、跨资产事件窗口、历史匹配和受证据约束的解释。
 
-当前状态是：**产品和活动代码树迁移完成，研究方法与发布稳定化已经实现，PR #8 在 GitHub CI 全绿前继续保持 Draft。** 内置 CPI、非农和 FOMC 是可追溯 fixture 演示，不代表真实数据就绪；当前桌面构建仍依赖本机 Python 3.12，不是可在空白电脑独立运行的发行安装包。
+## v0.5 当前状态
 
-## 现在可以做什么
+v0.5 Data Foundation 正在 PR #8 的 Draft 分支上实施和稳定化，尚未合并到 `main`。当前状态必须按以下层级理解：
 
-- 查看 CPI、非农、FOMC 发布及其指标集合和阶段。
-- 保存 Actual、Consensus、Previous、Revision 与来源快照。
-- 分析黄金、白银、美元、ES/NQ、2Y/10Y 等事件前后窗口。
-- 识别最早观察到的显著反应、冲高回落、方向反转和 FOMC 分阶段变化。
-- 用固定匹配规则对比历史事件，并按样本量决定统计、案例或不推断。
-- 生成区分事实、历史关系、主假设、竞争解释和数据缺口的复盘报告。
-- 在没有外部密钥时使用可追溯 fixture 完成端到端演示。
-- 只有至少 20 个事件前、point-in-time 历史预测误差样本且方差非零时才输出 `surprise_z`；否则仅显示名称明确的 `threshold_scaled_surprise`。
-- 每次 v0.4 分析保存输入、配置、行情数据集、历史样本与输出哈希，并以结构化 Claim → Evidence ID 呈现事实和推断。
+- **已实现**：v0.5 Provider 统一契约；BLS、Federal Reserve、FRED/ALFRED、Trading Economics、Databento 的持久化编排；`observed` / `fixture` 数据隔离；Provider 运行、权限、配额、原始工件、同步任务、市场数据清单、对账记录和回填任务；非阻塞本地调度器与可恢复回填 worker；Provider/覆盖率/同步/回填 API 和现有终端中的数据溯源展示。
+- **fixture 已测试**：内置 CPI、非农和 FOMC 研究切片，以及 Provider 响应适配、成本闸门、调度状态机和对账服务的测试样例。fixture 只证明流程可运行，不代表真实数据就绪。
+- **可接真实数据（observed-ready）**：BLS 公共档和 Federal Reserve 公开网页无需密钥；FOMC 支持 2015–2020 官方历史页以及当前/未来会议日历；FRED/ALFRED、Trading Economics 和 Databento 有明确的凭据、PIT、成本和许可边界；CSV 与手工录入仍可用于合法获得的数据。
+- **尚未完成**：本轮无密钥环境没有形成完整 observed 历史。FRED/ALFRED 因缺少 FRED key 被阻塞；TE 当前抓取因缺少 key 被阻塞，历史回放还需要 PIT entitlement；Databento 因缺少 key/数据权限且付费开关默认关闭而被阻塞。BLS 公共模式不需要 key，但本验证网络访问其 schedule HTML 时收到 HTTP 403，且当前 API 不能重建旧的首次公布值；Federal Reserve 公共页已可验证。公开可访问不等于已完成全量回填。
+- **发布打包未就绪**：Tauri 开发构建仍依赖本机 Python 3.12；当前没有冻结 Python sidecar，也没有签名安装包，不能把单独 EXE 当作可在空白电脑独立运行的发布版本。
 
-## 一键打开（Windows）
+最终测试、迁移和 GitHub CI 结果以 [`docs/stabilization/v0.5-data-foundation-report.md`](docs/stabilization/v0.5-data-foundation-report.md) 的验证记录为准；验证完成前不应将 PR #8 标记为 Ready 或合并。
 
-日常使用只推荐双击桌面的 `WorldState Terminal.bat`。它会定位当前仓库并委托给仓库根目录的
-`WorldStateApp.bat`；仓库脚本优先启动可用的 Tauri 构建，否则使用经过验证的 BAT
-启动链。首次使用 BAT 启动链时会准备 Python 与前端依赖、迁移数据库，然后打开：
+## 日常打开
 
-- 终端：<http://127.0.0.1:4173/#today>
-- API 文档：<http://127.0.0.1:8000/docs>
-
-在仓库内一键打开时使用：
+Windows 日常使用入口：
 
 ```powershell
 .\WorldStateApp.bat
 ```
 
-维护和诊断只使用：
+桌面快捷入口会委托给仓库内的启动器。开发/BAT 路径需要 Python 3.12 和 Node.js 20+。常用维护命令：
 
 ```powershell
 .\WorldState.bat start
@@ -44,39 +35,91 @@ WorldState Terminal（世界状态终端）是一个个人使用、local-first �
 .\WorldState.bat doctor
 ```
 
-需要 Python 3.12 与 Node.js 20+。桌面壳的编译说明见
-[`docs/desktop/windows.md`](docs/desktop/windows.md)。
+启动后可访问：
 
-Tauri 开发构建会启动同一套 Research API，但当前仓库没有冻结 Python sidecar，也没有签名安装包。换到一台没有项目 Python 环境的电脑时，单独复制 EXE 不能运行。
+- Terminal UI：<http://127.0.0.1:4173/#today>
+- Research API：<http://127.0.0.1:8000/docs>
+
+桌面边界和构建说明见 [`docs/desktop/windows.md`](docs/desktop/windows.md)。
+
+## 数据基础命令
+
+先迁移数据库：
+
+```powershell
+.\WorldState.bat migrate
+```
+
+诊断和只读状态：
+
+```powershell
+.\WorldState.bat data-doctor
+.\WorldState.bat data-status
+.\WorldState.bat estimate-backfill
+```
+
+`estimate-backfill` 返回本地记录量/体量/成本估算，不是 Databento 的实时账单报价，也不是下载许可。`backfill` 会持久化经服务端重新估算的任务；本地 worker 在调度开启时领取任务，并按 official → consensus → market → analysis 顺序执行。任何实际付费切片都必须重新取得 Databento 的新鲜高置信报价，并同时通过显式开关、单次与累计预算、凭据和数据权限；fallback 估算永远不能授权下载。失败或部分完成会保留进度、manifest 和明确 blocker。
+
+以下命令已连接持久化编排。它们会返回 `completed`、`partial` 或 `blocked`，不会因上游缺失而偷偷回退到 fixture：
+
+```powershell
+.\WorldState.bat sync-official
+.\WorldState.bat sync-calendar
+.\WorldState.bat snapshot-consensus
+.\WorldState.bat sync-market
+.\WorldState.bat reconcile-data
+```
+
+如需内置 fixture 演示，必须显式执行：
+
+```powershell
+.\WorldState.bat bootstrap
+```
+
+默认 `WORLDSTATE_DEMO_MODE=false`，因此正常启动不会把 fixture 当成 observed 数据自动注入。
+
+## 数据源边界
+
+| 来源 | 当前能力 | 现实限制 |
+| --- | --- | --- |
+| BLS | CPI/就业系列与官方发布时间适配器；无 key 时可使用受限公共档 | 当前 BLS API 是当前/修订后序列接口，不是完整历史 vintage 档案；不能据此重建过去首次公布值 |
+| Federal Reserve | 2015–2020 官方历史档案、当前/未来 FOMC 日历与 statement/press conference 等官方材料 | 未来会议会先保存 scheduled stage；`key_qa` / `press_end` 没有可验证时间时保持缺失，绝不按固定时长伪造 |
+| FRED/ALFRED | 观测、vintage 与 point-in-time 适配器 | 必须配置 FRED API key；本轮环境未配置 |
+| Trading Economics | 调查共识快照、官方值交叉核验与 PIT 历史回放 | 按时的 T-24h/T-1h/T-5m/T+5m 使用当前抓取；只有错过后的回放使用 PIT。配置健康检查不发日历请求、不消耗隐藏配额；真实同步成功才是在线健康证据 |
+| Databento | 期货合约解析、成本估算、事件关联 OHLCV/manifest 与完整性核验 | 依赖 API key、数据权限和交易所许可；付费下载必须同时通过显式开关与预算上限；长期窗口仍是实验性边界 |
+
+Trading Economics 与 Databento 原始响应只用于本地可追溯研究，不随仓库或 API 对外分发。
+
+资产语义不会被隐藏：DX、VX 是期货，不是现金 DXY/VIX；ZT、ZN 是美国国债期货价格代理，不是 2 年/10 年现金收益率的精确基点变化。每日现金收益率可以由 FRED 系列独立展示，但不得与期货代理混写。
+
+更完整说明：
+
+- [`docs/data/providers.md`](docs/data/providers.md)
+- [`docs/data/quality.md`](docs/data/quality.md)
+- [`docs/data/backfill-cost-control.md`](docs/data/backfill-cost-control.md)
+- [`docs/macro/methodology.md`](docs/macro/methodology.md)
+
+覆盖率中的“已保存”与“可用于分析”不是同一个概念。`stored_not_eligible`
+表示数据库中有记录，但它可能是修订后 actual、T0 后共识，或尚未通过质量/
+完整性对账的 market manifest；只有 `analysis_ready` 才能进入默认研究选择。
 
 ## 仓库结构
 
 ```text
 apps/
-  terminal-ui/       五个研究工作区
+  terminal-ui/       宏观研究终端界面
   desktop-tauri/     Windows 桌面壳
 services/
-  research-api/      FastAPI、领域模型、事件与研究引擎
+  research-api/      FastAPI、领域模型、事件与研究引擎、Provider 适配器
 data/
-  fixtures/          可追溯演示数据
-  macro/             宏观目录和规则输入
-docs/                架构、方法、数据与迁移说明
-research/            迁移校验与研究产物
+  fixtures/          可追溯演示数据（绝不伪装成 live/observed）
+  macro/             指标、资产、规则和研究目录
+docs/                架构、方法、数据与稳定化说明
+research/            研究/迁移校验产物
 project-memory/      可作为 Obsidian vault 的项目记忆
 ```
 
-## 数据库与演示
-
-```powershell
-.\WorldState.bat migrate
-.\WorldState.bat bootstrap
-```
-
-数据库 v3 会保留并回填旧 CPI 实验室中仍有价值的数据，再删除语义重复的旧事件表。迁移前本地备份保存在 `.runtime/backups/`（该目录不会提交）。
-
-内置 CPI、非农与 FOMC 数据均标为 fixture；它们用于验证流程，不会伪装成实时或官方抓取数据。真实分钟行情第一版通过 CSV 导入；FRED/ALFRED、OpenBB 和其他行情源均位于可替换 provider 边界。
-
-## 开发与验证
+## 开发验证
 
 ```powershell
 $env:PYTHONPATH="$PWD\services\research-api\src"
@@ -86,19 +129,18 @@ services\research-api\.venv\Scripts\python.exe -m pytest services\research-api\t
 npm run build --prefix apps\terminal-ui
 ```
 
+当前 v0.5 工作区为 **152 passed**，整体语句覆盖率 75.54%；惊喜、窗口、
+历史匹配、Evidence、Regime 和交易时段等关键研究逻辑的 CI 门槛集合为
+**96%**。不要用旧的 v0.4 测试数字代表当前工作区。
+
 ## 研究边界
 
-- 惊喜值和窗口反应是计算事实；解释是带置信度的竞争性假设。
-- 分钟数据只能判断“最早观察到”，不能证明机构订单或关键词交易的真实先后。
-- 事件污染会降低解释置信度并限制因果措辞。
-- 代理、fixture、人工录入、延迟和缺失都会显式标注。
-- AI 只能读取结构化 EvidencePack，不能补写系统没有取得的事实。
-- 长窗口使用 `exchange-session-lite`：它处理 DST、周末、Good Friday、若干提前收盘和 CME 风格维护窗，但仍是实验方法，不宣称完整复刻交易所日历或期货结算规则。
-
-详细方法见 [`docs/macro/methodology.md`](docs/macro/methodology.md)，完整迁移报告见
-[`docs/migration/final-report.md`](docs/migration/final-report.md)。
+- 只有至少 20 个严格早于 T0 的历史预测误差样本且方差非零时，才输出真正的 `surprise_z`；阈值缩放使用独立字段。
+- 分钟数据只能判断“在当前粒度下最早观察到的显著反应”，不能证明订单流或交易者行为的真实先后。
+- 污染事件、低覆盖率、代理资产、粗粒度、fixture、人工录入和延迟都会显式降低或限制结论。
+- 长窗口使用实验性的 `exchange-session-lite`，它不等于完整、获许可的交易所日历，也不覆盖所有结算、临时休市和换月规则。
+- AI 只能总结结构化 EvidencePack；每条事实/推断绑定证据 ID，不能补写系统没有取得的数据，也不能输出唯一确定因果。
 
 ## 许可证
 
-本项目以 AGPL-3.0-or-later 发布。第三方采用与许可证边界见
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
+项目以 AGPL-3.0-or-later 发布。第三方采用与许可边界见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。第三方数据的访问权不等于再分发权。
