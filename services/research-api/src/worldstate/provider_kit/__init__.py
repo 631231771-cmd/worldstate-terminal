@@ -43,17 +43,17 @@ from worldstate.provider_kit.federal_reserve import (
 )
 from worldstate.provider_kit.fixtures import generate_scenario_bars
 from worldstate.provider_kit.fred_alfred import FredAlfredProvider, FredObservationBatch
-from worldstate.provider_kit.official_public import (
-    OfficialPublicCsvProvider,
-    PublicObservationBatch,
-    PublicSeriesSpec,
-)
 from worldstate.provider_kit.macro import MacroProvider
 from worldstate.provider_kit.models import (
     BarQuery,
     MarketBarBatch,
     MarketBarRecord,
     MarketInstrumentRef,
+)
+from worldstate.provider_kit.official_public import (
+    OfficialPublicCsvProvider,
+    PublicObservationBatch,
+    PublicSeriesSpec,
 )
 from worldstate.provider_kit.providers import (
     CsvMarketBarProvider,
@@ -94,15 +94,13 @@ __all__ = [
     "FomcMeeting",
     "FredAlfredProvider",
     "FredObservationBatch",
-    "OfficialPublicCsvProvider",
-    "PublicObservationBatch",
-    "PublicSeriesSpec",
     "MacroProvider",
     "MarketBarBatch",
     "MarketBarProvider",
     "MarketBarRecord",
     "MarketInstrumentRef",
     "NormalizedObservation",
+    "OfficialPublicCsvProvider",
     "ProviderBatch",
     "ProviderBudgetError",
     "ProviderCapabilities",
@@ -116,6 +114,8 @@ __all__ = [
     "ProviderSchemaError",
     "ProviderTerms",
     "ProviderWaterfall",
+    "PublicObservationBatch",
+    "PublicSeriesSpec",
     "SourceArtifact",
     "TradingEconomicsConsensusProvider",
     "TradingEconomicsEntitlement",

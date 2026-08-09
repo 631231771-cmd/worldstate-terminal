@@ -437,6 +437,7 @@ async def test_first_desktop_start_catches_up_today_once(
         "daily-provider-health",
         "daily-official-sync",
         "daily-calendar-sync",
+        "daily-public-macro-sync",
         "overnight-reconciliation",
     }
     assert all(job.next_run_at is not None and job.next_run_at <= T0 for job in daily)

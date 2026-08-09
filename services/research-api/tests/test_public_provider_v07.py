@@ -10,7 +10,7 @@ from worldstate.provider_kit import OfficialPublicCsvProvider, ProviderTerms, Pu
 @pytest.mark.asyncio
 async def test_ecb_sdmx_csv_is_normalized_with_retrieval_provenance() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path.endswith("EXR.D.USD.EUR.SP00.A")
+        assert request.url.path.endswith("EXR/D.USD.EUR.SP00.A")
         return httpx.Response(
             200,
             text="KEY,TIME_PERIOD,OBS_VALUE\nA,2026-08-07,1.16\nA,2026-08-08,1.17\n",

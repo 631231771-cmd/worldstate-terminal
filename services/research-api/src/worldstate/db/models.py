@@ -509,6 +509,54 @@ class Thesis(TimestampMixin, Base):
     data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
 
 
+class WorldStateSnapshot(Base):
+    """Immutable daily world-state output for history and reproducible briefs."""
+
+    __tablename__ = "world_state_snapshots"
+    __table_args__ = (
+        UniqueConstraint("snapshot_date", "data_mode", name="uq_world_state_snapshot_day_mode"),
+        Index("ix_world_state_snapshots_date", "snapshot_date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="observed")
+    dimensions_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    regime_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, default=dict, nullable=False)
+    top_changes_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    evidence_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    data_gaps_json: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    source_snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class WatchlistItem(TimestampMixin, Base):
+    """User-owned watchlist entry; it stores intent, not generated signals."""
+
+    __tablename__ = "watchlist_items"
+    __table_args__ = (
+        UniqueConstraint("item_type", "item_key", name="uq_watchlist_item_type_key"),
+        Index("ix_watchlist_items_updated", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    item_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    item_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
+
+
 class AnalysisRun(Base):
     __tablename__ = "analysis_runs"
     __table_args__ = (Index("ix_analysis_runs_release_started", "macro_release_id", "started_at"),)

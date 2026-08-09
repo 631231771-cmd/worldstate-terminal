@@ -15,13 +15,13 @@ longer part of the active architecture. Their final state is preserved at tag
 
 ## Active branch and milestones
 
-- Working branch: `feature/v0.6-operational-intelligence`
+- Working branch: `feature/v0.7-live-global`
 - Last committed v0.4 baseline: `16544c373bb32fc9788b72538db49c3fcc2c1337`
 - v0.5 Data Foundation: committed as `4054a66e620db2f5aff9a4c70b6af9be3b9aad94`; local and GitHub CI validation complete
-- Database head in the worktree: `0008_thesis_book`
+- Database head in the worktree: `0009_operational_state`
 - API contract: `/v2`
-- Product version in the worktree: `0.6.0`
-- HEAD: `c072655d9a6d50d9c53c5a64ee85204b979901d7`
+- Product version in the worktree: `0.7.0`
+- HEAD checkpoint: `6d14a119f` plus the v0.7 implementation checkpoint below
 - PR #8: Draft, unmerged; PR #9: Draft, open; do not mark either Ready or merge
 
 ## Daily use
@@ -116,6 +116,36 @@ The v0.6 implementation is a usable local research surface, not a claim of
 complete live global coverage.  Official FRED/BLS/Fed observations, licensed
 consensus and minute market data remain governed by the v0.5 provider and
 entitlement boundaries below.
+
+## v0.7 Live Data Activation & Global Macro
+
+- Public no-key adapters now cover the ECB Data Portal and Bank of England
+  IADB, with explicit adapter boundaries for BOJ and China official exports.
+- FRED catalog sync is no longer limited to the five v0.5 foundation series;
+  configured FRED credentials can populate the full catalog without mixing
+  fixture rows into observed queries.
+- `/v2/data/sync/public`, `/v2/data/bootstrap-free`, `/v2/data/freshness`,
+  `/v2/macro-systems`, world-state history and watchlist endpoints are live.
+- The Data Control Center shows provider entitlement, observed-series
+  freshness, missing data and a bounded public bootstrap action.
+- Freshness uses both retrieval age and covered-period age. A recent fetch does
+  not make an old monthly or quarterly observation appear live.
+- Migration `0009_operational_state` stores immutable daily state snapshots and
+  user watchlist entries. A real runtime copy was backed up before migration.
+- Global macro comparison and system cards use only observed Series/Observation
+  rows and report coverage, gaps, limitations and divergence without causal
+  claims.
+- Runtime validation on 2026-08-09 reached official ECB and Bank of England
+  endpoints. The runtime freshness view showed ECB EUR/USD, Euro Area HICP and
+  Bank Rate as available; missing FRED, US rates/liquidity, BOJ and China data
+  remained visible as missing or not configured.
+- v0.7 final checks: 171 backend tests passed, Ruff and strict mypy passed,
+  Terminal UI production build passed, Tauri fmt/check and 4 unit tests passed,
+  and the data-control page was read in the running browser against the v0.7
+  API. HICP correctly displayed `STALE` based on covered period age.
+
+Detailed v0.7 evidence and limits are in
+[`docs/macro/v0.7-live-global.md`](../docs/macro/v0.7-live-global.md).
 
 ## Honest incomplete boundaries
 

@@ -121,6 +121,7 @@ async def sync_public_provider(
     )
     read = written = requests = 0
     warnings: list[str] = []
+    series_failures: dict[str, str] = {}
     primary_artifact_id: uuid.UUID | None = None
     try:
         if not provider_client.series:
@@ -142,9 +143,17 @@ async def sync_public_provider(
                 "reason": "no series configured",
             }
         for spec in provider_client.series.values():
-            batch = await provider_client.fetch_observation_batch(
-                spec.native_id, start=start_date, end=end_date
-            )
+            try:
+                batch = await provider_client.fetch_observation_batch(
+                    spec.native_id, start=start_date, end=end_date
+                )
+            except Exception as exc:
+                # A public catalog is a bundle of independent series.  One
+                # empty or temporarily unavailable series must not discard
+                # other valid observations from the same provider.
+                series_failures[spec.canonical_key] = f"{type(exc).__name__}: {exc}"
+                warnings.append(f"{spec.canonical_key}: {type(exc).__name__}")
+                continue
             requests += 1
             read += len(batch.observations)
             artifact = await persist_provider_artifact(
@@ -236,6 +245,26 @@ async def sync_public_provider(
                         )
                     )
                     written += 1
+        if not requests:
+            await complete_provider_run(
+                engine,
+                run.id,
+                records_read=0,
+                records_written=0,
+                request_count=requests,
+                source_artifact_id=primary_artifact_id,
+                quality_grade="C",
+                warnings=warnings,
+            )
+            return {
+                "status": "blocked",
+                "provider": provider_client.key,
+                "records_read": read,
+                "records_written": written,
+                "warnings": warnings,
+                "series_failures": series_failures,
+                "point_in_time": False,
+            }
         await complete_provider_run(
             engine,
             run.id,
@@ -243,15 +272,16 @@ async def sync_public_provider(
             records_written=written,
             request_count=requests,
             source_artifact_id=primary_artifact_id,
-            quality_grade="B",
+            quality_grade="C" if series_failures else "B",
             warnings=warnings,
         )
         return {
-            "status": "completed",
+            "status": "partial" if series_failures else "completed",
             "provider": provider_client.key,
             "records_read": read,
             "records_written": written,
             "warnings": warnings,
+            "series_failures": series_failures,
             "point_in_time": False,
         }
     except Exception as exc:
@@ -280,7 +310,15 @@ async def sync_public_providers(
             )
         except Exception as exc:
             failures[provider_name] = f"{type(exc).__name__}: {exc}"
-    status = "completed" if not failures else ("partial" if results else "blocked")
+    child_statuses = {
+        str(item.get("status")) for item in results.values() if isinstance(item, dict)
+    }
+    if failures and not results:
+        status = "blocked"
+    elif failures or any(item != "completed" for item in child_statuses):
+        status = "partial"
+    else:
+        status = "completed"
     return {"status": status, "results": results, "failures": failures}
 
 

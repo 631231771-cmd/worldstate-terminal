@@ -14,6 +14,7 @@ import type {
   WindowsResponse,
   DailyBriefResponse,
   WorldStateResponse,
+  DataFreshnessResponse,
 } from "../types";
 
 const configuredBase = import.meta.env.VITE_RESEARCH_API_URL as string | undefined;
@@ -73,6 +74,7 @@ export const api = {
   dailyBrief: () => request<DailyBriefResponse>("/v2/daily-brief"),
   worldState: () => request<WorldStateResponse>("/v2/world-state"),
   globalMacro: () => request<Record<string, unknown>>("/v2/global-macro"),
+  macroSystems: () => request<Record<string, unknown>>("/v2/macro-systems"),
   marketDashboard: (horizon = "1d") =>
     request<Record<string, unknown> & { items: Array<Record<string, unknown>> }>(
       `/v2/market-dashboard?horizon=${horizon}`,
@@ -133,6 +135,15 @@ export const api = {
     }
   },
   dataCoverage: () => request<DataCoverageResponse>("/v2/data/coverage"),
+  dataFreshness: () => request<DataFreshnessResponse>("/v2/data/freshness"),
+  syncPublic: (start_date: string, end_date: string) =>
+    request<Record<string, unknown>>(
+      "/v2/data/sync/public",
+      { method: "POST", body: JSON.stringify({ start_date, end_date }) },
+      [207, 424],
+    ),
+  bootstrapFree: () =>
+    request<Record<string, unknown>>("/v2/data/bootstrap-free", { method: "POST" }, [207, 424]),
   estimateBackfill: (input: BackfillRequest) => {
     const query = new URLSearchParams({
       start_date: input.start_date,

@@ -25,6 +25,7 @@ from worldstate.application.official_sync_service import (
     sync_official_data,
 )
 from worldstate.application.provider_runtime import persist_configured_provider_health
+from worldstate.application.public_sync_service import sync_public_providers
 from worldstate.application.reconciliation_service import reconcile_persisted_data
 from worldstate.application.scheduler_service import (
     claim_next_run,
@@ -163,6 +164,23 @@ async def execute_scheduled_operation(
             settings,
             start_date=_date_input(run.input_json, "start_date", default_start),
             end_date=_date_input(run.input_json, "end_date", today),
+        )
+        _require_complete(result, operation)
+        return result
+    if operation == "sync_public_macro":
+        default_start = max(settings.data_start_date, today - timedelta(days=400))
+        providers = tuple(
+            str(item)
+            for item in run.input_json.get(
+                "providers", job.schedule_json.get("providers", ["ecb", "boe", "boj", "china"])
+            )
+        )
+        result = await sync_public_providers(
+            engine,
+            settings,
+            start_date=_date_input(run.input_json, "start_date", default_start),
+            end_date=_date_input(run.input_json, "end_date", today),
+            providers=providers,
         )
         _require_complete(result, operation)
         return result

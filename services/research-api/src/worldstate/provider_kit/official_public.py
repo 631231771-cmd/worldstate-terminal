@@ -13,7 +13,7 @@ import hashlib
 import io
 import time
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 import httpx
@@ -69,7 +69,7 @@ def _parse_date(value: str) -> date:
             return date.fromisoformat(candidate)
         except ValueError:
             pass
-    for fmt in ("%d/%b/%Y", "%d/%m/%Y", "%Y/%m/%d", "%b-%y"):
+    for fmt in ("%d/%b/%Y", "%d %b %Y", "%d/%m/%Y", "%Y/%m/%d", "%b-%y"):
         try:
             return datetime.strptime(cleaned, fmt).date()
         except ValueError:
@@ -163,7 +163,11 @@ class OfficialPublicCsvProvider:
                     "VFD": "N",
                 },
             )
-        url = f"{self.base_url}/{spec.native_id}"
+        if spec.endpoint_kind == "ecb" and "." in spec.native_id:
+            flow, key = spec.native_id.split(".", 1)
+            url = f"{self.base_url}/{flow}/{key}"
+        else:
+            url = f"{self.base_url}/{spec.native_id}"
         params = {"format": "csvdata"}
         if start:
             params["startPeriod"] = start.isoformat()
@@ -181,7 +185,12 @@ class OfficialPublicCsvProvider:
                 f"{self.name} public endpoint is not configured",
             )
         url, params = self._request_url_params(spec, start, end)
-        response = await self._transport.request("GET", url, params=params)
+        response = await self._transport.request(
+            "GET",
+            url,
+            params=params,
+            headers={"User-Agent": "WorldState-Terminal/0.7 (local research client)"},
+        )
         return response.content, str(response.url)
 
     async def fetch_metadata(self, native_id: str) -> SeriesMetadata:
@@ -299,7 +308,9 @@ class OfficialPublicCsvProvider:
         started = time.perf_counter()
         try:
             await self.fetch_observation_batch(
-                next(iter(self.series)), start=date.today(), end=date.today()
+                next(iter(self.series)),
+                start=date.today() - timedelta(days=7),
+                end=date.today(),
             )
         except ProviderError as exc:
             return ProviderHealth(

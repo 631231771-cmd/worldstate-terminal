@@ -30,6 +30,7 @@ from worldstate.application.backfill_service import (
     make_backfill_idempotency_key,
 )
 from worldstate.application.data_foundation_service import get_provider_data_status
+from worldstate.application.freshness_service import build_data_freshness
 from worldstate.application.licensed_sync_service import (
     snapshot_trading_economics_consensus,
     sync_databento_release_market,
@@ -1297,6 +1298,18 @@ async def data_coverage(
     )
 
 
+@data_router.get("/freshness")
+async def data_freshness(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, Any]:
+    selected = data_mode or ("fixture" if request.app.state.settings.demo_mode else "observed")
+    return await build_data_freshness(
+        request.app.state.database_engine,
+        data_mode=selected,
+    )
+
+
 def _set_multi_status(response: Response, result: dict[str, Any]) -> None:
     if result.get("status") == "partial":
         response.status_code = 207
@@ -1350,6 +1363,41 @@ async def sync_public_endpoint(
     )
     _set_multi_status(response, result)
     return result
+
+
+@data_write_router.post("/bootstrap-free")
+async def bootstrap_free_data(
+    request: Request,
+    response: Response,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict[str, Any]:
+    """Fetch a bounded first observed slice from public official feeds.
+
+    This is deliberately separate from fixture bootstrap and never changes the
+    requested data mode or inserts demo observations.
+    """
+    settings: Settings = request.app.state.settings
+    start = start_date or settings.data_start_date
+    end = end_date or date.today()
+    if end < start:
+        raise HTTPException(status_code=422, detail="end_date must not be before start_date")
+    result = await sync_public_providers(
+        request.app.state.database_engine,
+        settings,
+        start_date=start,
+        end_date=end,
+        providers=("ecb", "boe"),
+    )
+    _set_multi_status(response, result)
+    return {
+        **result,
+        "operation": "bootstrap-free",
+        "start_date": start,
+        "end_date": end,
+        "data_mode": "observed",
+        "fixture_fallback": False,
+    }
 
 
 @data_write_router.post("/sync/calendar")

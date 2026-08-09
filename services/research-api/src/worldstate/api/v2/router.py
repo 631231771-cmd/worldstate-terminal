@@ -23,6 +23,7 @@ from worldstate.api.v2.schemas import (
     ReleaseCreateInput,
     ThesisInput,
     ThesisUpdateInput,
+    WatchlistInput,
     stage_payload,
 )
 from worldstate.application.analysis_orchestrator import METHODOLOGY_VERSION, analyze_release
@@ -35,6 +36,7 @@ from worldstate.application.consensus_service import append_consensus
 from worldstate.application.daily_brief_service import build_daily_brief
 from worldstate.application.evidence_service import get_evidence_pack
 from worldstate.application.global_macro_service import build_global_macro
+from worldstate.application.macro_system_service import build_macro_systems
 from worldstate.application.market_import_service import import_market_csv
 from worldstate.application.market_research_service import (
     build_market_dashboard,
@@ -53,6 +55,13 @@ from worldstate.application.release_queries import (
     list_releases,
 )
 from worldstate.application.report_service import get_release_explanations
+from worldstate.application.state_history_service import (
+    add_watchlist_item,
+    list_watchlist,
+    list_world_state_snapshots,
+    persist_world_state_snapshot,
+    remove_watchlist_item,
+)
 from worldstate.application.thesis_service import (
     create_thesis,
     evaluate_thesis,
@@ -709,6 +718,7 @@ async def regimes(
 async def world_state(
     request: Request,
     data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+    as_of: datetime | None = None,
 ) -> dict[str, object]:
     """Return the deterministic, point-in-time macro state snapshot.
 
@@ -717,15 +727,30 @@ async def world_state(
     while this response describes the latest series state for the terminal.
     """
     mode = requested_data_mode(request, data_mode)
-    return await build_world_state(request.app.state.database_engine, data_mode=mode)
+    return await build_world_state(
+        request.app.state.database_engine, data_mode=mode, as_of=as_of
+    )
 
 
 @router.get("/global-macro", tags=["macro"])
 async def global_macro(
     request: Request,
     data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+    as_of: datetime | None = None,
 ) -> dict[str, object]:
     return await build_global_macro(
+        request.app.state.database_engine,
+        data_mode=requested_data_mode(request, data_mode),
+        as_of=as_of,
+    )
+
+
+@router.get("/macro-systems", tags=["macro"])
+async def macro_systems(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, object]:
+    return await build_macro_systems(
         request.app.state.database_engine,
         data_mode=requested_data_mode(request, data_mode),
     )
@@ -735,10 +760,13 @@ async def global_macro(
 async def daily_brief(
     request: Request,
     data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+    as_of: datetime | None = None,
 ) -> dict[str, object]:
     """Build the deterministic daily entry point used by the Today workspace."""
     mode = requested_data_mode(request, data_mode)
-    return await build_daily_brief(request.app.state.database_engine, data_mode=mode)
+    return await build_daily_brief(
+        request.app.state.database_engine, data_mode=mode, as_of=as_of
+    )
 
 
 @router.get("/market-dashboard", tags=["market"])
@@ -746,11 +774,13 @@ async def market_dashboard(
     request: Request,
     horizon: Literal["1d", "1w", "1m", "3m"] = Query(default="1d"),
     data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+    as_of: datetime | None = None,
 ) -> dict[str, object]:
     return await build_market_dashboard(
         request.app.state.database_engine,
         horizon=horizon,
         data_mode=requested_data_mode(request, data_mode),
+        as_of=as_of,
     )
 
 
@@ -823,6 +853,62 @@ async def methodology() -> dict[str, object]:
 @router.get("/methods", tags=["system"])
 async def methods() -> dict[str, object]:
     return await methodology()
+
+
+@router.post("/world-state/snapshot", tags=["macro"], dependencies=[Depends(require_write_access)])
+async def world_state_snapshot(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, object]:
+    return await persist_world_state_snapshot(
+        request.app.state.database_engine,
+        data_mode=requested_data_mode(request, data_mode),
+    )
+
+
+@router.get("/world-state/history", tags=["macro"])
+async def world_state_history(
+    request: Request,
+    limit: int = Query(default=30, ge=1, le=365),
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> list[dict[str, object]]:
+    return await list_world_state_snapshots(
+        request.app.state.database_engine,
+        data_mode=requested_data_mode(request, data_mode),
+        limit=limit,
+    )
+
+
+@router.get("/watchlist", tags=["research"])
+async def watchlist(request: Request) -> list[dict[str, object]]:
+    return await list_watchlist(request.app.state.database_engine)
+
+
+@router.post("/watchlist", tags=["research"], dependencies=[Depends(require_write_access)])
+async def watchlist_add(payload: WatchlistInput, request: Request) -> dict[str, object]:
+    return await add_watchlist_item(
+        request.app.state.database_engine,
+        item_type=payload.item_type,
+        item_key=payload.item_key,
+        label=payload.label,
+        notes=payload.notes,
+        data_mode=payload.data_mode,
+    )
+
+
+@router.delete(
+    "/watchlist/{item_id}",
+    tags=["research"],
+    dependencies=[Depends(require_write_access)],
+)
+async def watchlist_delete(item_id: str, request: Request) -> dict[str, object]:
+    try:
+        identifier = uuid.UUID(item_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="watchlist item id must be a UUID") from exc
+    if not await remove_watchlist_item(request.app.state.database_engine, identifier):
+        raise HTTPException(status_code=404, detail="watchlist item not found")
+    return {"status": "deleted", "id": item_id}
 
 
 @router.post("/research/assistant", tags=["research"])

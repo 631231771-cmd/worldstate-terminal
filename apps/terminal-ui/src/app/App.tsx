@@ -5,6 +5,7 @@ import type { ReleaseSummary, ViewKey } from "../types";
 import { CrossAssetWorkspace } from "../workspaces/cross-asset/CrossAssetWorkspace";
 import { CountriesWorkspace } from "../workspaces/countries/CountriesWorkspace";
 import { DataMethodsWorkspace } from "../workspaces/data-methods/DataMethodsWorkspace";
+import { DataControlWorkspace } from "../workspaces/data-control/DataControlWorkspace";
 import { EventLabWorkspace } from "../workspaces/event-lab/EventLabWorkspace";
 import { MarketsWorkspace } from "../workspaces/markets/MarketsWorkspace";
 import { ReleasesWorkspace } from "../workspaces/releases/ReleasesWorkspace";
@@ -14,6 +15,7 @@ import { TodayWorkspace } from "../workspaces/today/TodayWorkspace";
 import { WorldStateWorkspace } from "../workspaces/world-state/WorldStateWorkspace";
 
 const NAVIGATION: Array<{ key: ViewKey; label: string; index: string; note: string }> = [
+  { key: "data-control", label: "数据控制中心", index: "11", note: "同步与新鲜度" },
   { key: "today", label: "今日", index: "01", note: "研究入口" },
   { key: "world-state", label: "宏观状态", index: "02", note: "增长与通胀" },
   { key: "markets", label: "市场状态", index: "03", note: "跨资产确认" },
@@ -171,6 +173,7 @@ export function App() {
             {view === "countries" ? <CountriesWorkspace /> : null}
             {view === "research" ? <ResearchWorkspace /> : null}
             {view === "data-methods" ? <DataMethodsWorkspace /> : null}
+            {view === "data-control" ? <DataControlWorkspace /> : null}
           </>
         )}
       </main>

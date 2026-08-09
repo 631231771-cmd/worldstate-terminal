@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("launch", "start", "stop", "restart", "status", "doctor", "logs", "migrate", "bootstrap", "build", "data-doctor", "sync-official", "sync-calendar", "snapshot-consensus", "estimate-backfill", "backfill", "sync-market", "reconcile-data", "data-status")]
+    [ValidateSet("launch", "start", "stop", "restart", "status", "doctor", "logs", "migrate", "bootstrap", "build", "data-doctor", "sync-official", "sync-public", "sync-calendar", "snapshot-consensus", "estimate-backfill", "backfill", "sync-market", "reconcile-data", "data-status")]
     [string]$Command = "start",
     [switch]$NoBrowser,
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -448,6 +448,7 @@ switch ($Command) {
     { $_ -in @(
         "data-doctor",
         "sync-official",
+        "sync-public",
         "sync-calendar",
         "snapshot-consensus",
         "estimate-backfill",

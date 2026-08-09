@@ -82,7 +82,7 @@ from worldstate.market_core.catalog import INSTRUMENTS
 from worldstate.provider_kit import MarketBarRecord, generate_scenario_bars
 from worldstate.research_engine.history import compare_historical_events, magnitude_bucket
 
-METHODOLOGY_VERSION = "macro-event-engine-v0.6-operational-intelligence"
+METHODOLOGY_VERSION = "macro-event-engine-v0.7-live-global"
 CODE_VERSION = "macro-research-terminal-v0.5"
 _NAMESPACE = uuid.UUID("fbf59be7-d632-4f3c-a5a0-104425f478c2")
 

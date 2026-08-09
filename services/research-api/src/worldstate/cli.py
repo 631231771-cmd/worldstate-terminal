@@ -33,6 +33,7 @@ from worldstate.api.v2.schemas import BackfillRequestInput
 from worldstate.application.analysis_orchestrator import analyze_release
 from worldstate.application.bootstrap_service import bootstrap_research_data
 from worldstate.application.evidence_service import get_evidence_pack
+from worldstate.application.freshness_service import build_data_freshness
 from worldstate.application.licensed_sync_service import (
     snapshot_trading_economics_consensus,
     sync_databento_release_market,
@@ -298,6 +299,7 @@ async def _run_async(args: argparse.Namespace, settings: Settings) -> int:
         if args.command == "data-status":
             providers = await build_provider_status(engine, settings)
             coverage = await build_data_coverage(engine, data_mode=args.data_mode)
+            freshness = await build_data_freshness(engine, data_mode=args.data_mode)
             factory = async_sessionmaker(engine, expire_on_commit=False)
             async with factory() as session:
                 jobs = (
@@ -309,6 +311,7 @@ async def _run_async(args: argparse.Namespace, settings: Settings) -> int:
                 "status": "ok",
                 "providers": providers,
                 "coverage": coverage,
+                "freshness": freshness,
                 "backfill_jobs": [serialize_backfill_job(item) for item in jobs],
             }
             _write_optional_output(payload, args.output)
@@ -352,8 +355,14 @@ async def _run_async(args: argparse.Namespace, settings: Settings) -> int:
             return _result_exit_code(result)
         if args.command == "sync-public":
             start, end = _resolved_range(args, settings)
-            provider_names = tuple(
-                parse_csv_values(args.providers, ("ecb", "boe", "boj", "china"))
+            provider_names = (
+                ("ecb", "boe", "boj", "china")
+                if args.providers is None
+                else tuple(
+                    item.strip().lower()
+                    for item in args.providers.split(",")
+                    if item.strip()
+                )
             )
             try:
                 result = await sync_public_providers(

@@ -138,6 +138,14 @@ class ContextAssistantInput(StrictModel):
     data_mode: Literal["observed", "fixture", "all"] = "observed"
 
 
+class WatchlistInput(StrictModel):
+    item_type: Literal["series", "market", "country", "release", "thesis"]
+    item_key: str = Field(min_length=1, max_length=255)
+    label: str = Field(min_length=1, max_length=255)
+    notes: str = Field(default="", max_length=4000)
+    data_mode: Literal["observed", "fixture"] = "observed"
+
+
 def stage_payload(items: list[ReleaseStageInput]) -> list[dict[str, object]]:
     return [
         {
