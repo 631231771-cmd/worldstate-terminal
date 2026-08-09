@@ -313,7 +313,7 @@ export function DataMethodsWorkspace() {
     <div class="workspace data-foundation">
       <section class="page-heading">
         <div>
-          <div class="eyebrow">DATA FOUNDATION · v0.5</div>
+          <div class="eyebrow">DATA FOUNDATION · v0.6</div>
           <h1>数据与方法</h1>
           <p>先看数据是否真实、完整并在预算内，再谈市场解释。密钥、授权和付费下载都不会在这里暴露或被默认执行。</p>
         </div>

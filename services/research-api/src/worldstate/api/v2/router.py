@@ -801,6 +801,11 @@ async def methodology() -> dict[str, object]:
             "fixed-recipe historical matching",
             "competing macro hypotheses",
             "EvidencePack",
+            "deterministic World State",
+            "Daily Macro Brief and Top Changes",
+            "cross-asset market dashboard",
+            "Series Explorer and Thesis Book",
+            "global macro coverage map",
             "optional AI summary",
         ],
         "historical_sample_policy": {
