@@ -18,9 +18,18 @@ export function TodayWorkspace({
   onOpen: (releaseId: string, destination?: ViewKey) => void;
 }) {
   const [today, setToday] = useState<Awaited<ReturnType<typeof api.today>> | null>(null);
+  const [brief, setBrief] = useState<Awaited<ReturnType<typeof api.dailyBrief>> | null>(null);
 
   useEffect(() => {
-    void api.today().then(setToday).catch(() => setToday(null));
+    void Promise.all([api.today(), api.dailyBrief()])
+      .then(([todayResult, briefResult]) => {
+        setToday(todayResult);
+        setBrief(briefResult);
+      })
+      .catch(() => {
+        setToday(null);
+        setBrief(null);
+      });
   }, []);
 
   // The API deliberately returns only released, completed and reproducible
@@ -45,6 +54,49 @@ export function TodayWorkspace({
           <p>分钟数据只判断“最早观察到”，不声称逐笔领先。</p>
         </div>
       </section>
+
+      <Panel title="当前宏观状态" eyebrow="WORLD STATE" aside={<span class="muted">{brief?.world_state.regime.label ?? "等待数据"}</span>}>
+        <div class="state-strip">
+          {Object.entries(brief?.world_state.dimensions ?? {}).slice(0, 6).map(([key, dimension]) => (
+            <div class="state-strip__item" key={key}>
+              <span>{key.replace("_", " ")}</span>
+              <strong class={dimension.score !== null && dimension.score >= 0 ? "positive" : "negative"}>
+                {dimension.score === null ? "—" : dimension.score.toFixed(2)}
+              </strong>
+              <small>{dimension.direction} · 覆盖 {Math.round(dimension.coverage * 100)}%</small>
+            </div>
+          ))}
+        </div>
+        <p class="method-note">状态分数是结构化序列的变化线索，不是“好/坏”评级；鼠标悬停或进入 World State 可查看驱动与缺口。</p>
+      </Panel>
+
+      <div class="two-column">
+        <Panel title="最近最重要的变化" eyebrow="TOP CHANGES">
+          <div class="change-list">
+            {(brief?.biggest_changes ?? []).slice(0, 5).map((change) => (
+              <div class="change-list__row" key={`${change.category}-${change.what_changed}`}>
+                <span class="change-list__dot" />
+                <div><strong>{change.what_changed}</strong><p>{change.why_it_matters}</p></div>
+                <Badge tone={change.confidence >= 0.65 ? "good" : "warn"}>{Math.round(change.confidence * 100)}%</Badge>
+              </div>
+            ))}
+            {!brief?.biggest_changes.length ? <div class="state-message"><div><h2>暂无可排序的变化</h2><p>当前 data_mode 没有足够的结构化观测。</p></div></div> : null}
+          </div>
+        </Panel>
+        <Panel title="市场确认" eyebrow="RATES · USD · RISK">
+          <div class="market-confirmation">
+            {(brief?.market_confirmation ?? []).slice(0, 6).map((market) => (
+              <div class="market-confirmation__row" key={String(market.instrument_key)}>
+                <span>{String(market.title)}</span>
+                <strong class={Number(market.change_percent ?? 0) >= 0 ? "positive" : "negative"}>
+                  {market.change_percent == null ? "—" : `${Number(market.change_percent).toFixed(2)}%`}
+                </strong>
+              </div>
+            ))}
+            {!brief?.market_confirmation.length ? <p class="muted">当前没有满足模式和时段条件的市场数据。</p> : null}
+          </div>
+        </Panel>
+      </div>
 
       <div class="summary-grid">
         <Panel title="今日待办" eyebrow="CALENDAR">

@@ -29,6 +29,7 @@ from worldstate.application.analysis_persistence import (
     replay_analysis_run,
 )
 from worldstate.application.consensus_service import append_consensus
+from worldstate.application.daily_brief_service import build_daily_brief
 from worldstate.application.evidence_service import get_evidence_pack
 from worldstate.application.market_import_service import import_market_csv
 from worldstate.application.release_commands import create_manual_release
@@ -707,6 +708,16 @@ async def world_state(
     """
     mode = requested_data_mode(request, data_mode)
     return await build_world_state(request.app.state.database_engine, data_mode=mode)
+
+
+@router.get("/daily-brief", tags=["macro"])
+async def daily_brief(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, object]:
+    """Build the deterministic daily entry point used by the Today workspace."""
+    mode = requested_data_mode(request, data_mode)
+    return await build_daily_brief(request.app.state.database_engine, data_mode=mode)
 
 
 @router.get("/methodology", tags=["system"])

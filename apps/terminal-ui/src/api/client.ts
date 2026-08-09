@@ -12,6 +12,8 @@ import type {
   ResearchClaim,
   TimelineResponse,
   WindowsResponse,
+  DailyBriefResponse,
+  WorldStateResponse,
 } from "../types";
 
 const configuredBase = import.meta.env.VITE_RESEARCH_API_URL as string | undefined;
@@ -68,6 +70,8 @@ export const api = {
       question: string;
       data_note: string;
     }>("/v2/today"),
+  dailyBrief: () => request<DailyBriefResponse>("/v2/daily-brief"),
+  worldState: () => request<WorldStateResponse>("/v2/world-state"),
   releases: () => request<ReleaseSummary[]>("/v2/releases?limit=500"),
   release: (id: string) => request<ReleaseDetail>(`/v2/releases/${id}`),
   windows: (id: string) => request<WindowsResponse>(`/v2/releases/${id}/windows`),

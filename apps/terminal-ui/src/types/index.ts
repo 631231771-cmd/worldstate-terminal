@@ -1,4 +1,4 @@
-export type ViewKey = "today" | "releases" | "event-lab" | "cross-asset" | "data-methods";
+export type ViewKey = "today" | "world-state" | "markets" | "releases" | "event-lab" | "cross-asset" | "data-methods";
 
 export interface ReleaseSummary {
   id: string;
@@ -465,4 +465,62 @@ export interface BackfillJob {
   completed_at?: string | null;
   last_error?: string | null;
   can_cancel?: boolean;
+}
+
+export interface WorldStateDimension {
+  score: number | null;
+  direction: string;
+  momentum: number | null;
+  confidence: number;
+  coverage: number;
+  freshness: number | null;
+  top_drivers: Array<{
+    series_key: string;
+    title: string;
+    score: number;
+    momentum: number;
+    latest_value: number | null;
+    period_start: string | null;
+    provider: string;
+    source_url: string;
+    data_mode: string;
+    quality: string;
+    evidence_ids: string[];
+  }>;
+  missing_inputs: string[];
+}
+
+export interface WorldStateResponse {
+  as_of: string;
+  data_mode: string;
+  methodology_version: string;
+  dimensions: Record<string, WorldStateDimension>;
+  regime: { label: string; tags: string[]; confidence: number };
+  limitations: string[];
+}
+
+export interface DailyBriefResponse {
+  as_of: string;
+  data_mode: string;
+  methodology_version: string;
+  world_state: WorldStateResponse;
+  biggest_changes: Array<{
+    what_changed: string;
+    magnitude: number;
+    why_it_matters: string;
+    related_state: string;
+    evidence: string[];
+    source: string | null;
+    timestamp: string | null;
+    confidence: number;
+    category: string;
+    data_mode: string;
+  }>;
+  macro_events: ReleaseSummary[];
+  market_confirmation: Array<Record<string, unknown>>;
+  revisions: Array<Record<string, unknown>>;
+  upcoming: ReleaseSummary[];
+  watch_next: string[];
+  ai_note: string;
+  limitations: string[];
 }

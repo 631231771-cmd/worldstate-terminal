@@ -56,3 +56,14 @@ def test_world_state_endpoint_is_explicit_about_demo_data(client: TestClient) ->
         for dimension in observed["dimensions"].values()
         for item in dimension["top_drivers"]
     )
+
+
+def test_daily_brief_is_deterministic_and_has_explicit_sections(client: TestClient) -> None:
+    response = client.get("/v2/daily-brief?data_mode=fixture")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["methodology_version"] == "wst-daily-brief-v1"
+    assert payload["world_state"]["data_mode"] == "fixture"
+    assert isinstance(payload["biggest_changes"], list)
+    assert isinstance(payload["upcoming"], list)
+    assert "AI 只可在此基础上解释" in payload["ai_note"]
