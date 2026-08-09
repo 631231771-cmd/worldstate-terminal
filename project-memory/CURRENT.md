@@ -128,7 +128,7 @@ not live or licensed historical datasets.
   `.runtime/backups/worldstate-pre-v05-final-20260802-2135.db` before upgrade.
   Its 10,132 legacy FRED demo observations are now explicitly `fixture`.
 - Ruff and strict mypy: green across 92 checked source/test files.
-- Pytest: the v0.5.1 validation run is authoritative; do not reuse the previous count.
+- Pytest: 157 passed; overall coverage 75.58%; critical research-method set 96%.
 - Terminal UI production build: passed; npm audit reported 0 vulnerabilities.
 - Rust/Tauri: fmt/check passed, 4 tests passed, unsigned no-bundle release built.
 - Public-source smoke: BLS public API normalized 70 CPI and 106 NFP observations
@@ -139,8 +139,8 @@ not live or licensed historical datasets.
 - Missing-key behavior: FRED, Trading Economics and Databento report
   `not_configured`; no paid download was attempted. BLS schedule HTTP 403 is an
   explicit blocked ProviderRun and produces partial/non-zero sync status.
-- GitHub Actions: use the latest run for the current pushed PR head; historical
-  commit/run references are not proof for v0.5.1. PR #8 remains Draft and unmerged.
+- GitHub Actions: green for `research-api`, `terminal-ui` and `desktop-check` on
+  run `31306285082`; PR #8 remains Draft and unmerged.
 
 Do not reuse v0.4 pass counts as v0.5 evidence.
 
