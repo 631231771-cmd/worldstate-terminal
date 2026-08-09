@@ -101,6 +101,43 @@ class AssistantInput(StrictModel):
     question: str = Field(min_length=2, max_length=2000)
 
 
+class ThesisInput(StrictModel):
+    title: str = Field(min_length=1, max_length=255)
+    thesis: str = Field(min_length=3, max_length=4000)
+    horizon: str = Field(default="未来 3 个月", max_length=64)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    status: Literal["active", "paused", "falsified", "confirmed", "archived"] = "active"
+    entities: list[str] = Field(default_factory=list)
+    related_states: list[str] = Field(default_factory=list)
+    supporting_evidence: list[dict[str, object]] = Field(default_factory=list)
+    contradicting_evidence: list[dict[str, object]] = Field(default_factory=list)
+    confirmation_conditions: list[str] = Field(default_factory=list)
+    falsification_conditions: list[str] = Field(default_factory=list)
+    watch_variables: list[str] = Field(default_factory=list)
+    notes: str = Field(default="", max_length=10000)
+
+
+class ThesisUpdateInput(StrictModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    thesis: str | None = Field(default=None, min_length=3, max_length=4000)
+    horizon: str | None = Field(default=None, max_length=64)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    status: Literal["active", "paused", "falsified", "confirmed", "archived"] | None = None
+    entities: list[str] | None = None
+    related_states: list[str] | None = None
+    supporting_evidence: list[dict[str, object]] | None = None
+    contradicting_evidence: list[dict[str, object]] | None = None
+    confirmation_conditions: list[str] | None = None
+    falsification_conditions: list[str] | None = None
+    watch_variables: list[str] | None = None
+    notes: str | None = Field(default=None, max_length=10000)
+
+
+class ContextAssistantInput(StrictModel):
+    question: str = Field(min_length=2, max_length=2000)
+    data_mode: Literal["observed", "fixture", "all"] = "observed"
+
+
 def stage_payload(items: list[ReleaseStageInput]) -> list[dict[str, object]]:
     return [
         {

@@ -82,6 +82,10 @@ export const api = {
     request<Record<string, unknown>>(
       `/v2/series/${encodeURIComponent(key)}?transform=${transform}`,
     ),
+  theses: () => request<Array<Record<string, unknown>>>('/v2/theses'),
+  createThesis: (payload: Record<string, unknown>) =>
+    request<Record<string, unknown>>('/v2/theses', { method: 'POST', body: JSON.stringify(payload) }),
+  evaluateThesis: (id: string) => request<Record<string, unknown>>(`/v2/theses/${id}/evaluate`),
   releases: () => request<ReleaseSummary[]>("/v2/releases?limit=500"),
   release: (id: string) => request<ReleaseDetail>(`/v2/releases/${id}`),
   windows: (id: string) => request<WindowsResponse>(`/v2/releases/${id}/windows`),

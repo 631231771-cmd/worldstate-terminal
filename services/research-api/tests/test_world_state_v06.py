@@ -90,3 +90,35 @@ def test_market_and_series_endpoints_are_mode_explicit(client: TestClient) -> No
     assert detail.status_code == 200
     assert detail.json()["transform"] == "mom"
     assert detail.json()["points"]
+
+
+def test_thesis_book_is_user_owned_and_evaluation_does_not_auto_confirm(client: TestClient) -> None:
+    created = client.post(
+        "/v2/theses",
+        json={
+            "title": "增长放缓但金融条件稳定",
+            "thesis": "未来三个月美国增长继续放缓，但金融条件暂时不会明显恶化。",
+            "horizon": "3m",
+            "related_states": ["growth", "risk"],
+            "watch_variables": ["US.GROWTH.INDUSTRIAL_PRODUCTION"],
+            "confirmation_conditions": ["增长状态继续走弱"],
+            "falsification_conditions": ["风险状态显著恶化"],
+        },
+    )
+    assert created.status_code == 200, created.text
+    thesis_id = created.json()["id"]
+    listed = client.get("/v2/theses").json()
+    assert any(item["id"] == thesis_id for item in listed)
+    evaluated = client.get(f"/v2/theses/{thesis_id}/evaluate")
+    assert evaluated.status_code == 200
+    assert "不自动修改用户观点" in evaluated.json()["interpretation"]
+    updated = client.patch(f"/v2/theses/{thesis_id}", json={"confidence": 0.7})
+    assert updated.status_code == 200
+    assert updated.json()["confidence"] == 0.7
+    assistant = client.post(
+        "/v2/research/assistant/context",
+        json={"question": "最近通胀是变热还是变冷？", "data_mode": "fixture"},
+    )
+    assert assistant.status_code == 200
+    assert assistant.json()["mode"] == "deterministic_context"
+    assert assistant.json()["facts"][0]["claim_type"] == "fact"

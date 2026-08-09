@@ -465,6 +465,50 @@ class RegimeSnapshot(Base):
     )
 
 
+class Thesis(TimestampMixin, Base):
+    """A user's durable research thesis, kept separate from generated claims."""
+
+    __tablename__ = "theses"
+    __table_args__ = (
+        Index("ix_theses_status_updated", "status", "updated_at"),
+        CheckConstraint(
+            "status IN ('active','paused','falsified','confirmed','archived')",
+            name="ck_theses_status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    thesis: Mapped[str] = mapped_column(Text, nullable=False)
+    horizon: Mapped[str] = mapped_column(String(64), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    entities_json: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list, nullable=False)
+    related_states_json: Mapped[list[str]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    supporting_evidence_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    contradicting_evidence_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    confirmation_conditions_json: Mapped[list[str]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    falsification_conditions_json: Mapped[list[str]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    watch_variables_json: Mapped[list[str]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    history_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, default=list, nullable=False
+    )
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
+
+
 class AnalysisRun(Base):
     __tablename__ = "analysis_runs"
     __table_args__ = (Index("ix_analysis_runs_release_started", "macro_release_id", "started_at"),)

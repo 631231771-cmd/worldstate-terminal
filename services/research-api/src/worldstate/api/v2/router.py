@@ -18,8 +18,11 @@ from worldstate.api.v2.data_router import data_router, data_write_router
 from worldstate.api.v2.schemas import (
     AssistantInput,
     ConsensusInput,
+    ContextAssistantInput,
     MarketCsvImportInput,
     ReleaseCreateInput,
+    ThesisInput,
+    ThesisUpdateInput,
     stage_payload,
 )
 from worldstate.application.analysis_orchestrator import METHODOLOGY_VERSION, analyze_release
@@ -49,6 +52,13 @@ from worldstate.application.release_queries import (
     list_releases,
 )
 from worldstate.application.report_service import get_release_explanations
+from worldstate.application.thesis_service import (
+    create_thesis,
+    evaluate_thesis,
+    get_thesis,
+    list_theses,
+    update_thesis,
+)
 from worldstate.application.world_state_service import build_world_state
 from worldstate.config import Settings
 from worldstate.db.models import (
@@ -811,6 +821,114 @@ async def research_assistant(payload: AssistantInput, request: Request) -> dict[
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/theses", tags=["research"])
+async def theses(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> list[dict[str, object]]:
+    return await list_theses(
+        request.app.state.database_engine,
+        data_mode=requested_data_mode(request, data_mode),
+    )
+
+
+@router.post("/theses", tags=["research"], dependencies=[Depends(require_write_access)])
+async def thesis_create(payload: ThesisInput, request: Request) -> dict[str, object]:
+    try:
+        return await create_thesis(
+            request.app.state.database_engine,
+            payload.model_dump(),
+            data_mode=requested_data_mode(request),
+        )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/theses/{thesis_id}", tags=["research"])
+async def thesis_detail(thesis_id: str, request: Request) -> object:
+    try:
+        result = await get_thesis(request.app.state.database_engine, thesis_id)
+    except ValueError:
+        result = None
+    return required(result, "thesis not found")
+
+
+@router.patch(
+    "/theses/{thesis_id}", tags=["research"], dependencies=[Depends(require_write_access)]
+)
+async def thesis_update(
+    thesis_id: str,
+    payload: ThesisUpdateInput,
+    request: Request,
+) -> object:
+    values = {key: value for key, value in payload.model_dump().items() if value is not None}
+    try:
+        result = await update_thesis(request.app.state.database_engine, thesis_id, values)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return required(result, "thesis not found")
+
+
+@router.get("/theses/{thesis_id}/evaluate", tags=["research"])
+async def thesis_evaluate(thesis_id: str, request: Request) -> object:
+    try:
+        result = await evaluate_thesis(request.app.state.database_engine, thesis_id)
+    except ValueError:
+        result = None
+    return required(result, "thesis not found")
+
+
+@router.post("/research/assistant/context", tags=["research"])
+async def context_assistant(
+    payload: ContextAssistantInput,
+    request: Request,
+) -> dict[str, object]:
+    """Answer broad research questions from the deterministic terminal context.
+
+    This endpoint deliberately returns a structured context bundle first.  A
+    configured AI provider may be added on top without allowing it to compute
+    state or invent evidence.
+    """
+    brief = await build_daily_brief(
+        request.app.state.database_engine,
+        data_mode=payload.data_mode,
+    )
+    state = brief["world_state"]
+    dimensions = state["dimensions"]
+    facts = [
+        {
+            "claim_type": "fact",
+            "statement": f"当前 regime：{state['regime']['label']}",
+            "evidence_ids": [
+                evidence_id
+                for dimension in dimensions.values()
+                for driver in dimension.get("top_drivers", [])
+                for evidence_id in driver.get("evidence_ids", [])
+            ],
+            "confidence": state["regime"]["confidence"],
+            "is_inference": False,
+            "limitations": state["limitations"],
+            "falsifier": "下一次有效数据更新后状态标签发生变化。",
+        },
+    ]
+    return {
+        "question": payload.question,
+        "mode": "deterministic_context",
+        "provider": request.app.state.settings.resolved_ai_provider,
+        "facts": facts,
+        "world_state": state,
+        "biggest_changes": brief["biggest_changes"],
+        "answer": (
+            "已确认事实："
+            f"{state['regime']['label']}。\n"
+            "当前推断：请结合 Top Changes 和各维度驱动阅读；"
+            "系统不会把相关性写成唯一因果。\n"
+            "无法确认：自然语言问题需要更多指定事件或来源证据。"
+        ),
+        "limitations": brief["limitations"],
+    }
 
 
 # Data Foundation has public read routes and separately protected state-changing routes.

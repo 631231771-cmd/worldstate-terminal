@@ -173,6 +173,13 @@ a { color: var(--amber); }
 .series-history__row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
 .series-history__row time, .series-history__row small { color: var(--muted); font: 11px var(--font-mono); }
 .series-history__row strong { font: 500 13px var(--font-mono); }
+.thesis-input { display: block; width: 100%; min-width: 0; margin-bottom: 12px; }
+.thesis-textarea { display: block; width: 100%; min-height: 150px; padding: 12px; resize: vertical; color: var(--text); border: 1px solid var(--line); background: #11130f; }
+.thesis-list { display: grid; margin-bottom: 22px; }
+.thesis-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; padding: 13px 10px; color: var(--text); text-align: left; background: transparent; border: 0; border-top: 1px solid var(--line-soft); cursor: pointer; }
+.thesis-row:hover, .thesis-row.active { background: var(--surface-2); }
+.thesis-row strong, .thesis-row small { display: block; }
+.thesis-row small { color: var(--muted); margin-top: 3px; }
 .table-wrap { width: 100%; overflow: auto; }
 table { width: 100%; border-collapse: collapse; }
 th { padding: 12px; color: var(--dim); font: 500 10px var(--font-mono); letter-spacing: .1em; text-align: left; border-bottom: 1px solid var(--line); }

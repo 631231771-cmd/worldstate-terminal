@@ -7,6 +7,7 @@ import { DataMethodsWorkspace } from "../workspaces/data-methods/DataMethodsWork
 import { EventLabWorkspace } from "../workspaces/event-lab/EventLabWorkspace";
 import { MarketsWorkspace } from "../workspaces/markets/MarketsWorkspace";
 import { ReleasesWorkspace } from "../workspaces/releases/ReleasesWorkspace";
+import { ResearchWorkspace } from "../workspaces/research/ResearchWorkspace";
 import { SeriesWorkspace } from "../workspaces/series/SeriesWorkspace";
 import { TodayWorkspace } from "../workspaces/today/TodayWorkspace";
 import { WorldStateWorkspace } from "../workspaces/world-state/WorldStateWorkspace";
@@ -19,7 +20,8 @@ const NAVIGATION: Array<{ key: ViewKey; label: string; index: string; note: stri
   { key: "event-lab", label: "事件实验室", index: "05", note: "完整复盘" },
   { key: "cross-asset", label: "跨资产", index: "06", note: "同轴反应" },
   { key: "series", label: "宏观序列", index: "07", note: "时间序列" },
-  { key: "data-methods", label: "数据与方法", index: "08", note: "质量与边界" },
+  { key: "research", label: "研究判断", index: "08", note: "Thesis Book" },
+  { key: "data-methods", label: "数据与方法", index: "09", note: "质量与边界" },
 ];
 
 function initialView(): ViewKey {
@@ -164,6 +166,7 @@ export function App() {
             ) : null}
             {view === "cross-asset" ? <CrossAssetWorkspace release={selected} /> : null}
             {view === "series" ? <SeriesWorkspace /> : null}
+            {view === "research" ? <ResearchWorkspace /> : null}
             {view === "data-methods" ? <DataMethodsWorkspace /> : null}
           </>
         )}
