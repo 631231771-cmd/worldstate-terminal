@@ -21,7 +21,8 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0009_operational_state`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- HEAD: checkpoint in progress for v0.7 Live Activation Completion (snapshot truthfulness, partial system status, BLS current-state boundary, and daily snapshot scheduling)
+- HEAD: `08ef57142` (`feat: checkpoint live activation truthfulness and BLS state path`)
+- Next resume point: continue v0.7 Live Activation Completion from this checkpoint; BLS public endpoint was unavailable during the capture attempt, so runtime growth from the new current-state path still needs a later live validation.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
   `feature/v0.7-live-global`; do not mark any of them Ready or merge
 
