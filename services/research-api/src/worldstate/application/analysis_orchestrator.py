@@ -82,7 +82,7 @@ from worldstate.market_core.catalog import INSTRUMENTS
 from worldstate.provider_kit import MarketBarRecord, generate_scenario_bars
 from worldstate.research_engine.history import compare_historical_events, magnitude_bucket
 
-METHODOLOGY_VERSION = "macro-event-engine-v0.5-data-foundation"
+METHODOLOGY_VERSION = "macro-event-engine-v0.6-operational-intelligence"
 CODE_VERSION = "macro-research-terminal-v0.5"
 _NAMESPACE = uuid.UUID("fbf59be7-d632-4f3c-a5a0-104425f478c2")
 
@@ -2237,13 +2237,9 @@ async def list_releases(
                     "surprise_score": run.composite_surprise_score if run else None,
                     "confidence": run.confidence if run else 0.0,
                     "analysis_status": run.status if run else "pending",
-                    "reproducibility_status": (
-                        run.reproducibility_status if run else None
-                    ),
+                    "reproducibility_status": (run.reproducibility_status if run else None),
                     "analysis_completed_at": (
-                        _aware(run.completed_at).isoformat()
-                        if run and run.completed_at
-                        else None
+                        _aware(run.completed_at).isoformat() if run and run.completed_at else None
                     ),
                     "data_mode": run.data_mode if run else release.data_mode,
                     "clean_window": release.clean_window,

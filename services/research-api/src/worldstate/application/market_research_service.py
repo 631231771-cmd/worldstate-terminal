@@ -245,23 +245,27 @@ async def get_series_history(
         if data_mode != "all":
             query = query.where(Observation.data_mode == data_mode)
         observations = list((await session.scalars(query)).all())[::-1]
-        values = [float(item.value) for item in observations if item.value is not None]
-        periods = [item.period_start for item in observations if item.value is not None]
+        valid_observations = [item for item in observations if item.value is not None]
+        values = []
+        for item in valid_observations:
+            assert item.value is not None
+            values.append(float(item.value))
+        periods = [item.period_start for item in valid_observations]
         transformed = _transform(values, periods, transform)
         provider = await session.scalar(select(Provider).where(Provider.id == series.provider_id))
         if provider is None:
             return None
         points = []
         for index, (period, value) in enumerate(zip(periods, values, strict=False)):
-            available_at = observations[index].available_at
+            available_at = valid_observations[index].available_at
             points.append(
                 {
                     "period": period.isoformat(),
                     "value": value,
                     "transformed": transformed[index],
-                    "vintage": observations[index].vintage_date.isoformat(),
+                    "vintage": valid_observations[index].vintage_date.isoformat(),
                     "available_at": available_at.isoformat() if available_at else None,
-                    "observation_id": observations[index].id,
+                    "observation_id": valid_observations[index].id,
                 }
             )
         return {
