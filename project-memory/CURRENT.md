@@ -23,6 +23,7 @@ longer part of the active architecture. Their final state is preserved at tag
 - Product version in the worktree: `0.7.0`
 - HEAD: `590a834` (`feat: activate context markets and consensus imports`)
 - Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot and 29 observed gold daily bars are present. Next resume point is BLS/US coverage and multi-asset observed market validation. BLS public endpoint was unavailable during the capture attempt.
+- Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/China/Japan unavailable, EA/UK available, 29 observed gold daily bars, one observed snapshot, zero observed consensus snapshots, and no emitted divergence without two comparable countries.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
   `feature/v0.7-live-global`; do not mark any of them Ready or merge
 
