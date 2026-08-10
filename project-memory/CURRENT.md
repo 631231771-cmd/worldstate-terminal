@@ -21,7 +21,7 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- HEAD: `654197a` (`feat: rebuild capability-driven terminal shell`; PR #10 remains Draft)
+- HEAD: `118b786` (`fix: satisfy research api lint`; PR #11 remains Draft)
 - Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot, 8,801 observed daily context bars, 50 catalog series with 29,701 observed macro observations, 28,247 FRED current-public observations and 621 BLS current-state observations are present. FRED no-key data is explicitly current-state/non-PIT; a FRED key is still required for ALFRED vintage semantics.
 - Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/EA/UK observed state coverage, Japan/China unavailable without an official export, 8 context instruments, one observed snapshot, zero observed consensus snapshots, and explicit market/data-quality boundaries.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
@@ -171,6 +171,8 @@ entitlement boundaries below.
   verified file is imported; no fixture bars are promoted to observed data.
 - The rebuild is intentionally stacked on the live-global branch. It has not
   changed PR #10 status and has not merged any existing PR.
+- PR #11 CI run `31365337023` is green across research-api, terminal-ui and
+  desktop-check (the Windows no-bundle build took about ten minutes).
   and the data-control page was read in the running browser against the v0.7
   API. HICP correctly displayed `STALE` based on covered period age.
 
