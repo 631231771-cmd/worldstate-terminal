@@ -15,13 +15,13 @@ longer part of the active architecture. Their final state is preserved at tag
 
 ## Active branch and milestones
 
-- Working branch: `feature/v0.7-live-global`
+- Working branch: `feature/v0.7-terminal-rebuild` (stacked on `feature/v0.7-live-global`)
 - Last committed v0.4 baseline: `16544c373bb32fc9788b72538db49c3fcc2c1337`
 - v0.5 Data Foundation: committed as `4054a66e620db2f5aff9a4c70b6af9be3b9aad94`; local and GitHub CI validation complete
 - Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- HEAD: `bd177d1` (`feat: productize v07 terminal workflow`; keep PR #10 Draft)
+- HEAD: `654197a` (`feat: rebuild capability-driven terminal shell`; PR #10 remains Draft)
 - Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot, 8,801 observed daily context bars, 50 catalog series with 29,701 observed macro observations, 28,247 FRED current-public observations and 621 BLS current-state observations are present. FRED no-key data is explicitly current-state/non-PIT; a FRED key is still required for ALFRED vintage semantics.
 - Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/EA/UK observed state coverage, Japan/China unavailable without an official export, 8 context instruments, one observed snapshot, zero observed consensus snapshots, and explicit market/data-quality boundaries.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
@@ -158,6 +158,19 @@ entitlement boundaries below.
   imported. Freshness is LIVE 35 / STALE 15 / MISSING 0 for this runtime.
 - v0.7 final checks: 181 backend tests passed, Ruff and strict mypy passed,
   Terminal UI production build passed, Tauri fmt/check and 4 unit tests passed,
+
+## v0.7 Terminal Rebuild (in progress)
+
+- Checkpoint `654197a` adds a capability-driven product projection at
+  `/v2/product/today` and a dataset inventory at `/v2/data/capabilities`.
+- Today, Markets, Macro and Events now use a compact terminal shell with typed
+  product models, drawers, command search, Learning/Advanced toggles,
+  capability-aware empty states and valid-session market changes.
+- Data Sources now exposes the capability inventory and an event-minute CSV
+  import entry point. Minute event research remains unavailable until a legal,
+  verified file is imported; no fixture bars are promoted to observed data.
+- The rebuild is intentionally stacked on the live-global branch. It has not
+  changed PR #10 status and has not merged any existing PR.
   and the data-control page was read in the running browser against the v0.7
   API. HICP correctly displayed `STALE` based on covered period age.
 

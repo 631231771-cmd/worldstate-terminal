@@ -162,6 +162,19 @@ export const api = {
       { method: "POST", body: JSON.stringify(payload) },
       [207, 424],
     ),
+  importMarketBars: (releaseId: string, payload: {
+    instrument_key: string;
+    csv_text: string;
+    provider_key?: string;
+    source_name?: string;
+    source_url?: string;
+    verified?: boolean;
+    is_fixture?: boolean;
+  }) => request<Record<string, unknown>>(
+    `/v2/releases/${encodeURIComponent(releaseId)}/market-bars/import`,
+    { method: "POST", body: JSON.stringify(payload) },
+    [207, 424],
+  ),
   importOfficialMacroCsv: (payload: {
     csv_text: string;
     provider_key?: string;
