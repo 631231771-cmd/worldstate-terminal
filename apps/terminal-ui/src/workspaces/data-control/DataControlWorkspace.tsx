@@ -14,6 +14,7 @@ export function DataControlWorkspace() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const marketFileRef = useRef<HTMLInputElement>(null);
+  const macroFileRef = useRef<HTMLInputElement>(null);
 
   const reload = async () => {
     const [providers, freshness, systemsPayload] = await Promise.all([
@@ -65,6 +66,28 @@ export function DataControlWorkspace() {
     }
   };
 
+  const configureFredKey = async () => {
+    const value = window.prompt(
+      "输入 FRED API Key。密钥只会交给桌面端 Windows Credential Manager，不会写入 Git 或 API 响应。保存后请重启桌面端。",
+    );
+    if (!value?.trim()) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("save_api_secret", { name: "FRED_API_KEY", value: value.trim() });
+      setMessage("FRED Key 已保存到桌面端凭据存储；请重启 WorldState 后再 Bootstrap。未在浏览器开发模式保存。 ");
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? `当前不是 Tauri 桌面运行环境，无法写入系统凭据：${error.message}`
+          : "当前不是 Tauri 桌面运行环境，未保存 FRED Key。",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const importMarketCsv = async (event: Event) => {
     const input = event.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
@@ -92,6 +115,43 @@ export function DataControlWorkspace() {
     }
   };
 
+  const importOfficialMacroCsv = async (event: Event) => {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    const sourceUrl = window.prompt(
+      "请输入官方文件来源 URL（日本/中国统计机构或央行页面），用于保留引用证据",
+      "https://",
+    );
+    if (!sourceUrl || sourceUrl === "https://") return;
+    const providerKey = window.prompt(
+      "请输入来源标识，例如 boj_manual 或 china_manual",
+      "manual_official",
+    );
+    if (!providerKey) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await api.importOfficialMacroCsv({
+        csv_text: await file.text(),
+        provider_key: providerKey,
+        source_name: file.name,
+        source_url: sourceUrl,
+        verified: false,
+        verification_notes: "由用户从官方导出文件导入；请在来源页面核验。",
+      });
+      setMessage(
+        `已导入 ${String(result.inserted ?? 0)} 条 observed 宏观观测；来源已保存，PIT=${String(result.point_in_time ?? false)}`,
+      );
+      await reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "官方宏观 CSV 导入失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!data) return <StateMessage title="正在读取数据控制中心" detail="检查 Provider、最新观测和数据新鲜度。" />;
   const summary = data.freshness.summary;
   return (
@@ -100,7 +160,10 @@ export function DataControlWorkspace() {
         <div><div class="eyebrow">DATA CONTROL CENTER · v0.7</div><h1>数据控制中心</h1><p>观察真实数据是否存在、是否过期，以及哪些 Provider 可以继续同步。</p></div>
         <div class="page-heading__actions">
           <input ref={marketFileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => void importMarketCsv(event)} />
+          <input ref={macroFileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => void importOfficialMacroCsv(event)} />
           <button class="button-secondary" disabled={busy} onClick={() => marketFileRef.current?.click()}>导入市场 CSV</button>
+          <button class="button-secondary" disabled={busy} onClick={() => macroFileRef.current?.click()}>导入官方宏观 CSV</button>
+          <button class="button-secondary" disabled={busy} onClick={() => void configureFredKey()}>配置 FRED Key</button>
           <button class="button-secondary" disabled={busy} onClick={() => void syncBlsState()}>同步 BLS 当前观测</button>
           <button class="button-primary" disabled={busy} onClick={() => void bootstrap()}>{busy ? "同步中…" : "Bootstrap Free Data"}</button>
         </div>

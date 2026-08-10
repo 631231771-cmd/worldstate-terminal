@@ -636,6 +636,40 @@ async def test_fred_alfred_as_of_filters_future_vintage_and_keeps_artifact() -> 
     assert "secret" not in batch.artifacts[0].source_url
 
 
+async def test_fred_public_csv_is_current_only_and_explicitly_not_pit() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/graph/fredgraph.csv"
+        assert request.url.params["id"] == "DGS2"
+        return httpx.Response(
+            200,
+            text="observation_date,DGS2\n2026-08-07,3.75\n2026-08-08,.\n",
+            headers={"content-type": "text/csv"},
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = FredAlfredProvider(None, client)
+        batch = await provider.fetch_observation_batch(
+            "DGS2", start=date(2026, 8, 1), end=date(2026, 8, 9)
+        )
+
+    assert len(batch.observations) == 2
+    assert batch.observations[0].value == Decimal("3.75")
+    assert batch.observations[0].availability_method.value == "ingestion_time_proxy"
+    assert batch.observations[0].quality_flags == ["current_public_csv", "not_point_in_time"]
+    assert batch.observations[1].value is None
+    assert batch.quality.is_verified is False
+    assert batch.quality.metadata["point_in_time"] is False
+    assert batch.artifacts[0].content_type == "text/csv"
+
+
+async def test_fred_public_csv_rejects_pit_cutoff() -> None:
+    provider = FredAlfredProvider(None)
+    with pytest.raises(ProviderError) as error:
+        await provider.fetch_observation_batch("DGS2", as_of=date(2026, 8, 8))
+    assert error.value.error_code == ProviderErrorCode.POINT_IN_TIME
+
+
 def _te_event(forecast: str = "3.1%", te_forecast: str = "3.3%") -> dict[str, object]:
     return {
         "CalendarId": "123",

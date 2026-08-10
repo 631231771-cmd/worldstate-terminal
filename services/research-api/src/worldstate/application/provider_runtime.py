@@ -71,6 +71,11 @@ def build_provider_clients(
     trading_economics_monthly_requests_used: int = 0,
 ) -> ProviderClients:
     retry_policy = ProviderRetryPolicy(max_attempts=settings.provider_retry_attempts)
+    fred_retry_policy = (
+        retry_policy
+        if settings.fred_api_key is not None
+        else ProviderRetryPolicy(max_attempts=1, backoff_seconds=0)
+    )
     return ProviderClients(
         bls=BlsOfficialProvider(
             _secret(settings.bls_api_key),
@@ -83,8 +88,12 @@ def build_provider_clients(
         ),
         fred=FredAlfredProvider(
             _secret(settings.fred_api_key),
-            timeout_seconds=settings.provider_timeout_seconds,
-            retry_policy=retry_policy,
+            timeout_seconds=(
+                settings.provider_timeout_seconds
+                if settings.fred_api_key is not None
+                else min(settings.provider_timeout_seconds, 8.0)
+            ),
+            retry_policy=fred_retry_policy,
         ),
         trading_economics=TradingEconomicsConsensusProvider(
             _secret(settings.trading_economics_api_key),
@@ -338,7 +347,10 @@ async def persist_configured_provider_health(
     )
     clients = build_provider_clients(settings)
     definitions: tuple[tuple[_HealthProvider, bool, bool], ...] = (
-        (clients.fred, settings.fred_api_key is not None, False),
+        # FRED has a public current CSV path even without a key.  The key is
+        # still required for ALFRED/PIT vintages, which remains explicit in
+        # entitlement and series metadata.
+        (clients.fred, settings.fred_api_key is not None, True),
         (clients.bls, True, True),
         (clients.federal_reserve, True, True),
         (
@@ -364,6 +376,11 @@ async def persist_configured_provider_health(
             warning = (
                 "Trading Economics live probe skipped to avoid silent quota consumption; "
                 "successful consensus synchronization is the live-health evidence."
+            )
+        elif provider.key == "fred_alfred" and not configured:
+            warning = (
+                "Public current graph CSV is available; no ALFRED/PIT vintage request "
+                "was performed without a key."
             )
         run = await record_provider_run(
             engine,

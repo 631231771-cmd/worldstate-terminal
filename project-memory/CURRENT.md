@@ -21,9 +21,9 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- HEAD: `417ffb6c5` (`feat: activate public BLS current-state capture`)
-- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot, 29 observed gold daily bars, 50 catalog series with 922 observed macro observations, and nine BLS current-state series are present. BLS remains current-capture/non-PIT; FRED, Treasury and additional market instruments are still missing.
-- Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA growth/inflation available, China/Japan unavailable, EA/UK available, 29 observed gold daily bars, one observed snapshot, zero observed consensus snapshots, and one inflation divergence between USA and EA.
+- HEAD: update after the v0.7 real-coverage checkpoint (keep PR #10 Draft)
+- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot, 8,801 observed daily context bars, 50 catalog series with 29,701 observed macro observations, 28,247 FRED current-public observations and 621 BLS current-state observations are present. FRED no-key data is explicitly current-state/non-PIT; a FRED key is still required for ALFRED vintage semantics.
+- Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/EA/UK observed state coverage, Japan/China unavailable without an official export, 8 context instruments, one observed snapshot, zero observed consensus snapshots, and explicit market/data-quality boundaries.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
   `feature/v0.7-live-global`; do not mark any of them Ready or merge
 
@@ -133,16 +133,30 @@ entitlement boundaries below.
   freshness, missing data and a bounded public bootstrap action.
 - Freshness uses both retrieval age and covered-period age. A recent fetch does
   not make an old monthly or quarterly observation appear live.
+- FRED public graph CSV is available without a key for current-state
+  observations. It is marked `source_mode=current_public_csv`,
+  `point_in_time=false`, quality B and `ingestion_time_proxy`; it must not be
+  used for historical first-print or PIT backtests. With a FRED key, the
+  existing ALFRED path remains the only vintage-aware route.
+- FRED S&P 500, VIX, WTI, Brent, broad dollar, 2Y and 10Y series are persisted
+  as daily `context_only`/`not_event_window` bars. They support daily context
+  changes, not minute event windows, futures settlement or cash-yield claims.
+- Data Control exposes a traceable `official macro CSV` import for Japan,
+  China and other official exports. It always writes observed rows with a
+  source artifact, manual/verification flags and a quality record; missing
+  vintage/availability columns are explicitly non-PIT.
 - Migration `0009_operational_state` stores immutable daily state snapshots and
   user watchlist entries. A real runtime copy was backed up before migration.
 - Global macro comparison and system cards use only observed Series/Observation
   rows and report coverage, gaps, limitations and divergence without causal
   claims.
-- Runtime validation on 2026-08-10 reached official BLS, ECB and Bank of England
-  endpoints. The runtime freshness view showed ECB EUR/USD, Euro Area HICP and
-  Bank Rate as available; missing FRED, US rates/liquidity, BOJ and China data
-  remained visible as missing or not configured.
-- v0.7 final checks: 174 backend tests passed, Ruff and strict mypy passed,
+- Runtime validation on 2026-08-10 reached official BLS, FRED public graph,
+  ECB and Bank of England endpoints. The runtime contains 50 series, 29,701
+  observed macro rows, 8,801 observed market-context rows and 8 context
+  instruments. Macro systems report 4/4, 4/4, 5/5 and 3/3 observed
+  components; Japan and China remain unavailable until an official export is
+  imported. Freshness is LIVE 35 / STALE 15 / MISSING 0 for this runtime.
+- v0.7 final checks: 178 backend tests passed, Ruff and strict mypy passed,
   Terminal UI production build passed, Tauri fmt/check and 4 unit tests passed,
   and the data-control page was read in the running browser against the v0.7
   API. HICP correctly displayed `STALE` based on covered period age.
@@ -156,7 +170,8 @@ Detailed v0.7 evidence and limits are in
   `completed`/`partial`/`blocked` results. The backfill worker consumes approved
   jobs, retains partial results and cannot bypass paid-data gates.
 - The validation environment has no FRED, Trading Economics or Databento key.
-  Those are the credential blockers; TE historical replay additionally requires
+  FRED current public CSV is usable without a key, but ALFRED/PIT remains a
+  credential blocker; TE historical replay additionally requires
   PIT entitlement, and Databento additionally requires dataset rights, explicit
   paid opt-in and budget approval. BLS does not require a key in public mode.
 - BLS schedule HTML returned HTTP 403 from the current validation network. This
@@ -183,14 +198,16 @@ Detailed v0.7 evidence and limits are in
 - Python is not frozen into a sidecar; the current desktop build is not a
   standalone signed installer for a blank computer.
 - In a no-key observed database, World State, Daily Brief market confirmation,
-  Series Explorer and global country cards can legitimately be empty or
-  partial.  The UI displays those gaps rather than substituting demo rows.
+  Series Explorer and global country cards can still be partial. The UI
+  displays those gaps rather than substituting demo rows; current FRED context
+  is not a replacement for licensed minute/event data.
 - The first global layer has reliable observed coverage only where a provider
   has populated the Series/Observation catalog; the other country cards are
   scaffolding with explicit `unavailable` status.
 
-- On 2026-08-10 the public BLS current-state sync completed (121 rows read,
-  89 written), adding nine observed USA CPI/employment/wage/participation
+- On 2026-08-10 the public BLS current-state sync completed (659 rows read,
+  532 written in the five-year catch-up; 621 observed rows remain after
+  deduplication), adding nine observed USA CPI/employment/wage/participation
   series. These are current captures with `point_in_time=false`; they are not
   historical first-print release data. The public API emitted two
   calculation-disabled warnings; percentage rows derived from official levels
@@ -205,7 +222,7 @@ Detailed v0.7 evidence and limits are in
   `.runtime/backups/worldstate-pre-v06-20260809-191521.db` before upgrade.
   Its 10,132 legacy FRED demo observations are now explicitly `fixture`.
 - Ruff and strict mypy: green across 92 checked source/test files.
-- Pytest: current local suite is 174 passed with one dependency deprecation
+- Pytest: current local suite is 178 passed with one dependency deprecation
   warning.
 - Terminal UI production build: passed; npm audit reported 0 vulnerabilities.
 - Rust/Tauri: fmt/check passed, 4 tests passed, unsigned no-bundle release built.
@@ -217,8 +234,9 @@ Detailed v0.7 evidence and limits are in
 - Missing-key behavior: FRED, Trading Economics and Databento report
   `not_configured`; no paid download was attempted. BLS schedule HTTP 403 is an
   explicit blocked ProviderRun and produces partial/non-zero sync status.
-- GitHub Actions: green for `research-api`, `terminal-ui` and `desktop-check` on
-  run `31310720801`; PR #9 remains Draft and PR #8 remains Draft/unmerged.
+- GitHub Actions: the last recorded green run predates the current v0.7
+  coverage checkpoint; after pushing this checkpoint, re-check PR #10 rather
+  than treating the old run as current evidence. PR #10 remains Draft/open.
 
 Do not reuse v0.4 pass counts as v0.5/v0.6 evidence.
 

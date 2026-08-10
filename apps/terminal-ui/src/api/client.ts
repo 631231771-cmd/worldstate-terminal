@@ -164,6 +164,19 @@ export const api = {
       { method: "POST", body: JSON.stringify(payload) },
       [207, 424],
     ),
+  importOfficialMacroCsv: (payload: {
+    csv_text: string;
+    provider_key?: string;
+    source_name?: string;
+    source_url: string;
+    verified?: boolean;
+    verification_notes?: string;
+  }) =>
+    request<Record<string, unknown>>(
+      "/data/macro-series/import-official-csv",
+      { method: "POST", body: JSON.stringify(payload) },
+      [207, 424],
+    ),
   estimateBackfill: (input: BackfillRequest) => {
     const query = new URLSearchParams({
       start_date: input.start_date,

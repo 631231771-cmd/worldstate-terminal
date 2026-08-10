@@ -43,7 +43,10 @@ DEFAULT_SCHEDULES: tuple[dict[str, Any], ...] = (
         "provider_key": "public_official",
         "operation": "sync_public_macro",
         "schedule_type": "daily",
-        "schedule": {"at_utc": "05:30", "providers": ["ecb", "boe", "boj", "china"]},
+        "schedule": {
+            "at_utc": "05:30",
+            "providers": ["fred", "ecb", "boe", "boj", "china"],
+        },
     },
     {
         "job_key": "daily-calendar-sync",

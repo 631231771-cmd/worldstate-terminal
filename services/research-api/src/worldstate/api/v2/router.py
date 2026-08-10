@@ -21,6 +21,7 @@ from worldstate.api.v2.schemas import (
     ConsensusInput,
     ContextAssistantInput,
     MarketCsvImportInput,
+    OfficialMacroCsvInput,
     ReleaseCreateInput,
     ThesisInput,
     ThesisUpdateInput,
@@ -37,6 +38,7 @@ from worldstate.application.consensus_service import append_consensus, import_co
 from worldstate.application.daily_brief_service import build_daily_brief
 from worldstate.application.evidence_service import get_evidence_pack
 from worldstate.application.global_macro_service import build_global_macro
+from worldstate.application.macro_import_service import import_official_macro_csv
 from worldstate.application.macro_system_service import build_macro_systems
 from worldstate.application.market_import_service import (
     import_market_csv,
@@ -629,6 +631,30 @@ async def import_context_bars(
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/data/macro-series/import-official-csv",
+    tags=["providers"],
+    dependencies=[Depends(require_write_access)],
+)
+async def import_official_macro_series(
+    payload: OfficialMacroCsvInput,
+    request: Request,
+) -> dict[str, object]:
+    """Import an official Japan/China-style export with explicit provenance."""
+    try:
+        return await import_official_macro_csv(
+            request.app.state.database_engine,
+            csv_text=payload.csv_text,
+            provider_key=payload.provider_key,
+            source_name=payload.source_name,
+            source_url=payload.source_url,
+            verified=payload.verified,
+            verification_notes=payload.verification_notes,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

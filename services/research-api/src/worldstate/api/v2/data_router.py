@@ -39,6 +39,7 @@ from worldstate.application.licensed_sync_service import (
 from worldstate.application.official_sync_service import (
     sync_bls_calendar,
     sync_fomc_materials,
+    sync_fred_foundation,
     sync_official_data,
 )
 from worldstate.application.provider_runtime import (
@@ -160,9 +161,10 @@ _PROVIDERS: tuple[dict[str, Any], ...] = (
         "display_name": "FRED / ALFRED",
         "aliases": ("fred_alfred", "fred", "alfred"),
         "credential": "fred_api_key",
-        "public": False,
+        "public": True,
         "capabilities": (
             "macro_series",
+            "public_current_series",
             "vintages",
             "point_in_time_observations",
             "release_calendar",
@@ -1389,11 +1391,20 @@ async def bootstrap_free_data(
         results["bls_current_state"] = await sync_bls_current_state(
             request.app.state.database_engine,
             settings,
-            start_date=max(start, end - timedelta(days=365 * 5)),
+            start_date=min(start, end - timedelta(days=365 * 5)),
             end_date=end,
         )
     except Exception as exc:
         failures["bls_current_state"] = _safe_service_failure(exc, settings)
+    try:
+        results["fred_current_state"] = await sync_fred_foundation(
+            request.app.state.database_engine,
+            settings,
+            start_date=min(start, end - timedelta(days=365 * 5)),
+            end_date=end,
+        )
+    except Exception as exc:
+        failures["fred_current_state"] = _safe_service_failure(exc, settings)
     try:
         results["public_macro"] = await sync_public_providers(
             request.app.state.database_engine,

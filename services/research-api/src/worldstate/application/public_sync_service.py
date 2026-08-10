@@ -295,19 +295,34 @@ async def sync_public_providers(
     *,
     start_date: date,
     end_date: date,
-    providers: tuple[str, ...] = ("ecb", "boe", "boj", "china"),
+    providers: tuple[str, ...] = ("fred", "ecb", "boe", "boj", "china"),
 ) -> dict[str, Any]:
     results: dict[str, Any] = {}
     failures: dict[str, str] = {}
     for provider_name in providers:
         try:
-            results[provider_name] = await sync_public_provider(
-                engine,
-                settings,
-                provider_name=provider_name,
-                start_date=start_date,
-                end_date=end_date,
-            )
+            if provider_name.lower() in {"fred", "fred_alfred", "alfred"}:
+                # FRED's public graph CSV is current-state only.  The
+                # official sync service keeps this boundary separate from
+                # credentialed ALFRED vintages.
+                from worldstate.application.official_sync_service import (
+                    sync_fred_foundation,
+                )
+
+                results[provider_name] = await sync_fred_foundation(
+                    engine,
+                    settings,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+            else:
+                results[provider_name] = await sync_public_provider(
+                    engine,
+                    settings,
+                    provider_name=provider_name,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
         except Exception as exc:
             failures[provider_name] = f"{type(exc).__name__}: {exc}"
     child_statuses = {

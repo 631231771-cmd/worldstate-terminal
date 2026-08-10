@@ -160,7 +160,7 @@ async def execute_scheduled_operation(
         _require_complete(result, operation)
         return result
     if operation == "sync_official":
-        default_start = max(settings.data_start_date, today - timedelta(days=400))
+        default_start = max(settings.data_start_date, today - timedelta(days=365 * 5))
         result = await sync_official_data(
             engine,
             settings,
@@ -184,7 +184,8 @@ async def execute_scheduled_operation(
         providers = tuple(
             str(item)
             for item in run.input_json.get(
-                "providers", job.schedule_json.get("providers", ["ecb", "boe", "boj", "china"])
+                "providers",
+                job.schedule_json.get("providers", ["fred", "ecb", "boe", "boj", "china"]),
             )
         )
         result = await sync_public_providers(

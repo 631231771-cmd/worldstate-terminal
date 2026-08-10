@@ -283,6 +283,64 @@ def test_observed_context_market_csv_is_separate_from_event_windows(client: Test
     assert repeated.json()["idempotent_replay"] is True
 
 
+def test_official_macro_csv_import_keeps_manual_provenance_and_pit_boundary(
+    client: TestClient,
+) -> None:
+    csv_text = "\n".join(
+        [
+            "canonical_key,native_id,title,entity_iso3,frequency,unit,period_start,value,vintage_date,available_at",
+            "JPN.GROWTH.INDPRO,boj.demo,Japan industrial production,JPN,monthly,index,"
+            "2026-06-01,101.2,2026-07-31,2026-07-31T00:30:00Z",
+            "CHN.GROWTH.RETAIL,china.demo,China retail sales,CHN,monthly,percent,"
+            "2026-06-01,4.8,2026-07-15,2026-07-15T02:00:00Z",
+        ]
+    )
+    imported = client.post(
+        "/v2/data/macro-series/import-official-csv",
+        json={
+            "csv_text": csv_text,
+            "provider_key": "manual_official_test",
+            "source_name": "Official Japan China export",
+            "source_url": "https://example.gov/official-export.csv",
+            "verified": True,
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    body = imported.json()
+    assert body["inserted"] == 2
+    assert body["manual"] is True
+    assert body["point_in_time"] is True
+    assert set(body["series"]) == {"JPN.GROWTH.INDPRO", "CHN.GROWTH.RETAIL"}
+
+    repeated = client.post(
+        "/v2/data/macro-series/import-official-csv",
+        json={
+            "csv_text": csv_text,
+            "provider_key": "manual_official_test",
+            "source_name": "Official Japan China export",
+            "source_url": "https://example.gov/official-export.csv",
+            "verified": True,
+        },
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["idempotent_replay"] is True
+
+
+def test_official_macro_csv_requires_traceable_source(client: TestClient) -> None:
+    response = client.post(
+        "/v2/data/macro-series/import-official-csv",
+        json={
+            "csv_text": (
+                "canonical_key,period_start,value,entity_iso3\n"
+                "JPN.GROWTH.X,2026-01-01,1,JPN"
+            ),
+            "source_name": "unlinked file",
+            "source_url": "",
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_consensus_csv_import_keeps_pre_t0_and_manual_provenance(
     client: TestClient,
     release_index: dict[str, dict[str, object]],

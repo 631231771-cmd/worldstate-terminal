@@ -79,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
         "sync-public", help="synchronize configured no-key official public macro feeds"
     )
     _add_range_arguments(public)
-    public.add_argument("--providers", default="ecb,boe,boj,china")
+    public.add_argument("--providers", default="fred,ecb,boe,boj,china")
 
     calendar = commands.add_parser("sync-calendar", help="synchronize official event calendars")
     _add_range_arguments(calendar)
