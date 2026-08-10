@@ -32,6 +32,23 @@ DEFAULT_SCHEDULES: tuple[dict[str, Any], ...] = (
         "schedule": {"at_utc": "05:00"},
     },
     {
+        "job_key": "daily-bls-current-state",
+        "provider_key": "bls_official",
+        "operation": "sync_bls_current_state",
+        "schedule_type": "daily",
+        "schedule": {"at_utc": "05:15"},
+    },
+    {
+        "job_key": "daily-public-macro-sync",
+        "provider_key": "public_official",
+        "operation": "sync_public_macro",
+        "schedule_type": "daily",
+        "schedule": {
+            "at_utc": "05:30",
+            "providers": ["fred", "ecb", "boe", "boj", "china"],
+        },
+    },
+    {
         "job_key": "daily-calendar-sync",
         "provider_key": "official",
         "operation": "sync_calendar",
@@ -68,6 +85,13 @@ DEFAULT_SCHEDULES: tuple[dict[str, Any], ...] = (
         "operation": "reconcile_data",
         "schedule_type": "daily",
         "schedule": {"at_utc": "07:00"},
+    },
+    {
+        "job_key": "daily-world-state-snapshot",
+        "provider_key": None,
+        "operation": "snapshot_world_state",
+        "schedule_type": "daily",
+        "schedule": {"at_utc": "07:30"},
     },
 )
 

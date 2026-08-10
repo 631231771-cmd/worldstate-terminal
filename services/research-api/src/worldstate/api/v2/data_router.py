@@ -29,7 +29,9 @@ from worldstate.application.backfill_service import (
     get_backfill_job,
     make_backfill_idempotency_key,
 )
+from worldstate.application.bls_state_service import sync_bls_current_state
 from worldstate.application.data_foundation_service import get_provider_data_status
+from worldstate.application.freshness_service import build_data_freshness
 from worldstate.application.licensed_sync_service import (
     snapshot_trading_economics_consensus,
     sync_databento_release_market,
@@ -37,12 +39,14 @@ from worldstate.application.licensed_sync_service import (
 from worldstate.application.official_sync_service import (
     sync_bls_calendar,
     sync_fomc_materials,
+    sync_fred_foundation,
     sync_official_data,
 )
 from worldstate.application.provider_runtime import (
     build_provider_clients,
     provider_health_snapshot,
 )
+from worldstate.application.public_sync_service import sync_public_providers
 from worldstate.application.reconciliation_service import reconcile_persisted_data
 from worldstate.config import Settings
 from worldstate.db.models import (
@@ -157,9 +161,10 @@ _PROVIDERS: tuple[dict[str, Any], ...] = (
         "display_name": "FRED / ALFRED",
         "aliases": ("fred_alfred", "fred", "alfred"),
         "credential": "fred_api_key",
-        "public": False,
+        "public": True,
         "capabilities": (
             "macro_series",
+            "public_current_series",
             "vintages",
             "point_in_time_observations",
             "release_calendar",
@@ -201,6 +206,42 @@ _PROVIDERS: tuple[dict[str, Any], ...] = (
             "futures_symbology",
             "cost_estimate",
         ),
+    },
+    {
+        "provider_id": "ecb_data_portal",
+        "display_name": "ECB Data Portal",
+        "aliases": ("ecb_data_portal", "ecb"),
+        "credential": None,
+        "public": True,
+        "public_setting": "ecb_api_url",
+        "capabilities": ("euro_area_rates", "hicp", "eur_exchange_rates"),
+    },
+    {
+        "provider_id": "bank_of_england_iadb",
+        "display_name": "Bank of England",
+        "aliases": ("bank_of_england_iadb", "boe", "bank_of_england"),
+        "credential": None,
+        "public": True,
+        "public_setting": "boe_api_url",
+        "capabilities": ("bank_rate", "uk_rates"),
+    },
+    {
+        "provider_id": "boj_public",
+        "display_name": "Bank of Japan",
+        "aliases": ("boj_public", "boj", "bank_of_japan"),
+        "credential": None,
+        "public": True,
+        "public_setting": "boj_api_url",
+        "capabilities": ("japan_public_export",),
+    },
+    {
+        "provider_id": "china_official_public",
+        "display_name": "China Official Macro",
+        "aliases": ("china_official_public", "china"),
+        "credential": None,
+        "public": True,
+        "public_setting": "china_api_url",
+        "capabilities": ("china_official_export",),
     },
 )
 
@@ -354,7 +395,11 @@ async def build_provider_status(
         aliases = tuple(str(item) for item in definition["aliases"])
         public = bool(definition["public"])
         credential_configured = _has_secret(settings, definition["credential"])
-        configured = public or credential_configured
+        public_configured = public and (
+            not definition.get("public_setting")
+            or bool(getattr(settings, str(definition["public_setting"]), None))
+        )
+        configured = public_configured or credential_configured
         record = _provider_record(persisted, aliases)
         live = next(
             (item for item in live_health if str(item.get("provider_key", "")).lower() in aliases),
@@ -384,7 +429,9 @@ async def build_provider_status(
             healthy = False
         else:
             healthy = None
-        entitlement = _provider_entitlement(record, public=public, configured=credential_configured)
+        entitlement = _provider_entitlement(
+            record, public=public_configured, configured=credential_configured
+        )
         pit_entitled: bool | None = None
         if definition["provider_id"] == "trading_economics_consensus":
             pit_entitled = bool(getattr(settings, "trading_economics_pit_entitled", False))
@@ -409,7 +456,7 @@ async def build_provider_status(
             provider_status = run_status
         elif health_snapshot and health_snapshot.get("status"):
             provider_status = str(health_snapshot["status"])
-        elif public:
+        elif public_configured:
             provider_status = "available_public"
         elif credential_configured:
             provider_status = "configured_unverified"
@@ -1254,6 +1301,18 @@ async def data_coverage(
     )
 
 
+@data_router.get("/freshness")
+async def data_freshness(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, Any]:
+    selected = data_mode or ("fixture" if request.app.state.settings.demo_mode else "observed")
+    return await build_data_freshness(
+        request.app.state.database_engine,
+        data_mode=selected,
+    )
+
+
 def _set_multi_status(response: Response, result: dict[str, Any]) -> None:
     if result.get("status") == "partial":
         response.status_code = 207
@@ -1287,6 +1346,89 @@ async def sync_official_endpoint(
     return result
 
 
+@data_write_router.post("/sync/public")
+async def sync_public_endpoint(
+    payload: DataRangeInput,
+    request: Request,
+    response: Response,
+) -> dict[str, Any]:
+    """Synchronize configured no-key official public macro feeds.
+
+    The endpoint never falls back to fixtures.  Providers without a configured
+    export URL return ``blocked``/``partial`` with the provider name exposed.
+    """
+
+    result = await sync_public_providers(
+        request.app.state.database_engine,
+        request.app.state.settings,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+    )
+    _set_multi_status(response, result)
+    return result
+
+
+@data_write_router.post("/bootstrap-free")
+async def bootstrap_free_data(
+    request: Request,
+    response: Response,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict[str, Any]:
+    """Fetch a bounded first observed slice from public official feeds.
+
+    This is deliberately separate from fixture bootstrap and never changes the
+    requested data mode or inserts demo observations.
+    """
+    settings: Settings = request.app.state.settings
+    start = start_date or settings.data_start_date
+    end = end_date or date.today()
+    if end < start:
+        raise HTTPException(status_code=422, detail="end_date must not be before start_date")
+    results: dict[str, Any] = {}
+    failures: dict[str, Any] = {}
+    try:
+        results["bls_current_state"] = await sync_bls_current_state(
+            request.app.state.database_engine,
+            settings,
+            start_date=min(start, end - timedelta(days=365 * 5)),
+            end_date=end,
+        )
+    except Exception as exc:
+        failures["bls_current_state"] = _safe_service_failure(exc, settings)
+    try:
+        results["fred_current_state"] = await sync_fred_foundation(
+            request.app.state.database_engine,
+            settings,
+            start_date=min(start, end - timedelta(days=365 * 5)),
+            end_date=end,
+        )
+    except Exception as exc:
+        failures["fred_current_state"] = _safe_service_failure(exc, settings)
+    try:
+        results["public_macro"] = await sync_public_providers(
+            request.app.state.database_engine,
+            settings,
+            start_date=start,
+            end_date=end,
+            providers=("ecb", "boe"),
+        )
+    except Exception as exc:
+        failures["public_macro"] = _safe_service_failure(exc, settings)
+    result = normalize_multi_operation_result(
+        {"results": results, "failures": failures}
+    )
+    _set_multi_status(response, result)
+    return {
+        **result,
+        "operation": "bootstrap-free",
+        "start_date": start,
+        "end_date": end,
+        "data_mode": "observed",
+        "fixture_fallback": False,
+    }
+
+
 @data_write_router.post("/sync/calendar")
 async def sync_calendar_endpoint(
     payload: DataRangeInput,
@@ -1299,6 +1441,26 @@ async def sync_calendar_endpoint(
         start_date=payload.start_date,
         end_date=payload.end_date,
     )
+    _set_multi_status(response, result)
+    return result
+
+
+@data_write_router.post("/sync/bls-current-state")
+async def sync_bls_current_state_endpoint(
+    payload: DataRangeInput,
+    request: Request,
+    response: Response,
+) -> dict[str, Any]:
+    """Capture current BLS macro history for live state, never for PIT replay."""
+    try:
+        result = await sync_bls_current_state(
+            request.app.state.database_engine,
+            request.app.state.settings,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+        )
+    except Exception as exc:
+        raise _http_error_for_service(exc, request.app.state.settings) from exc
     _set_multi_status(response, result)
     return result
 

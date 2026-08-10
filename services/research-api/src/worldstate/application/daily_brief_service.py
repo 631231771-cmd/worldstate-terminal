@@ -9,8 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from worldstate.application.analysis_orchestrator import list_releases
+from worldstate.application.quality_resolver import resolve_quality_grade
 from worldstate.application.world_state_service import build_world_state
-from worldstate.db.models import MarketBar, MarketInstrument
+from worldstate.db.models import DataQualityRecord, MarketBar, MarketInstrument, Observation, Series
 
 DataMode = Literal["observed", "fixture", "all"]
 
@@ -35,22 +36,23 @@ async def _market_confirmation(
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
         query = (
-            select(MarketBar, MarketInstrument)
+            select(MarketBar, MarketInstrument, DataQualityRecord)
             .join(MarketInstrument, MarketInstrument.id == MarketBar.instrument_id)
+            .outerjoin(DataQualityRecord, DataQualityRecord.id == MarketBar.quality_id)
             .where(MarketBar.timestamp <= cutoff)
             .order_by(MarketBar.timestamp.desc())
         )
         if data_mode != "all":
             query = query.where(MarketBar.data_mode == data_mode)
         rows = (await session.execute(query.limit(5000))).all()
-    grouped: dict[str, list[tuple[MarketBar, MarketInstrument]]] = {}
-    for bar, instrument in rows:
-        grouped.setdefault(str(instrument.canonical_key), []).append((bar, instrument))
+    grouped: dict[str, list[tuple[MarketBar, MarketInstrument, DataQualityRecord | None]]] = {}
+    for bar, instrument, quality in rows:
+        grouped.setdefault(str(instrument.canonical_key), []).append((bar, instrument, quality))
     result: list[dict[str, Any]] = []
     for key, items in grouped.items():
-        latest, instrument = items[0]
+        latest, instrument, latest_quality = items[0]
         baseline = next(
-            (bar for bar, _ in items if _aware(bar.timestamp) <= cutoff - lookback),
+            (bar for bar, _, _ in items if _aware(bar.timestamp) <= cutoff - lookback),
             items[-1][0],
         )
         latest_close = float(latest.close_value)
@@ -71,9 +73,10 @@ async def _market_confirmation(
                 "timestamp": latest.timestamp.isoformat(),
                 "provider": latest.provider_key,
                 "data_mode": latest.data_mode,
-                "quality": "A"
-                if latest.provider_key in {"databento_market", "fred_alfred"}
-                else "B",
+                "quality": resolve_quality_grade(latest_quality),
+                "quality_limitation": latest_quality.verification_notes
+                if latest_quality
+                else "No quality record was persisted for this observation.",
                 "evidence_ids": [str(latest.id)],
             }
         )
@@ -178,6 +181,39 @@ async def build_daily_brief(
         row for row in rows if _aware(datetime.fromisoformat(str(row["scheduled_at"]))) > cutoff
     ][:12]
     markets = await _market_confirmation(engine, data_mode=data_mode, cutoff=cutoff)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        revised_rows = (
+            await session.execute(
+                select(Observation, Series)
+                .join(Series, Series.id == Observation.series_id)
+                .where(
+                    Observation.is_revised.is_(True),
+                    Observation.fetched_at >= cutoff - timedelta(days=30),
+                    Observation.fetched_at <= cutoff,
+                )
+                .order_by(Observation.fetched_at.desc())
+                .limit(50)
+            )
+        ).all()
+    revisions = [
+        {
+            "series_key": str(series.canonical_key),
+            "title": series.title,
+            "period": observation.period_start.isoformat(),
+            "value": float(observation.value) if observation.value is not None else None,
+            "vintage": observation.vintage_date.isoformat(),
+            "fetched_at": observation.fetched_at.isoformat(),
+            "data_mode": observation.data_mode,
+            "point_in_time": bool(series.metadata_json.get("point_in_time", False)),
+            "evidence_ids": [str(observation.id)],
+            "limitation": (
+                "当前 provider 标记为修订；没有本地首发快照时，不能重建完整修订幅度。"
+            ),
+        }
+        for observation, series in revised_rows
+        if data_mode == "all" or observation.data_mode == data_mode
+    ]
     changes = _top_changes(state, recent, markets)
     return {
         "as_of": cutoff.isoformat(),
@@ -187,7 +223,7 @@ async def build_daily_brief(
         "biggest_changes": changes,
         "macro_events": recent,
         "market_confirmation": markets,
-        "revisions": [],
+        "revisions": revisions,
         "upcoming": upcoming,
         "watch_next": [
             "观察增长与通胀状态是否同向变化。",

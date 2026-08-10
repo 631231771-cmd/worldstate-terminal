@@ -1,56 +1,59 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../../api/client";
-import { Badge, Panel, StateMessage } from "../../components/Primitives";
+import { Badge, DetailsDisclosure, Panel, StateMessage } from "../../components/Primitives";
 
 const HORIZONS = ["1d", "1w", "1m", "3m"] as const;
 
 export function MarketsWorkspace() {
   const [horizon, setHorizon] = useState<(typeof HORIZONS)[number]>("1d");
   const [payload, setPayload] = useState<Awaited<ReturnType<typeof api.marketDashboard>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
-    void api.marketDashboard(horizon).then(setPayload).catch(() => setPayload(null));
-  }, [horizon]);
+    setError(null);
+    setPayload(null);
+    void api.marketDashboard(horizon).then(setPayload).catch((reason) => {
+      setError(reason instanceof Error ? reason.message : "Market data is unavailable.");
+    });
+  }, [horizon, retryToken]);
 
-  if (!payload) {
-    return <StateMessage title="市场数据暂不可用" detail="没有满足当前 data_mode 和交易时段条件的 bars。" />;
-  }
+  if (error) return <StateMessage title="Market data unavailable" detail={error} action={<button type="button" class="primary-button" onClick={() => setRetryToken((value) => value + 1)}>Retry</button>} />;
+  if (!payload) return <StateMessage title="Market data unavailable" detail="No bars satisfy the current data and session requirements." />;
   return (
     <div class="workspace">
       <section class="page-heading">
-        <div class="eyebrow">MARKETS · CROSS-ASSET CONFIRMATION</div>
-        <h1>市场状态</h1>
-        <p>把利率、美元、黄金、原油、股票和波动率放在同一张研究表里；这里只展示反应和确认线索，不自动宣称因果。</p>
+        <div><div class="eyebrow">MARKETS · CROSS-ASSET CONTEXT</div><h1>Markets</h1><p>Compare rates, dollar, gold, oil, equities and volatility. The default view answers what changed; source details are one click away.</p></div>
       </section>
       <div class="toolbar">
-        <div class="segmented">
-          {HORIZONS.map((item) => <button type="button" class={item === horizon ? "active" : ""} onClick={() => setHorizon(item)} key={item}>{item.toUpperCase()}</button>)}
-        </div>
+        <div class="segmented">{HORIZONS.map((item) => <button type="button" class={item === horizon ? "active" : ""} onClick={() => setHorizon(item)} key={item}>{item.toUpperCase()}</button>)}</div>
         <Badge tone={payload.data_mode === "observed" ? "good" : "warn"}>{String(payload.data_mode).toUpperCase()}</Badge>
       </div>
-      <Panel title="跨资产反应" eyebrow={`WINDOW · ${horizon.toUpperCase()}`} aside={<span class="muted">{String(payload.available_assets ?? 0)} 项可用</span>}>
-        <div class="table-wrap">
-          <table class="release-table">
-            <thead><tr><th>资产</th><th>最新</th><th>变化</th><th>百分位</th><th>来源 / 限制</th></tr></thead>
-            <tbody>
-              {payload.items.map((item) => {
-                const change = item.change_percent as number | null;
-                return <tr key={String(item.instrument_key)}>
-                  <td><strong>{String(item.title)}</strong><span>{String(item.symbol)} · {String(item.asset_class)}</span></td>
-                  <td>{item.latest == null ? "—" : Number(item.latest).toFixed(3)}</td>
-                  <td class={change != null && change >= 0 ? "positive" : "negative"}>{change == null ? "—" : `${change.toFixed(2)}%`}</td>
-                  <td>{item.percentile == null ? "样本不足" : `${String(item.percentile)}%`}</td>
-                  <td><Badge tone={item.is_proxy ? "warn" : "info"}>{item.is_proxy ? "代理资产" : String(item.provider)}</Badge>{item.limitation ? <span>{String(item.limitation)}</span> : null}</td>
-                </tr>;
-              })}
-            </tbody>
-          </table>
-        </div>
+      <Panel title="Cross-asset snapshot" eyebrow={`WINDOW · ${horizon.toUpperCase()}`} aside={<span class="muted">{String(payload.available_assets ?? 0)} assets</span>}>
+        <div class="table-wrap"><table class="release-table"><thead><tr><th>Asset</th><th>Latest</th><th>Change</th><th>Percentile</th><th>Context</th></tr></thead><tbody>
+          {payload.items.map((item) => {
+            const change = item.change_percent as number | null;
+            const limitation = item.quality_limitation ?? item.limitation;
+            return <tr key={String(item.instrument_key)}>
+              <td><strong>{String(item.title)}</strong><span>{String(item.symbol)} · {String(item.asset_class)}</span></td>
+              <td>{item.latest == null ? "—" : Number(item.latest).toFixed(3)}</td>
+              <td class={change != null && change >= 0 ? "positive" : "negative"}>{change == null ? "—" : `${change.toFixed(2)}%`}</td>
+              <td>{item.percentile == null ? "Insufficient sample" : `${String(item.percentile)}%`}</td>
+              <td><Badge tone={item.is_proxy ? "warn" : "info"}>{item.is_proxy ? "Proxy asset" : String(item.provider)}</Badge>
+                {limitation ? <span>{String(limitation)}</span> : null}
+                <DetailsDisclosure label="Data details"><dl class="detail-grid">
+                  <div><dt>What</dt><dd>{String(item.title)}</dd></div>
+                  <div><dt>Direction</dt><dd>{change == null ? "Unavailable" : change >= 0 ? "Higher" : "Lower"}</dd></div>
+                  <div><dt>Freshness</dt><dd>{String(item.freshness ?? item.status ?? "Observed")}</dd></div>
+                  <div><dt>Quality</dt><dd>{String(item.quality_grade ?? "Not reported")}</dd></div>
+                  <div><dt>Limitation</dt><dd>{String(limitation ?? "None reported")}</dd></div>
+                </dl></DetailsDisclosure>
+              </td>
+            </tr>;
+          })}
+        </tbody></table></div>
       </Panel>
-      <Panel title="阅读提示" eyebrow="METHOD">
-        <ul class="boundary-list"><li>百分位只基于当前保存的 bars，样本不足不会输出伪造概率。</li><li>ZT/ZN 等收益率代理的方向与现金收益率相反，详情中保持原始代理语义。</li><li>缺失的资产不会使用 fixture 补齐。</li></ul>
-      </Panel>
+      <Panel title="How to read this" eyebrow="METHOD"><ul class="boundary-list"><li>Percentiles use only locally stored bars; small samples do not produce invented probabilities.</li><li>Context bars are not minute event-window futures data and cannot prove causal order.</li><li>Missing assets remain missing; fixture rows never fill observed dashboards.</li></ul></Panel>
     </div>
   );
 }
-

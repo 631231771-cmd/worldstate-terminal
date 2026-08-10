@@ -42,7 +42,7 @@ def test_clean_database_migrates_to_v051_with_reference_integrity(
     finally:
         connection.close()
 
-    assert revision == ("0008_thesis_book",)
+    assert revision == ("0010_operational_state_defaults",)
     assert {
         "evidence_items",
         "research_claims",
@@ -56,6 +56,8 @@ def test_clean_database_migrates_to_v051_with_reference_integrity(
         "backfill_jobs",
         "calendar_snapshots",
         "theses",
+        "world_state_snapshots",
+        "watchlist_items",
     } <= tables
     assert {
         "input_snapshot_hash",
@@ -162,7 +164,7 @@ def test_existing_v04_database_upgrades_to_v051(
         ).fetchone()
     finally:
         connection.close()
-    assert revision == ("0008_thesis_book",)
+    assert revision == ("0010_operational_state_defaults",)
     assert {"data_mode", "metadata_json"} <= columns
     assert migrated_demo_mode == ("fixture",)
     assert integrity_errors == []
@@ -208,7 +210,7 @@ def test_existing_v05_database_upgrades_to_v051(
     finally:
         connection.close()
 
-    assert revision == ("0008_thesis_book",)
+    assert revision == ("0010_operational_state_defaults",)
     assert "data_mode" in observation_columns
     assert "uq_provider_run_idempotency_mode" in unique_indexes
     assert integrity_errors == []

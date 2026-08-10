@@ -6,7 +6,28 @@ WorldState Terminal（世界状态终端）是一款个人使用、local-first �
 
 它不是新闻墙、世界地图、自动交易系统，也不把相关性写成唯一因果。当前研究主线固定为美国 CPI、非农和 FOMC，并结合 point-in-time 发布值、发布前共识、跨资产事件窗口、历史匹配和受证据约束的解释。
 
-## v0.6 当前状态
+## v0.7 当前状态
+
+当前开发分支 `feature/v0.7-live-global` 在 v0.6 operational macro 基础上
+启用了官方公共宏观数据、数据新鲜度与全球比较的第一条真实链路。产品版本
+为 `0.7.0`，数据库迁移头为 `0009_operational_state`。
+
+- **已验证的公共来源**：ECB Data Portal 的 EUR/USD 与欧元区 HICP，以及
+  Bank of England IADB 的 Bank Rate。它们写入 `observed`，保留来源工件、
+  抓取时间、质量记录和明确的非 PIT 限制。
+- **新增控制面**：数据控制中心、`/v2/data/sync/public`、
+  `/v2/data/bootstrap-free`、`/v2/data/freshness`、`/v2/macro-systems`、
+  World State 历史快照和 Watchlist。
+- **诚实降级**：ECB 单个序列无数据时只返回 `partial` 并保留成功序列；
+  FRED/ALFRED、Trading Economics、Databento、BOJ 和中国官方出口仍按
+  密钥、权限或目录配置显示 `not_configured`。绝不用 fixture 填补 observed。
+- **全球宏观边界**：US、China、EA19、Japan、UK 的比较只使用已有
+  `Series/Observation`，缺口、覆盖率和系统组件状态会直接显示；这不是完整
+  全球数据终端，也不是因果预测器。
+
+详细证据与限制见 [`docs/macro/v0.7-live-global.md`](docs/macro/v0.7-live-global.md)。
+
+## v0.6 历史状态
 
 当前开发分支 `feature/v0.6-operational-intelligence` 在 v0.5.1 truthfulness
 基础上增加了可每日使用的 World State、Daily Macro Brief、跨资产市场页、

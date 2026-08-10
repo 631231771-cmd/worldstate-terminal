@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, date, datetime
@@ -48,6 +50,7 @@ class FredAlfredProvider:
 
     key = "fred_alfred"
     base_url = "https://api.stlouisfed.org/fred"
+    public_csv_base_url = "https://fred.stlouisfed.org/graph/fredgraph.csv"
     terms = ProviderTerms(
         license_name="FRED/ALFRED terms of use; underlying series terms vary",
         terms_url="https://fred.stlouisfed.org/legal/",
@@ -106,6 +109,8 @@ class FredAlfredProvider:
                 "availability_precision": "day",
                 "terms_url": self.terms.terms_url,
                 "license_name": self.terms.license_name,
+                "public_current_csv": True,
+                "public_current_csv_url": self.public_csv_base_url,
             },
         )
 
@@ -254,6 +259,18 @@ class FredAlfredProvider:
         end: date | None = None,
         as_of: date | None = None,
     ) -> FredObservationBatch:
+        if self._api_key is None:
+            if as_of is not None:
+                raise ProviderError(
+                    self.key,
+                    ProviderErrorCode.POINT_IN_TIME,
+                    "public FRED CSV does not provide point-in-time vintages",
+                )
+            return await self.fetch_public_current_batch(
+                native_id,
+                start=start,
+                end=end,
+            )
         if start and end and start > end:
             raise ProviderError(
                 self.key,
@@ -374,6 +391,147 @@ class FredAlfredProvider:
             as_of=as_of,
         )
 
+    async def fetch_public_current_batch(
+        self,
+        native_id: str,
+        *,
+        start: date | None = None,
+        end: date | None = None,
+    ) -> FredObservationBatch:
+        """Fetch the current public FRED graph CSV without a credential.
+
+        The graph export is a current-state convenience path.  It deliberately
+        does not claim ALFRED vintages: every accepted row receives the fetch
+        date as its observation vintage and is marked with an ingestion-time
+        availability boundary.  A configured API key continues to use the
+        point-in-time REST path above.
+        """
+
+        if start and end and start > end:
+            raise ProviderError(
+                self.key,
+                ProviderErrorCode.INVALID_REQUEST,
+                "observation start cannot be later than end",
+            )
+        source_url = f"{self.public_csv_base_url}?id={native_id}"
+        response = await self._transport.request(
+            "GET",
+            self.public_csv_base_url,
+            params={"id": native_id},
+            headers={"Accept": "text/csv"},
+        )
+        raw = response.content
+        fetched_at = datetime.now(UTC)
+        try:
+            text = raw.decode("utf-8-sig")
+            reader = csv.DictReader(io.StringIO(text))
+            fieldnames = reader.fieldnames or []
+            value_column = next(
+                (name for name in fieldnames if name != "observation_date"),
+                None,
+            )
+            rows = list(reader)
+        except (UnicodeDecodeError, csv.Error) as exc:
+            raise ProviderSchemaError(
+                self.key,
+                "public FRED response was not valid CSV",
+                structure="observation_date + value",
+            ) from exc
+        if (
+            not rows
+            or "observation_date" not in fieldnames
+            or value_column is None
+        ):
+            raise ProviderSchemaError(
+                self.key,
+                "public FRED CSV omitted observation columns",
+                structure="observation_date + value",
+            )
+        records: list[ObservationRecord] = []
+        for row in rows:
+            try:
+                period = date.fromisoformat(str(row.get("observation_date") or ""))
+            except ValueError as exc:
+                raise ProviderSchemaError(
+                    self.key,
+                    "public FRED observation has an invalid date",
+                    structure="YYYY-MM-DD observation_date",
+                ) from exc
+            if start is not None and period < start:
+                continue
+            if end is not None and period > end:
+                continue
+            raw_value = str(row.get(value_column) or ".")
+            try:
+                value = None if raw_value in {".", "", "NaN"} else Decimal(raw_value)
+            except InvalidOperation:
+                value = None
+            digest = hashlib.sha256(
+                f"{native_id}|{period.isoformat()}|{raw_value}".encode()
+            ).hexdigest()
+            records.append(
+                ObservationRecord(
+                    native_id=native_id,
+                    period_start=period,
+                    period_end=period,
+                    value=value,
+                    raw_value=raw_value,
+                    vintage_date=fetched_at.date(),
+                    realtime_start=None,
+                    realtime_end=None,
+                    available_at=fetched_at,
+                    availability_method=AvailabilityMethod.INGESTION_TIME_PROXY,
+                    availability_precision=AvailabilityPrecision.TIMESTAMP,
+                    fetched_at=fetched_at,
+                    is_revised=False,
+                    quality_flags=["current_public_csv", "not_point_in_time"]
+                    + (["missing_value"] if value is None else []),
+                    source_hash=digest,
+                )
+            )
+        artifact = SourceArtifact.capture(
+            provider_key=self.key,
+            source_url=source_url,
+            retrieved_at=fetched_at,
+            content_type="text/csv",
+            content=raw,
+            terms=self.terms,
+            metadata={
+                "native_id": native_id,
+                "source_mode": "current_public_csv",
+                "point_in_time": False,
+                "observation_vintage": fetched_at.date().isoformat(),
+            },
+        )
+        quality = DataQuality(
+            source_name="Federal Reserve Bank of St. Louis FRED public graph CSV",
+            source_url=source_url,
+            source_type="official_public_current_csv",
+            acquired_at=fetched_at,
+            is_verified=False,
+            quality_grade=QualityGrade.B,
+            verification_notes=(
+                "Current public graph export; no ALFRED realtime vintage or first-print history."
+            ),
+            metadata={
+                "native_id": native_id,
+                "point_in_time": False,
+                "current_observation_only": True,
+            },
+        )
+        return FredObservationBatch(
+            provider_key=self.key,
+            retrieved_at=fetched_at,
+            artifacts=(artifact,),
+            quality=quality,
+            idempotency_key=hashlib.sha256(
+                f"fred-public:{native_id}:{artifact.content_hash}".encode()
+            ).hexdigest(),
+            native_id=native_id,
+            observations=tuple(records),
+            as_of=None,
+        )
+
     async def fetch_vintages(
         self,
         native_id: str,
@@ -433,9 +591,12 @@ class FredAlfredProvider:
         if not self._api_key:
             return ProviderHealth(
                 key=self.key,
-                status=ProviderStatus.NOT_CONFIGURED,
+                status=ProviderStatus.DEGRADED,
                 checked_at=datetime.now(UTC),
-                message="FRED API key is not configured",
+                message="FRED API key is not configured; public current CSV is available",
+                warnings=[
+                    "Public graph CSV has no ALFRED point-in-time vintages; use a key for PIT sync."
+                ],
             )
         started = datetime.now(UTC)
         try:

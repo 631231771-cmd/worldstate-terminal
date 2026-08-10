@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api/client";
 import { Badge, StateMessage } from "../components/Primitives";
+import { WorkspaceBoundary } from "../components/WorkspaceBoundary";
 import type { ReleaseSummary, ViewKey } from "../types";
 import { CrossAssetWorkspace } from "../workspaces/cross-asset/CrossAssetWorkspace";
 import { CountriesWorkspace } from "../workspaces/countries/CountriesWorkspace";
 import { DataMethodsWorkspace } from "../workspaces/data-methods/DataMethodsWorkspace";
+import { DataControlWorkspace } from "../workspaces/data-control/DataControlWorkspace";
 import { EventLabWorkspace } from "../workspaces/event-lab/EventLabWorkspace";
 import { MarketsWorkspace } from "../workspaces/markets/MarketsWorkspace";
 import { ReleasesWorkspace } from "../workspaces/releases/ReleasesWorkspace";
@@ -13,18 +15,35 @@ import { SeriesWorkspace } from "../workspaces/series/SeriesWorkspace";
 import { TodayWorkspace } from "../workspaces/today/TodayWorkspace";
 import { WorldStateWorkspace } from "../workspaces/world-state/WorldStateWorkspace";
 
-const NAVIGATION: Array<{ key: ViewKey; label: string; index: string; note: string }> = [
-  { key: "today", label: "今日", index: "01", note: "研究入口" },
-  { key: "world-state", label: "宏观状态", index: "02", note: "增长与通胀" },
-  { key: "markets", label: "市场状态", index: "03", note: "跨资产确认" },
-  { key: "releases", label: "宏观发布", index: "04", note: "实际值与共识" },
-  { key: "event-lab", label: "事件实验室", index: "05", note: "完整复盘" },
-  { key: "cross-asset", label: "跨资产", index: "06", note: "同轴反应" },
-  { key: "series", label: "宏观序列", index: "07", note: "时间序列" },
-  { key: "countries", label: "全球宏观", index: "08", note: "国家概览" },
-  { key: "research", label: "研究判断", index: "09", note: "Thesis Book" },
-  { key: "data-methods", label: "数据与方法", index: "10", note: "质量与边界" },
+interface NavItem {
+  key: ViewKey;
+  label: string;
+  index: string;
+  note: string;
+}
+
+const NAV_GROUPS: Array<{ key: string; label: string; items: NavItem[] }> = [
+  { key: "overview", label: "Overview", items: [{ key: "today", label: "Today", index: "01", note: "Daily brief" }] },
+  { key: "markets", label: "Markets", items: [
+    { key: "markets", label: "Markets", index: "02", note: "Cross-asset context" },
+    { key: "cross-asset", label: "Cross Asset", index: "03", note: "Event reaction" },
+  ] },
+  { key: "macro", label: "Macro", items: [
+    { key: "world-state", label: "World State", index: "04", note: "Regime and drivers" },
+    { key: "countries", label: "Countries", index: "05", note: "Global context" },
+    { key: "series", label: "Series", index: "06", note: "Macro history" },
+  ] },
+  { key: "events", label: "Events", items: [
+    { key: "releases", label: "Calendar / Releases", index: "07", note: "Actual and consensus" },
+    { key: "event-lab", label: "Event Lab", index: "08", note: "Full review" },
+  ] },
+  { key: "research", label: "Research", items: [{ key: "research", label: "Thesis", index: "09", note: "Research notebook" }] },
+  { key: "advanced", label: "Advanced", items: [
+    { key: "data-control", label: "Data Sources", index: "A1", note: "Settings and sync" },
+    { key: "data-methods", label: "Data & Methods", index: "A2", note: "Quality and boundaries" },
+  ] },
 ];
+const NAVIGATION = NAV_GROUPS.flatMap((group) => group.items);
 
 function initialView(): ViewKey {
   const value = window.location.hash.replace("#", "").split("?")[0];
@@ -42,26 +61,27 @@ export function App() {
   const [health, setHealth] = useState<Awaited<ReturnType<typeof api.health>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [learningMode, setLearningMode] = useState(
+    () => window.localStorage.getItem("worldstate.learning_mode") === "on",
+  );
 
   const refresh = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [releaseRows, healthResult] = await Promise.all([api.releases(), api.health()]);
-      setReleases(releaseRows);
-      setHealth(healthResult);
-      setSelectedReleaseId((current) => current ?? releaseRows[0]?.id ?? null);
+      const [releaseResult, healthResult] = await Promise.allSettled([api.releases(), api.health()]);
+      if (releaseResult.status === "rejected") throw releaseResult.reason;
+      setReleases(releaseResult.value);
+      setHealth(healthResult.status === "fulfilled" ? healthResult.value : null);
+      setSelectedReleaseId((current) => current ?? releaseResult.value[0]?.id ?? null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "研究服务暂时无法连接。");
+      setError(reason instanceof Error ? reason.message : "Research service is unavailable");
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    void refresh();
-  }, []);
-
+  useEffect(() => { void refresh(); }, []);
   useEffect(() => {
     const query = selectedReleaseId ? `?release=${encodeURIComponent(selectedReleaseId)}` : "";
     window.history.replaceState(null, "", `#${view}${query}`);
@@ -71,108 +91,57 @@ export function App() {
     () => releases.find((item) => item.id === selectedReleaseId) ?? releases[0] ?? null,
     [releases, selectedReleaseId],
   );
-
   const openRelease = (releaseId: string, destination: ViewKey = "event-lab") => {
     setSelectedReleaseId(releaseId);
     setView(destination);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+  const toggleLearningMode = () => {
+    setLearningMode((current) => {
+      const next = !current;
+      window.localStorage.setItem("worldstate.learning_mode", next ? "on" : "off");
+      return next;
+    });
+  };
+  const eventView = view === "releases" || view === "event-lab" || view === "cross-asset";
 
   return (
     <div class="terminal-shell">
       <aside class="sidebar">
-        <div class="brand">
-          <div class="brand__mark">W<span>S</span></div>
-          <div>
-            <strong>WorldState</strong>
-            <span>Macro Research Terminal</span>
-          </div>
-        </div>
-        <nav aria-label="一级研究入口">
-          {NAVIGATION.map((item) => (
-            <button
-              type="button"
-              key={item.key}
-              class={view === item.key ? "nav-item nav-item--active" : "nav-item"}
-              onClick={() => setView(item.key)}
-            >
-              <span class="nav-item__index">{item.index}</span>
-              <span>
-                <strong>{item.label}</strong>
-                <small>{item.note}</small>
-              </span>
-            </button>
-          ))}
+        <div class="brand"><div class="brand__mark">W<span>S</span></div><div><strong>WorldState</strong><span>Macro Research Terminal</span></div></div>
+        <nav aria-label="Primary navigation">
+          {NAV_GROUPS.map((group) => <div class="nav-group" key={group.key}>
+            <span class="nav-group__label">{group.label}</span>
+            {group.items.map((item) => <button type="button" key={item.key} class={view === item.key ? "nav-item nav-item--active" : "nav-item"} onClick={() => setView(item.key)}>
+              <span class="nav-item__index">{item.index}</span><span><strong>{item.label}</strong><small>{item.note}</small></span>
+            </button>)}
+          </div>)}
         </nav>
-        <div class="sidebar__method">
-          <span>研究顺序</span>
-          <strong>事实 → 反应 → 历史 → 推断</strong>
-          <p>不把相关性写成唯一因果，不隐藏 fixture 与代理资产。</p>
-        </div>
+        <div class="sidebar__method"><span>RESEARCH CHAIN</span><strong>Facts → Reaction → History → Inference</strong><p>Details remain available, but the default view stays focused on what changed and why it matters.</p></div>
       </aside>
-
       <main class="main">
         <header class="topbar">
-          <div>
-            <span class="topbar__kicker">个人宏观研究工作台</span>
-            <strong>{NAVIGATION.find((item) => item.key === view)?.label}</strong>
-          </div>
+          <div><span class="topbar__kicker">WORLDSTATE · MACRO RESEARCH TERMINAL</span><strong>{NAVIGATION.find((item) => item.key === view)?.label}</strong></div>
           <div class="topbar__status">
-            {selected ? (
-              <label>
-                <span>当前研究事件</span>
-                <select
-                  value={selected.id}
-                  onChange={(event) =>
-                    setSelectedReleaseId((event.currentTarget as HTMLSelectElement).value)
-                  }
-                >
-                  {releases.map((release) => (
-                    <option value={release.id} key={release.id}>
-                      {release.title} · {release.period_label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            <Badge tone={health?.database.status === "ok" ? "good" : "warn"}>
-              {health?.database.status === "ok" ? "研究服务在线" : "服务未连接"}
-            </Badge>
+            {eventView && selected ? <label><span>Research event</span><select value={selected.id} onChange={(event) => setSelectedReleaseId((event.currentTarget as HTMLSelectElement).value)}>{releases.map((release) => <option value={release.id} key={release.id}>{release.title} · {release.period_label}</option>)}</select></label> : null}
+            <button type="button" class={learningMode ? "mode-toggle mode-toggle--active" : "mode-toggle"} onClick={toggleLearningMode} title="Show short contextual explanations">{learningMode ? "Learning on" : "Learning off"}</button>
+            <Badge tone={health?.database.status === "ok" ? "good" : "warn"}>{health?.database.status === "ok" ? "Service online" : "Service unavailable"}</Badge>
+            {health?.generated_at ? <span class="topbar__updated">Updated {new Date(health.generated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span> : null}
           </div>
         </header>
-
-        {loading ? (
-          <StateMessage title="正在装载研究证据" detail="读取宏观发布、分析运行与数据质量记录。" />
-        ) : error ? (
-          <StateMessage
-            title="无法连接本地研究服务"
-            detail={`${error} 请确认 Research API 已启动，随后重试。`}
-            action={
-              <button type="button" class="primary-button" onClick={() => void refresh()}>
-                重新连接
-              </button>
-            }
-          />
-        ) : (
-          <>
-            {view === "today" ? (
-              <TodayWorkspace releases={releases} health={health} onOpen={openRelease} />
-            ) : null}
-            {view === "world-state" ? <WorldStateWorkspace /> : null}
-            {view === "markets" ? <MarketsWorkspace /> : null}
-            {view === "releases" ? (
-              <ReleasesWorkspace releases={releases} onOpen={openRelease} />
-            ) : null}
-            {view === "event-lab" ? (
-              <EventLabWorkspace release={selected} onRefresh={refresh} />
-            ) : null}
-            {view === "cross-asset" ? <CrossAssetWorkspace release={selected} /> : null}
-            {view === "series" ? <SeriesWorkspace /> : null}
-            {view === "countries" ? <CountriesWorkspace /> : null}
-            {view === "research" ? <ResearchWorkspace /> : null}
-            {view === "data-methods" ? <DataMethodsWorkspace /> : null}
-          </>
-        )}
+        {loading ? <StateMessage title="Loading research" detail="Reading releases, analysis runs and data quality." /> : error ? <StateMessage title="Research service unavailable" detail={error} action={<button type="button" class="primary-button" onClick={() => void refresh()}>Retry</button>} /> : <WorkspaceBoundary>
+          {view === "today" ? <TodayWorkspace releases={releases} health={health} onOpen={openRelease} learningMode={learningMode} /> : null}
+          {view === "world-state" ? <WorldStateWorkspace /> : null}
+          {view === "markets" ? <MarketsWorkspace /> : null}
+          {view === "releases" ? <ReleasesWorkspace releases={releases} onOpen={openRelease} /> : null}
+          {view === "event-lab" ? <EventLabWorkspace release={selected} onRefresh={refresh} /> : null}
+          {view === "cross-asset" ? <CrossAssetWorkspace release={selected} /> : null}
+          {view === "series" ? <SeriesWorkspace /> : null}
+          {view === "countries" ? <CountriesWorkspace /> : null}
+          {view === "research" ? <ResearchWorkspace /> : null}
+          {view === "data-methods" ? <DataMethodsWorkspace /> : null}
+          {view === "data-control" ? <DataControlWorkspace /> : null}
+        </WorkspaceBoundary>}
       </main>
     </div>
   );

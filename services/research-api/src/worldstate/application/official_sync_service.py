@@ -31,6 +31,8 @@ from worldstate.db.models import (
     EconomicEntity,
     Indicator,
     MacroRelease,
+    MarketBar,
+    MarketInstrument,
     Observation,
     Provider,
     ReleaseStage,
@@ -68,6 +70,16 @@ _FRED_FOUNDATION_SERIES = {
     "VIXCLS",
 }
 
+_FRED_MARKET_CONTEXT = {
+    "SP500": "sp500_cash",
+    "VIXCLS": "vix_cash",
+    "DCOILWTICO": "wti_spot",
+    "DCOILBRENTEU": "brent_spot",
+    "DTWEXBGS": "dollar_broad_context",
+    "DGS2": "ust2y_yield_context",
+    "DGS10": "ust10y_yield_context",
+}
+
 _FOMC_VALUE_PARSER_VERSION = "fomc-target-range-v2"
 _INVALIDATED_RELEASE_STATUS = "invalidated"
 
@@ -86,6 +98,62 @@ def _aware(value: datetime) -> datetime:
 
 def _previous_month(value: date) -> date:
     return date(value.year - 1, 12, 1) if value.month == 1 else date(value.year, value.month - 1, 1)
+
+
+async def _upsert_fred_context_bar(
+    session: AsyncSession,
+    *,
+    instrument: MarketInstrument,
+    existing: dict[datetime, MarketBar],
+    observation: Any,
+    quality_id: uuid.UUID,
+    provider_key: str,
+    source_mode: str,
+    retrieved_at: datetime,
+    native_id: str,
+) -> None:
+    if observation.value is None:
+        return
+    timestamp = datetime.combine(
+        observation.period_start,
+        datetime.min.time(),
+        tzinfo=UTC,
+    )
+    bar = existing.get(timestamp)
+    values = {
+        "interval_seconds": 86400,
+        "open_value": observation.value,
+        "high_value": observation.value,
+        "low_value": observation.value,
+        "close_value": observation.value,
+        "volume": None,
+        "source_symbol": native_id,
+        "contract_code": "",
+        "quality_id": quality_id,
+        "fetched_at": retrieved_at,
+        "metadata_json": {
+            "context_only": True,
+            "not_event_window": True,
+            "source_series": native_id,
+            "source_mode": source_mode,
+            "point_in_time": source_mode != "current_public_csv",
+        },
+    }
+    if bar is None:
+        session.add(
+            MarketBar(
+                instrument_id=instrument.id,
+                futures_contract_id=None,
+                timestamp=timestamp,
+                provider_key=provider_key,
+                data_mode="observed",
+                is_regular_session=True,
+                **values,
+            )
+        )
+    else:
+        for key, value in values.items():
+            setattr(bar, key, value)
 
 
 async def _upsert_release_stage(
@@ -1277,19 +1345,29 @@ async def sync_fred_foundation(
     as_of: date | None = None,
 ) -> dict[str, object]:
     clients = build_provider_clients(settings)
+    public_current = settings.fred_api_key is None
     run = await record_provider_run(
         engine,
         provider_key=clients.fred.key,
-        operation="sync_foundation_series",
-        idempotency_key=f"fred-foundation:{start_date}:{end_date}:{as_of}:{date.today()}",
-        input_data={"start_date": start_date, "end_date": end_date, "as_of": as_of},
+        operation="sync_current_public_series" if public_current else "sync_foundation_series",
+        idempotency_key=(
+            f"fred-public:{start_date}:{end_date}:{date.today()}"
+            if public_current
+            else f"fred-foundation:{start_date}:{end_date}:{as_of}:{date.today()}"
+        ),
+        input_data={
+            "start_date": start_date,
+            "end_date": end_date,
+            "as_of": as_of,
+            "source_mode": "current_public_csv" if public_current else "alfred_api",
+        },
         terms_url=clients.fred.terms.terms_url,
     )
     read = written = requests = 0
     warnings: list[str] = []
     primary_artifact_id: uuid.UUID | None = None
     try:
-        if settings.fred_api_key is None:
+        if public_current and as_of is not None:
             await upsert_entitlement(
                 engine,
                 provider_key=clients.fred.key,
@@ -1301,13 +1379,13 @@ async def sync_fred_foundation(
             )
             raise ProviderError(
                 clients.fred.key,
-                ProviderErrorCode.NOT_CONFIGURED,
-                "FRED API key is not configured",
+                ProviderErrorCode.POINT_IN_TIME,
+                "FRED public current CSV cannot provide point-in-time vintages",
             )
         catalog = [
             item
             for item in load_catalog(repository_root() / "data" / "macro")
-            if item.native_id in _FRED_FOUNDATION_SERIES
+            if item.provider == clients.fred.key
         ]
         factory = _factory(engine)
         async with factory() as session, session.begin():
@@ -1361,7 +1439,7 @@ async def sync_fred_foundation(
                 title=f"FRED {definition.native_id} observations",
             )
             primary_artifact_id = primary_artifact_id or artifact.id
-            await persist_quality_record(
+            quality_row = await persist_quality_record(
                 engine,
                 batch.quality,
                 subject_type="macro_series",
@@ -1370,6 +1448,29 @@ async def sync_fred_foundation(
             )
             factory = _factory(engine)
             async with factory() as session, session.begin():
+                context_instrument = None
+                existing_context_bars: dict[datetime, MarketBar] = {}
+                context_key = _FRED_MARKET_CONTEXT.get(definition.native_id)
+                if context_key is not None:
+                    context_instrument = await session.scalar(
+                        select(MarketInstrument).where(
+                            MarketInstrument.canonical_key == context_key
+                        )
+                    )
+                    if context_instrument is not None:
+                        existing_context_bars = {
+                            _aware(row.timestamp): row
+                            for row in (
+                                await session.scalars(
+                                    select(MarketBar).where(
+                                        MarketBar.instrument_id == context_instrument.id,
+                                        MarketBar.provider_key == clients.fred.key,
+                                        MarketBar.interval_seconds == 86400,
+                                        MarketBar.data_mode == "observed",
+                                    )
+                                )
+                            ).all()
+                        }
                 series = await session.scalar(
                     select(Series).where(
                         Series.provider_id == provider_id,
@@ -1391,8 +1492,16 @@ async def sync_fred_foundation(
                         observation_type="official_series",
                         source_url=definition.source_url,
                         release_key=None,
-                        availability_method=definition.availability.method.value,
-                        availability_precision=definition.availability.precision.value,
+                        availability_method=(
+                            "ingestion_time_proxy"
+                            if public_current
+                            else definition.availability.method.value
+                        ),
+                        availability_precision=(
+                            "timestamp"
+                            if public_current
+                            else definition.availability.precision.value
+                        ),
                         default_transform=definition.transform,
                         active=True,
                         metadata_json={
@@ -1401,7 +1510,10 @@ async def sync_fred_foundation(
                             "weight": definition.weight,
                             "minimum_history": definition.minimum_history,
                             "freshness_half_life_days": definition.freshness_half_life_days,
-                            "source_mode": "observed",
+                            "source_mode": "current_public_csv" if public_current else "observed",
+                            "point_in_time": not public_current,
+                            "current_observation_only": public_current,
+                            "provider_metric": "fred_graph_csv" if public_current else "alfred_api",
                             "underlying_series_terms_must_be_checked": True,
                         },
                     )
@@ -1416,7 +1528,10 @@ async def sync_fred_foundation(
                         "weight": definition.weight,
                         "minimum_history": definition.minimum_history,
                         "freshness_half_life_days": definition.freshness_half_life_days,
-                        "source_mode": "observed",
+                        "source_mode": "current_public_csv" if public_current else "observed",
+                        "point_in_time": not public_current,
+                        "current_observation_only": public_current,
+                        "provider_metric": "fred_graph_csv" if public_current else "alfred_api",
                         "fixture_observations_retained": prior_source_mode in {"demo", "fixture"},
                         "underlying_series_terms_must_be_checked": True,
                     }
@@ -1430,6 +1545,20 @@ async def sync_fred_foundation(
                         )
                     )
                     if existing is not None:
+                        if context_instrument is not None:
+                            await _upsert_fred_context_bar(
+                                session,
+                                instrument=context_instrument,
+                                existing=existing_context_bars,
+                                observation=observation,
+                                quality_id=quality_row.id,
+                                provider_key=clients.fred.key,
+                                source_mode=(
+                                    "current_public_csv" if public_current else "alfred_api"
+                                ),
+                                retrieved_at=batch.retrieved_at,
+                                native_id=definition.native_id,
+                            )
                         continue
                     session.add(
                         Observation(
@@ -1453,14 +1582,42 @@ async def sync_fred_foundation(
                         )
                     )
                     written += 1
+                    if context_instrument is not None:
+                        await _upsert_fred_context_bar(
+                            session,
+                            instrument=context_instrument,
+                            existing=existing_context_bars,
+                            observation=observation,
+                            quality_id=quality_row.id,
+                            provider_key=clients.fred.key,
+                            source_mode=(
+                                "current_public_csv" if public_current else "alfred_api"
+                            ),
+                            retrieved_at=batch.retrieved_at,
+                            native_id=definition.native_id,
+                        )
         await upsert_entitlement(
             engine,
             provider_key=clients.fred.key,
             capability="series_vintages",
-            status="granted",
+            status="not_configured" if public_current else "granted",
             provider_run_id=run.id,
             terms_url=clients.fred.terms.terms_url,
+            metadata={
+                "public_current_csv": public_current,
+                "point_in_time": not public_current,
+            },
         )
+        if public_current:
+            await upsert_entitlement(
+                engine,
+                provider_key=clients.fred.key,
+                capability="current_series",
+                status="granted",
+                provider_run_id=run.id,
+                terms_url=clients.fred.terms.terms_url,
+                metadata={"source_mode": "current_public_csv", "point_in_time": False},
+            )
         await complete_provider_run(
             engine,
             run.id,
@@ -1470,7 +1627,13 @@ async def sync_fred_foundation(
             source_artifact_id=primary_artifact_id,
             quality_grade="A" if as_of else "B",
             warnings=warnings,
-            output_data={"series": sorted(_FRED_FOUNDATION_SERIES), "as_of": as_of},
+            output_data={
+                "series": sorted(item.native_id for item in catalog),
+                "series_count": len(catalog),
+                "as_of": as_of,
+                "source_mode": "current_public_csv" if public_current else "alfred_api",
+                "point_in_time": not public_current,
+            },
         )
         return {
             "status": "completed",
@@ -1478,6 +1641,8 @@ async def sync_fred_foundation(
             "records_read": read,
             "records_written": written,
             "warnings": warnings,
+            "source_mode": "current_public_csv" if public_current else "alfred_api",
+            "point_in_time": not public_current,
         }
     except Exception as exc:
         await fail_provider_run(engine, run.id, error=exc, warnings=warnings)

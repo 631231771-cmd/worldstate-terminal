@@ -68,6 +68,23 @@ class ConsensusInput(StrictModel):
     verification_notes: str | None = None
 
 
+class ConsensusCsvInput(StrictModel):
+    csv_text: str = Field(min_length=1)
+    default_source_name: str = "Manual consensus CSV"
+    default_source_url: str | None = None
+
+
+class OfficialMacroCsvInput(StrictModel):
+    """Observed official export; never silently treated as a live provider."""
+
+    csv_text: str = Field(min_length=1)
+    provider_key: str = Field(default="manual_official", min_length=1, max_length=64)
+    source_name: str = Field(default="Official macro CSV", min_length=1, max_length=255)
+    source_url: str = Field(min_length=1, max_length=2048)
+    verified: bool = False
+    verification_notes: str | None = None
+
+
 class MarketCsvImportInput(StrictModel):
     instrument_key: str
     csv_text: str
@@ -76,6 +93,7 @@ class MarketCsvImportInput(StrictModel):
     source_url: str | None = None
     verified: bool = False
     is_fixture: bool = False
+    interval_seconds: int = Field(default=86400, ge=1)
 
 
 class BackfillRequestInput(StrictModel):
@@ -136,6 +154,14 @@ class ThesisUpdateInput(StrictModel):
 class ContextAssistantInput(StrictModel):
     question: str = Field(min_length=2, max_length=2000)
     data_mode: Literal["observed", "fixture", "all"] = "observed"
+
+
+class WatchlistInput(StrictModel):
+    item_type: Literal["series", "market", "country", "release", "thesis"]
+    item_key: str = Field(min_length=1, max_length=255)
+    label: str = Field(min_length=1, max_length=255)
+    notes: str = Field(default="", max_length=4000)
+    data_mode: Literal["observed", "fixture"] = "observed"
 
 
 def stage_payload(items: list[ReleaseStageInput]) -> list[dict[str, object]]:

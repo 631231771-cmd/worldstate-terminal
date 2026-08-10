@@ -33,11 +33,13 @@ from worldstate.api.v2.schemas import BackfillRequestInput
 from worldstate.application.analysis_orchestrator import analyze_release
 from worldstate.application.bootstrap_service import bootstrap_research_data
 from worldstate.application.evidence_service import get_evidence_pack
+from worldstate.application.freshness_service import build_data_freshness
 from worldstate.application.licensed_sync_service import (
     snapshot_trading_economics_consensus,
     sync_databento_release_market,
 )
 from worldstate.application.official_sync_service import sync_official_data
+from worldstate.application.public_sync_service import sync_public_providers
 from worldstate.application.release_queries import get_quality_overview
 from worldstate.config import Settings
 from worldstate.db.models import BackfillJob, MacroRelease
@@ -72,6 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_range_arguments(official)
     official.add_argument("--event-types", default=",".join(DEFAULT_EVENT_TYPES))
+
+    public = commands.add_parser(
+        "sync-public", help="synchronize configured no-key official public macro feeds"
+    )
+    _add_range_arguments(public)
+    public.add_argument("--providers", default="fred,ecb,boe,boj,china")
 
     calendar = commands.add_parser("sync-calendar", help="synchronize official event calendars")
     _add_range_arguments(calendar)
@@ -291,6 +299,7 @@ async def _run_async(args: argparse.Namespace, settings: Settings) -> int:
         if args.command == "data-status":
             providers = await build_provider_status(engine, settings)
             coverage = await build_data_coverage(engine, data_mode=args.data_mode)
+            freshness = await build_data_freshness(engine, data_mode=args.data_mode)
             factory = async_sessionmaker(engine, expire_on_commit=False)
             async with factory() as session:
                 jobs = (
@@ -302,6 +311,7 @@ async def _run_async(args: argparse.Namespace, settings: Settings) -> int:
                 "status": "ok",
                 "providers": providers,
                 "coverage": coverage,
+                "freshness": freshness,
                 "backfill_jobs": [serialize_backfill_job(item) for item in jobs],
             }
             _write_optional_output(payload, args.output)
@@ -341,6 +351,33 @@ async def _run_async(args: argparse.Namespace, settings: Settings) -> int:
                 }
             result["command"] = args.command
             result["requested_event_types"] = list(requested_event_types)
+            _emit(result)
+            return _result_exit_code(result)
+        if args.command == "sync-public":
+            start, end = _resolved_range(args, settings)
+            provider_names = (
+                ("ecb", "boe", "boj", "china")
+                if args.providers is None
+                else tuple(
+                    item.strip().lower()
+                    for item in args.providers.split(",")
+                    if item.strip()
+                )
+            )
+            try:
+                result = await sync_public_providers(
+                    engine,
+                    settings,
+                    start_date=start,
+                    end_date=end,
+                    providers=provider_names,
+                )
+            except Exception as exc:
+                failure = _service_failure(args.command, exc, settings)
+                _emit(failure)
+                return _result_exit_code(failure)
+            result["command"] = args.command
+            result["providers"] = list(provider_names)
             _emit(result)
             return _result_exit_code(result)
         if args.command == "sync-calendar":

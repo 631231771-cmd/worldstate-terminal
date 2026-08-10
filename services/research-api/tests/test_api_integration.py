@@ -242,6 +242,140 @@ def test_manual_release_consensus_csv_and_analysis_workflow(client: TestClient) 
     assert detail["latest_analysis"]["status"] == "completed"
 
 
+def test_observed_context_market_csv_is_separate_from_event_windows(client: TestClient) -> None:
+    csv_text = "\n".join(
+        [
+            "timestamp,instrument_key,open,high,low,close,volume",
+            "2030-01-01T00:00:00Z,gold_gc,2000,2010,1990,2005,100",
+            "2030-01-02T00:00:00Z,gold_gc,2005,2020,2000,2015,110",
+        ]
+    )
+    imported = client.post(
+        "/v2/market-bars/import-context",
+        json={
+            "instrument_key": "gold_gc",
+            "csv_text": csv_text,
+            "provider_key": "manual_context_test",
+            "source_name": "Verified daily context test",
+            "source_url": "https://example.test/daily-bars",
+            "verified": True,
+            "interval_seconds": 86400,
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    body = imported.json()
+    assert body["inserted"] == 2
+    assert body["data_mode"] == "observed"
+    assert body["context_only"] is True
+    assert body["not_event_window"] is True
+    repeated = client.post(
+        "/v2/market-bars/import-context",
+        json={
+            "instrument_key": "gold_gc",
+            "csv_text": csv_text,
+            "provider_key": "manual_context_test",
+            "source_name": "Verified daily context test",
+            "verified": True,
+            "interval_seconds": 86400,
+        },
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["idempotent_replay"] is True
+
+
+def test_official_macro_csv_import_keeps_manual_provenance_and_pit_boundary(
+    client: TestClient,
+) -> None:
+    csv_text = "\n".join(
+        [
+            "canonical_key,native_id,title,entity_iso3,frequency,unit,period_start,value,vintage_date,available_at",
+            "JPN.GROWTH.INDPRO,boj.demo,Japan industrial production,JPN,monthly,index,"
+            "2026-06-01,101.2,2026-07-31,2026-07-31T00:30:00Z",
+            "CHN.GROWTH.RETAIL,china.demo,China retail sales,CHN,monthly,percent,"
+            "2026-06-01,4.8,2026-07-15,2026-07-15T02:00:00Z",
+        ]
+    )
+    imported = client.post(
+        "/v2/data/macro-series/import-official-csv",
+        json={
+            "csv_text": csv_text,
+            "provider_key": "manual_official_test",
+            "source_name": "Official Japan China export",
+            "source_url": "https://example.gov/official-export.csv",
+            "verified": True,
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    body = imported.json()
+    assert body["inserted"] == 2
+    assert body["manual"] is True
+    assert body["point_in_time"] is True
+    assert set(body["series"]) == {"JPN.GROWTH.INDPRO", "CHN.GROWTH.RETAIL"}
+
+    repeated = client.post(
+        "/v2/data/macro-series/import-official-csv",
+        json={
+            "csv_text": csv_text,
+            "provider_key": "manual_official_test",
+            "source_name": "Official Japan China export",
+            "source_url": "https://example.gov/official-export.csv",
+            "verified": True,
+        },
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["idempotent_replay"] is True
+
+
+def test_official_macro_csv_requires_traceable_source(client: TestClient) -> None:
+    response = client.post(
+        "/v2/data/macro-series/import-official-csv",
+        json={
+            "csv_text": (
+                "canonical_key,period_start,value,entity_iso3\n"
+                "JPN.GROWTH.X,2026-01-01,1,JPN"
+            ),
+            "source_name": "unlinked file",
+            "source_url": "",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_consensus_csv_import_keeps_pre_t0_and_manual_provenance(
+    client: TestClient,
+    release_index: dict[str, dict[str, object]],
+) -> None:
+    release = release_index["US_CPI"]
+    scheduled = datetime.fromisoformat(str(release["scheduled_at"]))
+    csv_text = "\n".join(
+        [
+            "indicator_key,consensus_value,captured_at,source_name,source_url,quality_grade",
+            f"headline_mom,0.2,{(scheduled - timedelta(minutes=20)).isoformat()},Manual CSV,https://example.test/csv,B",
+        ]
+    )
+    response = client.post(
+        f"/v2/releases/{release['id']}/consensus/import-csv",
+        json={"csv_text": csv_text},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["inserted"] == 1
+    assert body["is_manual"] is True
+    assert body["point_in_time"] is True
+
+    late = "\n".join(
+        [
+            "indicator_key,consensus_value,captured_at",
+            f"headline_mom,0.2,{(scheduled + timedelta(minutes=5)).isoformat()}",
+        ]
+    )
+    rejected = client.post(
+        f"/v2/releases/{release['id']}/consensus/import-csv",
+        json={"csv_text": late},
+    )
+    assert rejected.status_code == 400
+
+
 def test_analysis_run_is_replayable_idempotent_and_evidence_bound(
     client: TestClient,
     release_index: dict[str, dict[str, object]],

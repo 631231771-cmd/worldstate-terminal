@@ -9,7 +9,15 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from worldstate.db.models import MarketBar, MarketInstrument, Observation, Provider, Series
+from worldstate.application.quality_resolver import resolve_quality_grade
+from worldstate.db.models import (
+    DataQualityRecord,
+    MarketBar,
+    MarketInstrument,
+    Observation,
+    Provider,
+    Series,
+)
 
 DataMode = Literal["observed", "fixture", "all"]
 Horizon = Literal["1d", "1w", "1m", "3m"]
@@ -46,22 +54,23 @@ async def build_market_dashboard(
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
         query = (
-            select(MarketBar, MarketInstrument)
+            select(MarketBar, MarketInstrument, DataQualityRecord)
             .join(MarketInstrument, MarketInstrument.id == MarketBar.instrument_id)
+            .outerjoin(DataQualityRecord, DataQualityRecord.id == MarketBar.quality_id)
             .where(MarketBar.timestamp <= cutoff)
             .order_by(MarketBar.timestamp.desc())
         )
         if data_mode != "all":
             query = query.where(MarketBar.data_mode == data_mode)
         rows = (await session.execute(query.limit(30_000))).all()
-    by_key: dict[str, list[tuple[MarketBar, MarketInstrument]]] = {}
-    for bar, instrument in rows:
-        by_key.setdefault(str(instrument.canonical_key), []).append((bar, instrument))
+    by_key: dict[str, list[tuple[MarketBar, MarketInstrument, DataQualityRecord | None]]] = {}
+    for bar, instrument, quality in rows:
+        by_key.setdefault(str(instrument.canonical_key), []).append((bar, instrument, quality))
     items: list[dict[str, Any]] = []
     for key, series in by_key.items():
-        latest, instrument = series[0]
+        latest, instrument, latest_quality = series[0]
         baseline = next(
-            (bar for bar, _ in series if _aware(bar.timestamp) <= cutoff - delta),
+            (bar for bar, _, _ in series if _aware(bar.timestamp) <= cutoff - delta),
             None,
         )
         latest_value = float(latest.close_value)
@@ -70,7 +79,7 @@ async def build_market_dashboard(
             change = latest_value / float(baseline.close_value) - 1.0
         returns: list[float] = []
         previous: float | None = None
-        for bar, _ in reversed(series):
+        for bar, _, _ in reversed(series):
             close = float(bar.close_value)
             if previous is not None and previous != 0:
                 returns.append(close / previous - 1.0)
@@ -97,7 +106,12 @@ async def build_market_dashboard(
                 "timestamp": latest.timestamp.isoformat(),
                 "provider": latest.provider_key,
                 "data_mode": latest.data_mode,
-                "quality_grade": "A" if latest.provider_key == "databento_market" else "B",
+                "quality_grade": resolve_quality_grade(latest_quality),
+                "quality_limitation": (
+                    latest_quality.verification_notes
+                    if latest_quality
+                    else "No quality record was persisted for this observation."
+                ),
                 "granularity_seconds": latest.interval_seconds,
                 "bar_count": len(series),
                 "data_gap": baseline is None,
@@ -180,14 +194,31 @@ async def search_series(
             if needle and needle not in haystack:
                 continue
             observations_query = (
-                select(Observation)
+                select(Observation, DataQualityRecord)
+                .outerjoin(
+                    DataQualityRecord,
+                    DataQualityRecord.id
+                    == (
+                        select(DataQualityRecord.id)
+                        .where(
+                            DataQualityRecord.subject_type == "macro_series",
+                            DataQualityRecord.subject_id == series.canonical_key,
+                        )
+                        .order_by(DataQualityRecord.acquired_at.desc())
+                        .limit(1)
+                        .scalar_subquery()
+                    ),
+                )
                 .where(Observation.series_id == series.id)
                 .order_by(Observation.period_start.desc())
+                .order_by(DataQualityRecord.acquired_at.desc())
                 .limit(1)
             )
             if data_mode != "all":
                 observations_query = observations_query.where(Observation.data_mode == data_mode)
-            latest = await session.scalar(observations_query)
+            latest_row = (await session.execute(observations_query)).first()
+            latest = latest_row[0] if latest_row else None
+            latest_quality = latest_row[1] if latest_row else None
             output.append(
                 {
                     "canonical_key": series.canonical_key,
@@ -209,11 +240,12 @@ async def search_series(
                     "vintage": latest.vintage_date.isoformat() if latest else None,
                     "revision": bool(latest.is_revised) if latest else None,
                     "data_mode": latest.data_mode if latest else data_mode,
-                    "quality": "A"
-                    if provider.key in {"fred_alfred", "bls_official"}
-                    else "B"
-                    if latest
-                    else "UNKNOWN",
+                    "quality": resolve_quality_grade(latest_quality),
+                    "quality_limitation": (
+                        latest_quality.verification_notes
+                        if latest_quality
+                        else "No quality record was persisted for this observation."
+                    ),
                     "observations_available": latest is not None,
                     "state_dimensions": series.metadata_json.get("state_dimensions", []),
                 }

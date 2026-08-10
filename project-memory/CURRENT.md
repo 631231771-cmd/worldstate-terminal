@@ -1,6 +1,6 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-08-09
+Updated: 2026-08-10
 
 ## Product truth
 
@@ -15,14 +15,17 @@ longer part of the active architecture. Their final state is preserved at tag
 
 ## Active branch and milestones
 
-- Working branch: `feature/v0.6-operational-intelligence`
+- Working branch: `feature/v0.7-live-global`
 - Last committed v0.4 baseline: `16544c373bb32fc9788b72538db49c3fcc2c1337`
 - v0.5 Data Foundation: committed as `4054a66e620db2f5aff9a4c70b6af9be3b9aad94`; local and GitHub CI validation complete
-- Database head in the worktree: `0008_thesis_book`
+- Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
-- Product version in the worktree: `0.6.0`
-- HEAD: `c072655d9a6d50d9c53c5a64ee85204b979901d7`
-- PR #8: Draft, unmerged; PR #9: Draft, open; do not mark either Ready or merge
+- Product version in the worktree: `0.7.0`
+- HEAD: `bd177d1` (`feat: productize v07 terminal workflow`; keep PR #10 Draft)
+- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot, 8,801 observed daily context bars, 50 catalog series with 29,701 observed macro observations, 28,247 FRED current-public observations and 621 BLS current-state observations are present. FRED no-key data is explicitly current-state/non-PIT; a FRED key is still required for ALFRED vintage semantics.
+- Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/EA/UK observed state coverage, Japan/China unavailable without an official export, 8 context instruments, one observed snapshot, zero observed consensus snapshots, and explicit market/data-quality boundaries.
+- PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
+  `feature/v0.7-live-global`; do not mark any of them Ready or merge
 
 ## Daily use
 
@@ -117,13 +120,78 @@ complete live global coverage.  Official FRED/BLS/Fed observations, licensed
 consensus and minute market data remain governed by the v0.5 provider and
 entitlement boundaries below.
 
+## v0.7 Live Data Activation & Global Macro
+
+- Public no-key adapters now cover the ECB Data Portal and Bank of England
+  IADB, with explicit adapter boundaries for BOJ and China official exports.
+- FRED catalog sync is no longer limited to the five v0.5 foundation series;
+  configured FRED credentials can populate the full catalog without mixing
+  fixture rows into observed queries.
+- `/v2/data/sync/public`, `/v2/data/bootstrap-free`, `/v2/data/freshness`,
+  `/v2/macro-systems`, world-state history and watchlist endpoints are live.
+- The Data Control Center shows provider entitlement, observed-series
+  freshness, missing data and a bounded public bootstrap action.
+- Freshness uses both retrieval age and covered-period age. A recent fetch does
+  not make an old monthly or quarterly observation appear live.
+- FRED public graph CSV is available without a key for current-state
+  observations. It is marked `source_mode=current_public_csv`,
+  `point_in_time=false`, quality B and `ingestion_time_proxy`; it must not be
+  used for historical first-print or PIT backtests. With a FRED key, the
+  existing ALFRED path remains the only vintage-aware route.
+- FRED S&P 500, VIX, WTI, Brent, broad dollar, 2Y and 10Y series are persisted
+  as daily `context_only`/`not_event_window` bars. They support daily context
+  changes, not minute event windows, futures settlement or cash-yield claims.
+- Data Control exposes a traceable `official macro CSV` import for Japan,
+  China and other official exports. It always writes observed rows with a
+  source artifact, manual/verification flags and a quality record; missing
+  vintage/availability columns are explicitly non-PIT.
+- Migration `0009_operational_state` stores immutable daily state snapshots and
+  user watchlist entries. A real runtime copy was backed up before migration.
+- Global macro comparison and system cards use only observed Series/Observation
+  rows and report coverage, gaps, limitations and divergence without causal
+  claims.
+- Runtime validation on 2026-08-10 reached official BLS, FRED public graph,
+  ECB and Bank of England endpoints. The runtime contains 50 series, 29,701
+  observed macro rows, 8,801 observed market-context rows and 8 context
+  instruments. Macro systems report 4/4, 4/4, 5/5 and 3/3 observed
+  components; Japan and China remain unavailable until an official export is
+  imported. Freshness is LIVE 35 / STALE 15 / MISSING 0 for this runtime.
+- v0.7 final checks: 181 backend tests passed, Ruff and strict mypy passed,
+  Terminal UI production build passed, Tauri fmt/check and 4 unit tests passed,
+  and the data-control page was read in the running browser against the v0.7
+  API. HICP correctly displayed `STALE` based on covered period age.
+
+Detailed v0.7 evidence and limits are in
+[`docs/macro/v0.7-live-global.md`](../docs/macro/v0.7-live-global.md).
+
+## v0.7 Productization & Architecture Rationalization
+
+- The terminal's primary navigation is grouped into Overview, Markets, Macro,
+  Events, Research and Advanced. Data Sources and Data & Methods remain
+  available as advanced surfaces.
+- Today is the default daily entry; event selection is limited to event pages.
+  Learning Mode is an opt-in contextual explanation layer.
+- Data Sources now uses modal forms instead of `window.prompt` for FRED keys,
+  market context imports and official macro CSV imports.
+- Shared `DetailsDisclosure`/`Modal` primitives and a workspace error boundary
+  provide progressive disclosure and page-level failure isolation.
+- Market dashboard and Daily Brief market confirmation resolve quality from
+  persisted `DataQualityRecord`; provider names no longer imply quality A/B.
+- The frontend no longer falls back from `/v2/data/providers` to the legacy
+  `/v2/providers` status projection.
+- PR #10 CI run `31359986475` is green for this checkpoint: Research API,
+  Terminal UI and Windows desktop/Tauri checks all passed; the PR remains Draft.
+
+Details: [`docs/macro/v0.7-productization.md`](../docs/macro/v0.7-productization.md).
+
 ## Honest incomplete boundaries
 
 - Sync commands and reconciliation are wired and return honest
   `completed`/`partial`/`blocked` results. The backfill worker consumes approved
   jobs, retains partial results and cannot bypass paid-data gates.
 - The validation environment has no FRED, Trading Economics or Databento key.
-  Those are the credential blockers; TE historical replay additionally requires
+  FRED current public CSV is usable without a key, but ALFRED/PIT remains a
+  credential blocker; TE historical replay additionally requires
   PIT entitlement, and Databento additionally requires dataset rights, explicit
   paid opt-in and budget approval. BLS does not require a key in public mode.
 - BLS schedule HTML returned HTTP 403 from the current validation network. This
@@ -150,11 +218,20 @@ entitlement boundaries below.
 - Python is not frozen into a sidecar; the current desktop build is not a
   standalone signed installer for a blank computer.
 - In a no-key observed database, World State, Daily Brief market confirmation,
-  Series Explorer and global country cards can legitimately be empty or
-  partial.  The UI displays those gaps rather than substituting demo rows.
+  Series Explorer and global country cards can still be partial. The UI
+  displays those gaps rather than substituting demo rows; current FRED context
+  is not a replacement for licensed minute/event data.
 - The first global layer has reliable observed coverage only where a provider
   has populated the Series/Observation catalog; the other country cards are
   scaffolding with explicit `unavailable` status.
+
+- On 2026-08-10 the public BLS current-state sync completed (659 rows read,
+  532 written in the five-year catch-up; 621 observed rows remain after
+  deduplication), adding nine observed USA CPI/employment/wage/participation
+  series. These are current captures with `point_in_time=false`; they are not
+  historical first-print release data. The public API emitted two
+  calculation-disabled warnings; percentage rows derived from official levels
+  carry `derived_from_official_levels` quality metadata.
 
 ## Validation checkpoint
 
@@ -165,8 +242,8 @@ entitlement boundaries below.
   `.runtime/backups/worldstate-pre-v06-20260809-191521.db` before upgrade.
   Its 10,132 legacy FRED demo observations are now explicitly `fixture`.
 - Ruff and strict mypy: green across 92 checked source/test files.
-- Pytest: v0.5 baseline 157 passed; v0.6 final local suite is 166 passed with
-  one dependency deprecation warning.
+- Pytest: current local suite is 178 passed with one dependency deprecation
+  warning.
 - Terminal UI production build: passed; npm audit reported 0 vulnerabilities.
 - Rust/Tauri: fmt/check passed, 4 tests passed, unsigned no-bundle release built.
 - Public-source smoke: BLS public API normalized 70 CPI and 106 NFP observations
@@ -177,8 +254,8 @@ entitlement boundaries below.
 - Missing-key behavior: FRED, Trading Economics and Databento report
   `not_configured`; no paid download was attempted. BLS schedule HTTP 403 is an
   explicit blocked ProviderRun and produces partial/non-zero sync status.
-- GitHub Actions: green for `research-api`, `terminal-ui` and `desktop-check` on
-  run `31310720801`; PR #9 remains Draft and PR #8 remains Draft/unmerged.
+- GitHub Actions: PR #10 run `31359986475` passed all three jobs after the
+  productization checkpoint. PR #10 remains Draft/open.
 
 Do not reuse v0.4 pass counts as v0.5/v0.6 evidence.
 

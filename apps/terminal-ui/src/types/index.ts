@@ -1,4 +1,4 @@
-export type ViewKey = "today" | "world-state" | "markets" | "releases" | "event-lab" | "cross-asset" | "series" | "countries" | "research" | "data-methods";
+export type ViewKey = "today" | "world-state" | "markets" | "releases" | "event-lab" | "cross-asset" | "series" | "countries" | "research" | "data-methods" | "data-control";
 
 export interface ReleaseSummary {
   id: string;
@@ -522,5 +522,34 @@ export interface DailyBriefResponse {
   upcoming: ReleaseSummary[];
   watch_next: string[];
   ai_note: string;
+  limitations: string[];
+}
+
+export interface DataFreshnessResponse {
+  as_of: string;
+  data_mode: string;
+  items: Array<{
+    canonical_key: string;
+    title: string;
+    provider: string;
+    entity: string;
+    frequency: string;
+    unit: string;
+    data_mode: string;
+    status: string;
+    latest_value: number | null;
+    latest_period: string | null;
+    available_at: string | null;
+    fetched_at: string | null;
+    age_days: number | null;
+    freshness_score: number | null;
+    stale_threshold_days: number;
+    quality_flags: string[];
+    source_url: string;
+    reason: string | null;
+    state_dimensions: string[];
+  }>;
+  summary: Record<string, number>;
+  methodology_version: string;
   limitations: string[];
 }

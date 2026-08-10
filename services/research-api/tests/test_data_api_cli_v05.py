@@ -71,13 +71,19 @@ def test_health_and_fixed_provider_status_are_secret_safe(client: TestClient) ->
     payload = response.json()
     assert payload["secrets_returned"] is False
     providers = {item["provider_id"]: item for item in payload["items"]}
-    assert set(providers) == {
+    assert {
         "fred_alfred",
         "bls_official",
         "federal_reserve_fomc",
         "trading_economics_consensus",
         "databento_market",
-    }
+    }.issubset(providers)
+    assert {
+        "ecb_data_portal",
+        "bank_of_england_iadb",
+        "boj_public",
+        "china_official_public",
+    }.issubset(providers)
     assert providers["bls_official"]["configured"] is True
     assert providers["federal_reserve_fomc"]["configured"] is True
     assert providers["databento_market"]["configured"] is False

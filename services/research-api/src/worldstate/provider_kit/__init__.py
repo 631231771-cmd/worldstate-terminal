@@ -50,6 +50,11 @@ from worldstate.provider_kit.models import (
     MarketBarRecord,
     MarketInstrumentRef,
 )
+from worldstate.provider_kit.official_public import (
+    OfficialPublicCsvProvider,
+    PublicObservationBatch,
+    PublicSeriesSpec,
+)
 from worldstate.provider_kit.providers import (
     CsvMarketBarProvider,
     FixtureMarketBarProvider,
@@ -95,6 +100,7 @@ __all__ = [
     "MarketBarRecord",
     "MarketInstrumentRef",
     "NormalizedObservation",
+    "OfficialPublicCsvProvider",
     "ProviderBatch",
     "ProviderBudgetError",
     "ProviderCapabilities",
@@ -108,6 +114,8 @@ __all__ = [
     "ProviderSchemaError",
     "ProviderTerms",
     "ProviderWaterfall",
+    "PublicObservationBatch",
+    "PublicSeriesSpec",
     "SourceArtifact",
     "TradingEconomicsConsensusProvider",
     "TradingEconomicsEntitlement",

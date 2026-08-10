@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../../api/client";
-import { Badge, Meter, Panel } from "../../components/Primitives";
+import { Badge, Meter, Panel, StateMessage } from "../../components/Primitives";
 import type { ReleaseSummary, ViewKey } from "../../types";
 
 function toneForDirection(score: number | null) {
@@ -12,25 +12,33 @@ export function TodayWorkspace({
   releases: _releases,
   health,
   onOpen,
+  learningMode,
 }: {
   releases: ReleaseSummary[];
   health: Awaited<ReturnType<typeof api.health>> | null;
   onOpen: (releaseId: string, destination?: ViewKey) => void;
+  learningMode: boolean;
 }) {
   const [today, setToday] = useState<Awaited<ReturnType<typeof api.today>> | null>(null);
   const [brief, setBrief] = useState<Awaited<ReturnType<typeof api.dailyBrief>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setError(null);
     void Promise.all([api.today(), api.dailyBrief()])
       .then(([todayResult, briefResult]) => {
         setToday(todayResult);
         setBrief(briefResult);
       })
-      .catch(() => {
+      .catch((reason) => {
         setToday(null);
         setBrief(null);
+        setError(reason instanceof Error ? reason.message : "The daily brief is unavailable.");
       });
   }, []);
+
+  if (error) return <StateMessage title="Today is unavailable" detail={error} action={<button type="button" class="primary-button" onClick={() => window.location.reload()}>Retry</button>} />;
+  if (!today || !brief) return <StateMessage title="Loading Today" detail="Preparing the macro snapshot, market confirmation and latest research." />;
 
   // The API deliberately returns only released, completed and reproducible
   // research. Never substitute a recent release row here: that made future,
@@ -162,7 +170,7 @@ export function TodayWorkspace({
         </div>
       </Panel>
 
-      <div class="two-column">
+      {learningMode ? <div class="two-column">
         <Panel title="如何阅读一场事件" eyebrow="LEARNING PATH">
           <ol class="learning-chain">
             <li><span>01</span><div><strong>先看预期差</strong><p>Actual、Consensus、Previous 与修订分别说了什么。</p></div></li>
@@ -179,7 +187,7 @@ export function TodayWorkspace({
             <li>样本不足时不输出概率和百分位推断。</li>
           </ul>
         </Panel>
-      </div>
+      </div> : null}
     </div>
   );
 }
