@@ -21,7 +21,7 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- HEAD before this checkpoint: `a246077df` (`docs: add v07 live coverage audit`)
+- HEAD: `417ffb6c5` (`feat: activate public BLS current-state capture`)
 - Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot, 29 observed gold daily bars, 50 catalog series with 922 observed macro observations, and nine BLS current-state series are present. BLS remains current-capture/non-PIT; FRED, Treasury and additional market instruments are still missing.
 - Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA growth/inflation available, China/Japan unavailable, EA/UK available, 29 observed gold daily bars, one observed snapshot, zero observed consensus snapshots, and one inflation divergence between USA and EA.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
