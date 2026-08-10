@@ -66,3 +66,42 @@ export function Meter({ value }: { value: number }) {
     </div>
   );
 }
+
+export function DetailsDisclosure({
+  label,
+  children,
+}: {
+  label: string;
+  children: ComponentChildren;
+}) {
+  return (
+    <details class="details-disclosure">
+      <summary>{label}</summary>
+      <div class="details-disclosure__body">{children}</div>
+    </details>
+  );
+}
+
+export function Modal({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: ComponentChildren;
+  onClose: () => void;
+}) {
+  return (
+    <div class="modal-backdrop" role="presentation" onClick={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <header class="modal__header">
+          <h2 id="modal-title">{title}</h2>
+          <button class="modal__close" type="button" aria-label="Close" onClick={onClose}>×</button>
+        </header>
+        <div class="modal__body">{children}</div>
+      </section>
+    </div>
+  );
+}

@@ -164,6 +164,24 @@ entitlement boundaries below.
 Detailed v0.7 evidence and limits are in
 [`docs/macro/v0.7-live-global.md`](../docs/macro/v0.7-live-global.md).
 
+## v0.7 Productization & Architecture Rationalization
+
+- The terminal's primary navigation is grouped into Overview, Markets, Macro,
+  Events, Research and Advanced. Data Sources and Data & Methods remain
+  available as advanced surfaces.
+- Today is the default daily entry; event selection is limited to event pages.
+  Learning Mode is an opt-in contextual explanation layer.
+- Data Sources now uses modal forms instead of `window.prompt` for FRED keys,
+  market context imports and official macro CSV imports.
+- Shared `DetailsDisclosure`/`Modal` primitives and a workspace error boundary
+  provide progressive disclosure and page-level failure isolation.
+- Market dashboard and Daily Brief market confirmation resolve quality from
+  persisted `DataQualityRecord`; provider names no longer imply quality A/B.
+- The frontend no longer falls back from `/v2/data/providers` to the legacy
+  `/v2/providers` status projection.
+
+Details: [`docs/macro/v0.7-productization.md`](../docs/macro/v0.7-productization.md).
+
 ## Honest incomplete boundaries
 
 - Sync commands and reconciliation are wired and return honest

@@ -20,6 +20,18 @@ import type {
 const configuredBase = import.meta.env.VITE_RESEARCH_API_URL as string | undefined;
 export const API_BASE = configuredBase?.replace(/\/$/, "") ?? "";
 
+export class ApiError extends Error {
+  readonly status: number | null;
+  readonly technicalDetail: string;
+
+  constructor(message: string, status: number | null, technicalDetail = message) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.technicalDetail = technicalDetail;
+  }
+}
+
 async function request<T>(
   path: string,
   init?: RequestInit,
@@ -28,17 +40,34 @@ async function request<T>(
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 15_000);
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...init,
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...init?.headers,
-      },
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        ...init,
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json", ...init?.headers },
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new ApiError("Data request timed out. Try again.", null, error.message);
+      }
+      throw new ApiError("Research service is unavailable. Check that WorldState is running.", null, error instanceof Error ? error.message : String(error));
+    }
     if (!response.ok && !acceptedErrorStatuses.includes(response.status)) {
-      const detail = await response.text();
-      throw new Error(detail || `HTTP ${response.status}`);
+      const raw = await response.text();
+      let detail = raw;
+      try {
+        const parsed = JSON.parse(raw) as { detail?: string };
+        detail = parsed.detail ?? raw;
+      } catch {
+        // Keep the raw body as technical detail when it is not JSON.
+      }
+      const userMessage = response.status >= 500
+        ? "The research service returned an error. Open Data Sources for diagnostics."
+        : response.status === 404
+          ? "This research view is not available in the current service version."
+          : detail || `Request failed (${response.status})`;
+      throw new ApiError(userMessage, response.status, detail || `HTTP ${response.status}`);
     }
     return (await response.json()) as T;
   } finally {
@@ -46,19 +75,12 @@ async function request<T>(
   }
 }
 
-const PROVIDER_NAMES: Record<string, string> = {
-  fred_alfred: "FRED / ALFRED",
-  bls_official: "BLS",
-  federal_reserve_fomc: "Federal Reserve",
-  trading_economics_consensus: "Trading Economics",
-  databento_market: "Databento",
-};
-
 export const api = {
   health: () =>
     request<{
       status: string;
       version: string;
+      generated_at?: string;
       database: { status: string };
       methodology_version: string;
       ai_provider: string;
@@ -102,38 +124,7 @@ export const api = {
   instruments: () => request<Instrument[]>("/v2/instruments"),
   dataQuality: () => request<Record<string, unknown>>("/v2/data-quality"),
   providerRuns: () => request<Array<Record<string, unknown>>>("/v2/provider-runs"),
-  dataProviders: async (): Promise<DataProvidersResponse> => {
-    try {
-      return await request<DataProvidersResponse>("/v2/data/providers");
-    } catch {
-      const legacy = await request<{
-        items: Array<{
-          provider_key: string;
-          latest_status?: string | null;
-          latest_completed_at?: string | null;
-          quality_grade?: string | null;
-          operations?: string[];
-        }>;
-      }>("/v2/providers");
-      return {
-        items: legacy.items.map((item) => ({
-          provider_id: item.provider_key,
-          display_name: PROVIDER_NAMES[item.provider_key] ?? item.provider_key,
-          configured: false,
-          healthy: item.latest_status === "completed" ? true : null,
-          entitlement: null,
-          status: "legacy_status_only",
-          last_success_at: item.latest_completed_at ?? null,
-          last_error: null,
-          quota: null,
-          data_range: null,
-          quality_grade: item.quality_grade ?? null,
-          next_planned_snapshot: null,
-          capabilities: item.operations ?? [],
-        })),
-      };
-    }
-  },
+  dataProviders: () => request<DataProvidersResponse>("/v2/data/providers"),
   dataCoverage: () => request<DataCoverageResponse>("/v2/data/coverage"),
   dataFreshness: () => request<DataFreshnessResponse>("/v2/data/freshness"),
   syncPublic: (start_date: string, end_date: string) =>

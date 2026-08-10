@@ -9,8 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from worldstate.application.analysis_orchestrator import list_releases
+from worldstate.application.quality_resolver import resolve_quality_grade
 from worldstate.application.world_state_service import build_world_state
-from worldstate.db.models import MarketBar, MarketInstrument, Observation, Series
+from worldstate.db.models import DataQualityRecord, MarketBar, MarketInstrument, Observation, Series
 
 DataMode = Literal["observed", "fixture", "all"]
 
@@ -35,22 +36,23 @@ async def _market_confirmation(
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
         query = (
-            select(MarketBar, MarketInstrument)
+            select(MarketBar, MarketInstrument, DataQualityRecord)
             .join(MarketInstrument, MarketInstrument.id == MarketBar.instrument_id)
+            .outerjoin(DataQualityRecord, DataQualityRecord.id == MarketBar.quality_id)
             .where(MarketBar.timestamp <= cutoff)
             .order_by(MarketBar.timestamp.desc())
         )
         if data_mode != "all":
             query = query.where(MarketBar.data_mode == data_mode)
         rows = (await session.execute(query.limit(5000))).all()
-    grouped: dict[str, list[tuple[MarketBar, MarketInstrument]]] = {}
-    for bar, instrument in rows:
-        grouped.setdefault(str(instrument.canonical_key), []).append((bar, instrument))
+    grouped: dict[str, list[tuple[MarketBar, MarketInstrument, DataQualityRecord | None]]] = {}
+    for bar, instrument, quality in rows:
+        grouped.setdefault(str(instrument.canonical_key), []).append((bar, instrument, quality))
     result: list[dict[str, Any]] = []
     for key, items in grouped.items():
-        latest, instrument = items[0]
+        latest, instrument, latest_quality = items[0]
         baseline = next(
-            (bar for bar, _ in items if _aware(bar.timestamp) <= cutoff - lookback),
+            (bar for bar, _, _ in items if _aware(bar.timestamp) <= cutoff - lookback),
             items[-1][0],
         )
         latest_close = float(latest.close_value)
@@ -71,9 +73,10 @@ async def _market_confirmation(
                 "timestamp": latest.timestamp.isoformat(),
                 "provider": latest.provider_key,
                 "data_mode": latest.data_mode,
-                "quality": "A"
-                if latest.provider_key in {"databento_market", "fred_alfred"}
-                else "B",
+                "quality": resolve_quality_grade(latest_quality),
+                "quality_limitation": latest_quality.verification_notes
+                if latest_quality
+                else "No quality record was persisted for this observation.",
                 "evidence_ids": [str(latest.id)],
             }
         )
