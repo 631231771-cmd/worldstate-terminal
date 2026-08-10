@@ -30,6 +30,7 @@ from worldstate.application.backfill_service import (
     make_backfill_idempotency_key,
 )
 from worldstate.application.bls_state_service import sync_bls_current_state
+from worldstate.application.capability_service import build_capability_inventory
 from worldstate.application.data_foundation_service import get_provider_data_status
 from worldstate.application.freshness_service import build_data_freshness
 from worldstate.application.licensed_sync_service import (
@@ -1308,6 +1309,19 @@ async def data_freshness(
 ) -> dict[str, Any]:
     selected = data_mode or ("fixture" if request.app.state.settings.demo_mode else "observed")
     return await build_data_freshness(
+        request.app.state.database_engine,
+        data_mode=selected,
+    )
+
+
+@data_router.get("/capabilities")
+async def data_capabilities(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, Any]:
+    """Expose capability-driven inventory without leaking database semantics."""
+    selected = data_mode or ("fixture" if request.app.state.settings.demo_mode else "observed")
+    return await build_capability_inventory(
         request.app.state.database_engine,
         data_mode=selected,
     )

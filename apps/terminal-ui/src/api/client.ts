@@ -16,6 +16,7 @@ import type {
   WorldStateResponse,
   DataFreshnessResponse,
 } from "../types";
+import type { DatasetCapability, ProductTodayResponse } from "../types/product";
 
 const configuredBase = import.meta.env.VITE_RESEARCH_API_URL as string | undefined;
 export const API_BASE = configuredBase?.replace(/\/$/, "") ?? "";
@@ -94,6 +95,8 @@ export const api = {
       data_note: string;
     }>("/v2/today"),
   dailyBrief: () => request<DailyBriefResponse>("/v2/daily-brief"),
+  productToday: (dataMode: "observed" | "fixture" | "all" = "observed") =>
+    request<ProductTodayResponse>(`/v2/product/today?data_mode=${dataMode}`),
   worldState: () => request<WorldStateResponse>("/v2/world-state"),
   globalMacro: () => request<Record<string, unknown>>("/v2/global-macro"),
   macroSystems: () => request<Record<string, unknown>>("/v2/macro-systems"),
@@ -127,6 +130,10 @@ export const api = {
   dataProviders: () => request<DataProvidersResponse>("/v2/data/providers"),
   dataCoverage: () => request<DataCoverageResponse>("/v2/data/coverage"),
   dataFreshness: () => request<DataFreshnessResponse>("/v2/data/freshness"),
+  dataCapabilities: (dataMode: "observed" | "fixture" | "all" = "observed") =>
+    request<{ as_of: string; data_mode: string; items: DatasetCapability[]; summary: Record<string, number>; limitations: string[] }>(
+      `/v2/data/capabilities?data_mode=${dataMode}`,
+    ),
   syncPublic: (start_date: string, end_date: string) =>
     request<Record<string, unknown>>(
       "/v2/data/sync/public",

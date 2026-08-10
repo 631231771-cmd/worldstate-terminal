@@ -49,6 +49,7 @@ from worldstate.application.market_research_service import (
     get_series_history,
     search_series,
 )
+from worldstate.application.product_projection_service import build_today_projection
 from worldstate.application.release_commands import create_manual_release
 from worldstate.application.release_queries import (
     get_current_regime,
@@ -852,6 +853,21 @@ async def daily_brief(
     mode = requested_data_mode(request, data_mode)
     return await build_daily_brief(
         request.app.state.database_engine, data_mode=mode, as_of=as_of
+    )
+
+
+@router.get("/product/today", tags=["product"])
+async def product_today(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+    as_of: datetime | None = None,
+) -> dict[str, object]:
+    """Capability-driven first-screen projection for the terminal shell."""
+    mode = requested_data_mode(request, data_mode)
+    return await build_today_projection(
+        request.app.state.database_engine,
+        data_mode=mode,
+        as_of=as_of,
     )
 
 

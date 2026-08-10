@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import Any, Literal
 
 from sqlalchemy import select
@@ -23,16 +23,12 @@ DataMode = Literal["observed", "fixture", "all"]
 Horizon = Literal["1d", "1w", "1m", "3m"]
 
 
-def _aware(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-
-
-def _horizon_delta(horizon: Horizon) -> timedelta:
+def _horizon_sessions(horizon: Horizon) -> int:
     return {
-        "1d": timedelta(days=1),
-        "1w": timedelta(days=7),
-        "1m": timedelta(days=30),
-        "3m": timedelta(days=90),
+        "1d": 1,
+        "1w": 5,
+        "1m": 21,
+        "3m": 63,
     }[horizon]
 
 
@@ -50,7 +46,7 @@ async def build_market_dashboard(
     as_of: datetime | None = None,
 ) -> dict[str, Any]:
     cutoff = (as_of or datetime.now(UTC)).astimezone(UTC)
-    delta = _horizon_delta(horizon)
+    session_lag = _horizon_sessions(horizon)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
         query = (
@@ -69,14 +65,20 @@ async def build_market_dashboard(
     items: list[dict[str, Any]] = []
     for key, series in by_key.items():
         latest, instrument, latest_quality = series[0]
-        baseline = next(
-            (bar for bar, _, _ in series if _aware(bar.timestamp) <= cutoff - delta),
-            None,
-        )
+        # Use the previous valid observation/session, not wall-clock time.
+        # This avoids reporting a false 0.00% on weekends and holidays.
+        baseline_tuple = series[session_lag] if len(series) > session_lag else None
+        baseline = baseline_tuple[0] if baseline_tuple else None
         latest_value = float(latest.close_value)
         change = None
         if baseline is not None and float(baseline.close_value) != 0:
             change = latest_value / float(baseline.close_value) - 1.0
+        level_change = latest_value - float(baseline.close_value) if baseline is not None else None
+        is_rate = "yield" in key or "rate" in instrument.instrument_type.lower()
+        sparkline = [
+            float(bar.close_value)
+            for bar, _, _ in reversed(series[:60])
+        ]
         returns: list[float] = []
         previous: float | None = None
         for bar, _, _ in reversed(series):
@@ -95,6 +97,12 @@ async def build_market_dashboard(
                 "proxy_for": instrument.proxy_for,
                 "latest": latest_value,
                 "change_percent": round(change * 100, 4) if change is not None else None,
+                "change_value": round(level_change, 6) if level_change is not None else None,
+                "change_unit": "bp" if is_rate else "percent",
+                "baseline_timestamp": baseline.timestamp.isoformat() if baseline else None,
+                "window_observations": len(series),
+                "window_semantics": "valid_observation_lag",
+                "sparkline": sparkline,
                 "direction": "up"
                 if change and change > 0.0005
                 else "down"

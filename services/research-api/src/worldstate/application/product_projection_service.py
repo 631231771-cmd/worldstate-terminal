@@ -1,0 +1,222 @@
+"""Capability-aware product projections for the terminal UI."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any, Literal
+
+from sqlalchemy.ext.asyncio import AsyncEngine
+
+from worldstate.application.capability_service import build_capability_inventory
+from worldstate.application.daily_brief_service import build_daily_brief
+from worldstate.application.global_macro_service import build_global_macro
+from worldstate.application.market_research_service import build_market_dashboard
+
+DataMode = Literal["observed", "fixture", "all"]
+DIMENSION_LABELS = {
+    "growth": "\u589e\u957f",
+    "inflation": "\u901a\u80c0",
+    "liquidity": "\u6d41\u52a8\u6027",
+    "policy_tightness": "\u653f\u7b56\u7ea6\u675f",
+    "credit": "\u4fe1\u7528",
+    "risk": "\u98ce\u9669",
+    "fiscal": "\u8d22\u653f",
+    "external": "\u5916\u90e8",
+}
+MARKET_LABELS = {
+    "gold_gc": "\u9ec4\u91d1",
+    "silver_si": "\u767d\u94f6",
+    "sp500_cash": "\u6807\u666e 500",
+    "nasdaq100_cash": "\u7eb3\u65af\u8fbe\u514b 100",
+    "vix_cash": "VIX",
+    "ust2y_yield_context": "\u7f8e\u56fd 2Y",
+    "ust5y_yield_context": "\u7f8e\u56fd 5Y",
+    "ust10y_yield_context": "\u7f8e\u56fd 10Y",
+    "ust30y_yield_context": "\u7f8e\u56fd 30Y",
+    "dollar_broad_context": "\u7f8e\u5143",
+    "eurusd_context": "EUR/USD",
+    "usdjpy_context": "USD/JPY",
+    "wti_spot": "WTI \u539f\u6cb9",
+    "brent_spot": "\u5e03\u4f26\u7279\u539f\u6cb9",
+    "copper_spot": "\u94dc",
+}
+COUNTRY_LABELS = {
+    "USA": "\u7f8e\u56fd",
+    "CHN": "\u4e2d\u56fd",
+    "EA19": "\u6b27\u5143\u533a",
+    "JPN": "\u65e5\u672c",
+    "GBR": "\u82f1\u56fd",
+}
+
+
+def _capability_map(inventory: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {str(item["canonical_key"]): item for item in inventory.get("items", [])}
+
+
+def _direction(value: Any) -> str:
+    if value is None:
+        return "unavailable"
+    number = float(value)
+    return "up" if number > 0 else "down" if number < 0 else "flat"
+
+
+def _market_item(item: dict[str, Any], capabilities: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    key = str(item.get("instrument_key"))
+    capability = capabilities.get(key, {})
+    is_rate = "yield" in key or "rate" in str(item.get("instrument_type", "")).lower()
+    change = item.get("change_value")
+    if change is None and item.get("change_percent") is not None:
+        change = float(item["change_percent"]) / 100.0
+    display_change: float | None
+    if is_rate and change is not None:
+        display_change = round(float(change) * 100.0, 2)
+        change_unit = "bp"
+    else:
+        display_change = (
+            round(float(item["change_percent"]), 2)
+            if item.get("change_percent") is not None
+            else None
+        )
+        change_unit = "%"
+    state = capability.get("capabilities", {}).get("CURRENT_STATE", {})
+    freshness = capability.get("freshness", {})
+    return {
+        "key": key,
+        "label": MARKET_LABELS.get(key, str(item.get("title") or key)),
+        "symbol": item.get("symbol"),
+        "asset_class": item.get("asset_class"),
+        "value": item.get("latest"),
+        "formatted_value": "—" if item.get("latest") is None else f"{float(item['latest']):,.3f}",
+        "change": display_change,
+        "change_unit": change_unit,
+        "direction": _direction(display_change),
+        "trend": item.get("direction", "unavailable"),
+        "status": "available" if state.get("available") else "missing",
+        "freshness": freshness.get("status", "MISSING"),
+        "proxy": bool(item.get("is_proxy")),
+        "sparkline": item.get("sparkline", []),
+        "capabilities": capability.get("capabilities", {}),
+        "details": {
+            "provider": item.get("provider"),
+            "canonical_key": key,
+            "data_mode": item.get("data_mode"),
+            "quality": item.get("quality_grade"),
+            "limitation": item.get("quality_limitation") or item.get("limitation"),
+            "timestamp": item.get("timestamp"),
+            "granularity_seconds": item.get("granularity_seconds"),
+        },
+    }
+
+
+def _country_projection(country: dict[str, Any]) -> dict[str, Any]:
+    dimensions = country.get("dimensions", {})
+    available = [key for key, value in dimensions.items() if value.get("score") is not None]
+    return {
+        "key": country.get("iso3"),
+        "label": COUNTRY_LABELS.get(str(country.get("iso3")), country.get("name")),
+        "status": country.get("status", "missing"),
+        "available_dimensions": [DIMENSION_LABELS.get(key, key) for key in available],
+        "dimensions": {
+            DIMENSION_LABELS.get(key, key): {
+                "score": value.get("score"),
+                "direction": value.get("direction", "unavailable"),
+                "momentum": value.get("momentum"),
+                "confidence": value.get("confidence", 0.0),
+                "coverage": value.get("coverage", 0.0),
+                "freshness": value.get("freshness"),
+                "drivers": value.get("top_drivers", [])[:3],
+                "missing": value.get("missing_inputs", []),
+            }
+            for key, value in dimensions.items()
+        },
+        "latest_data_at": country.get("latest_data_at"),
+        "details": {
+            "entity_registered": country.get("entity_registered"),
+            "source": country.get("source"),
+            "limitations": country.get("limitations", []),
+        },
+    }
+
+
+def _change_projection(item: dict[str, Any]) -> dict[str, Any]:
+    raw_what = str(item.get("what_changed") or "")
+    category = str(item.get("category") or "research")
+    inferred = next((key for key in DIMENSION_LABELS if key in raw_what), None)
+    if inferred:
+        category = inferred
+        raw_what = raw_what.replace(inferred, DIMENSION_LABELS[inferred])
+    raw_why = item.get("why_it_matters")
+    if isinstance(raw_why, str):
+        for key, label in DIMENSION_LABELS.items():
+            raw_why = raw_why.replace(key, label)
+    return {
+        "what": raw_what,
+        "why": raw_why,
+        "magnitude": item.get("magnitude"),
+        "direction": _direction(item.get("magnitude")),
+        "confidence": item.get("confidence", 0.0),
+        "category": category,
+        "category_label": DIMENSION_LABELS.get(category, category),
+        "details_ref": f"/v2/product/{category}",
+    }
+
+
+async def build_today_projection(
+    engine: AsyncEngine, *, data_mode: DataMode = "observed", as_of: datetime | None = None
+) -> dict[str, Any]:
+    now = (as_of or datetime.now(UTC)).astimezone(UTC)
+    brief, markets, global_macro, inventory = await _load_projection_sources(
+        engine, data_mode=data_mode, as_of=now
+    )
+    capability_map = _capability_map(inventory)
+    dimensions = brief.get("world_state", {}).get("dimensions", {})
+    macro_snapshot = [
+        {
+            "key": key,
+            "label": DIMENSION_LABELS.get(key, key),
+            "score": value.get("score"),
+            "direction": value.get("direction", "unavailable"),
+            "momentum": value.get("momentum"),
+            "confidence": value.get("confidence", 0.0),
+            "coverage": value.get("coverage", 0.0),
+            "status": "available" if value.get("score") is not None else "missing",
+            "drivers": value.get("top_drivers", [])[:3],
+            "details_ref": f"/v2/product/macro/{key}",
+        }
+        for key, value in dimensions.items()
+    ]
+    changes = [_change_projection(item) for item in brief.get("biggest_changes", [])[:5]]
+    upcoming = sorted(
+        [item for item in brief.get("upcoming", []) if item.get("scheduled_at")],
+        key=lambda item: str(item["scheduled_at"]),
+    )[:6]
+    return {
+        "as_of": now.isoformat(),
+        "data_mode": data_mode,
+        "methodology_version": "wst-product-v1",
+        "macro_snapshot": macro_snapshot,
+        "markets": [_market_item(item, capability_map) for item in markets.get("items", [])],
+        "what_changed": changes,
+        "upcoming": upcoming,
+        "latest_research": brief.get("macro_events", [])[:5],
+        "global": [_country_projection(country) for country in global_macro.get("countries", [])],
+        "watch_next": brief.get("watch_next", [])[:6],
+        "capability_summary": inventory.get("summary", {}),
+        "limitations": brief.get("limitations", []) + inventory.get("limitations", []),
+    }
+
+
+async def _load_projection_sources(
+    engine: AsyncEngine, *, data_mode: DataMode, as_of: datetime
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    import asyncio
+
+    return await asyncio.gather(
+        build_daily_brief(engine, data_mode=data_mode, as_of=as_of),
+        build_market_dashboard(engine, data_mode=data_mode, horizon="1d", as_of=as_of),
+        build_global_macro(engine, data_mode=data_mode, as_of=as_of),
+        build_capability_inventory(engine, data_mode=data_mode, as_of=as_of),
+    )
+
+
+__all__ = ["build_today_projection"]
