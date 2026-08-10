@@ -21,9 +21,9 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- HEAD: `590a834` (`feat: activate context markets and consensus imports`)
-- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot and 29 observed gold daily bars are present. Next resume point is BLS/US coverage and multi-asset observed market validation. BLS public endpoint was unavailable during the capture attempt.
-- Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/China/Japan unavailable, EA/UK available, 29 observed gold daily bars, one observed snapshot, zero observed consensus snapshots, and no emitted divergence without two comparable countries.
+- HEAD before this checkpoint: `a246077df` (`docs: add v07 live coverage audit`)
+- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot, 29 observed gold daily bars, 50 catalog series with 922 observed macro observations, and nine BLS current-state series are present. BLS remains current-capture/non-PIT; FRED, Treasury and additional market instruments are still missing.
+- Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA growth/inflation available, China/Japan unavailable, EA/UK available, 29 observed gold daily bars, one observed snapshot, zero observed consensus snapshots, and one inflation divergence between USA and EA.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
   `feature/v0.7-live-global`; do not mark any of them Ready or merge
 
@@ -138,11 +138,11 @@ entitlement boundaries below.
 - Global macro comparison and system cards use only observed Series/Observation
   rows and report coverage, gaps, limitations and divergence without causal
   claims.
-- Runtime validation on 2026-08-09 reached official ECB and Bank of England
+- Runtime validation on 2026-08-10 reached official BLS, ECB and Bank of England
   endpoints. The runtime freshness view showed ECB EUR/USD, Euro Area HICP and
   Bank Rate as available; missing FRED, US rates/liquidity, BOJ and China data
   remained visible as missing or not configured.
-- v0.7 final checks: 171 backend tests passed, Ruff and strict mypy passed,
+- v0.7 final checks: 174 backend tests passed, Ruff and strict mypy passed,
   Terminal UI production build passed, Tauri fmt/check and 4 unit tests passed,
   and the data-control page was read in the running browser against the v0.7
   API. HICP correctly displayed `STALE` based on covered period age.
@@ -189,6 +189,13 @@ Detailed v0.7 evidence and limits are in
   has populated the Series/Observation catalog; the other country cards are
   scaffolding with explicit `unavailable` status.
 
+- On 2026-08-10 the public BLS current-state sync completed (121 rows read,
+  89 written), adding nine observed USA CPI/employment/wage/participation
+  series. These are current captures with `point_in_time=false`; they are not
+  historical first-print release data. The public API emitted two
+  calculation-disabled warnings; percentage rows derived from official levels
+  carry `derived_from_official_levels` quality metadata.
+
 ## Validation checkpoint
 
 - Migration: fresh → head, 0004 → head, 0005 → head and a real-runtime copy all
@@ -198,8 +205,8 @@ Detailed v0.7 evidence and limits are in
   `.runtime/backups/worldstate-pre-v06-20260809-191521.db` before upgrade.
   Its 10,132 legacy FRED demo observations are now explicitly `fixture`.
 - Ruff and strict mypy: green across 92 checked source/test files.
-- Pytest: v0.5 baseline 157 passed; v0.6 final local suite is 166 passed with
-  one dependency deprecation warning.
+- Pytest: current local suite is 174 passed with one dependency deprecation
+  warning.
 - Terminal UI production build: passed; npm audit reported 0 vulnerabilities.
 - Rust/Tauri: fmt/check passed, 4 tests passed, unsigned no-bundle release built.
 - Public-source smoke: BLS public API normalized 70 CPI and 106 NFP observations

@@ -1383,12 +1383,29 @@ async def bootstrap_free_data(
     end = end_date or date.today()
     if end < start:
         raise HTTPException(status_code=422, detail="end_date must not be before start_date")
-    result = await sync_public_providers(
-        request.app.state.database_engine,
-        settings,
-        start_date=start,
-        end_date=end,
-        providers=("ecb", "boe"),
+    results: dict[str, Any] = {}
+    failures: dict[str, Any] = {}
+    try:
+        results["bls_current_state"] = await sync_bls_current_state(
+            request.app.state.database_engine,
+            settings,
+            start_date=max(start, end - timedelta(days=365 * 5)),
+            end_date=end,
+        )
+    except Exception as exc:
+        failures["bls_current_state"] = _safe_service_failure(exc, settings)
+    try:
+        results["public_macro"] = await sync_public_providers(
+            request.app.state.database_engine,
+            settings,
+            start_date=start,
+            end_date=end,
+            providers=("ecb", "boe"),
+        )
+    except Exception as exc:
+        failures["public_macro"] = _safe_service_failure(exc, settings)
+    result = normalize_multi_operation_result(
+        {"results": results, "failures": failures}
     )
     _set_multi_status(response, result)
     return {

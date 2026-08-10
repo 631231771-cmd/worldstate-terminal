@@ -118,6 +118,11 @@ async def sync_bls_current_state(
     start = start_date or (end - timedelta(days=365 * 5))
     if end < start:
         raise ValueError("end_date must not be before start_date")
+    # Release calendars use publication dates while BLS rows use reference
+    # months.  Keep one extra year of reference history so a request beginning
+    # on a release date can still capture the latest published month and enough
+    # points for a current-state signal.
+    observation_start = start - timedelta(days=400)
     clients = build_provider_clients(settings)
     run = await record_provider_run(
         engine,
@@ -200,9 +205,17 @@ async def sync_bls_current_state(
                 for observation in batch.observations:
                     mapped = _KEY_MAP.get(observation.canonical_key)
                     period = observation.reference_period_start
-                    if mapped is None or observation.value is None or not (start <= period <= end):
+                    if (
+                        mapped is None
+                        or observation.value is None
+                        or not (observation_start <= period <= end)
+                    ):
                         continue
                     canonical_key, title, dimension, unit, transform = mapped
+                    native_id = (
+                        f"{observation.provider_series_id}:"
+                        f"{observation.metadata.get('metric', 'level')}"
+                    )
                     series = await session.scalar(
                         select(Series).where(Series.canonical_key == canonical_key)
                     )
@@ -210,7 +223,7 @@ async def sync_bls_current_state(
                         series = Series(
                             id=uuid.uuid4(),
                             provider_id=provider.id,
-                            native_id=observation.provider_series_id,
+                            native_id=native_id,
                             canonical_key=canonical_key,
                             entity_id=entity.id,
                             title=title,
@@ -234,6 +247,7 @@ async def sync_bls_current_state(
                                 "point_in_time": False,
                                 "current_observation_only": True,
                                 "provider_series_id": observation.provider_series_id,
+                                "provider_metric": observation.metadata.get("metric"),
                             },
                         )
                         session.add(series)
