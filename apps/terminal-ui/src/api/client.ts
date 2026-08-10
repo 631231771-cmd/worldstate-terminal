@@ -173,7 +173,7 @@ export const api = {
     verification_notes?: string;
   }) =>
     request<Record<string, unknown>>(
-      "/data/macro-series/import-official-csv",
+      "/v2/data/macro-series/import-official-csv",
       { method: "POST", body: JSON.stringify(payload) },
       [207, 424],
     ),
