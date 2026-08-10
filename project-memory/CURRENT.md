@@ -179,6 +179,8 @@ Detailed v0.7 evidence and limits are in
   persisted `DataQualityRecord`; provider names no longer imply quality A/B.
 - The frontend no longer falls back from `/v2/data/providers` to the legacy
   `/v2/providers` status projection.
+- PR #10 CI run `31359986475` is green for this checkpoint: Research API,
+  Terminal UI and Windows desktop/Tauri checks all passed; the PR remains Draft.
 
 Details: [`docs/macro/v0.7-productization.md`](../docs/macro/v0.7-productization.md).
 
@@ -252,9 +254,8 @@ Details: [`docs/macro/v0.7-productization.md`](../docs/macro/v0.7-productization
 - Missing-key behavior: FRED, Trading Economics and Databento report
   `not_configured`; no paid download was attempted. BLS schedule HTTP 403 is an
   explicit blocked ProviderRun and produces partial/non-zero sync status.
-- GitHub Actions: the last recorded green run predates the current v0.7
-  coverage checkpoint; after pushing this checkpoint, re-check PR #10 rather
-  than treating the old run as current evidence. PR #10 remains Draft/open.
+- GitHub Actions: PR #10 run `31359986475` passed all three jobs after the
+  productization checkpoint. PR #10 remains Draft/open.
 
 Do not reuse v0.4 pass counts as v0.5/v0.6 evidence.
 
