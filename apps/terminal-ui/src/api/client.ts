@@ -16,7 +16,7 @@ import type {
   WorldStateResponse,
   DataFreshnessResponse,
 } from "../types";
-import type { DatasetCapability, ProductTodayResponse } from "../types/product";
+import type { DatasetCapability, ProductEventsResponse, ProductMacroResponse, ProductMarketsResponse, ProductTodayResponse } from "../types/product";
 
 const configuredBase = import.meta.env.VITE_RESEARCH_API_URL as string | undefined;
 export const API_BASE = configuredBase?.replace(/\/$/, "") ?? "";
@@ -97,6 +97,12 @@ export const api = {
   dailyBrief: () => request<DailyBriefResponse>("/v2/daily-brief"),
   productToday: (dataMode: "observed" | "fixture" | "all" = "observed") =>
     request<ProductTodayResponse>(`/v2/product/today?data_mode=${dataMode}`),
+  productMarkets: (dataMode: "observed" | "fixture" | "all" = "observed") =>
+    request<ProductMarketsResponse>(`/v2/product/markets?data_mode=${dataMode}`),
+  productMacro: (dataMode: "observed" | "fixture" | "all" = "observed") =>
+    request<ProductMacroResponse>(`/v2/product/macro?data_mode=${dataMode}`),
+  productEvents: (dataMode: "observed" | "fixture" | "all" = "observed", limit = 500) =>
+    request<ProductEventsResponse>(`/v2/product/events?data_mode=${dataMode}&limit=${limit}`),
   worldState: () => request<WorldStateResponse>("/v2/world-state"),
   globalMacro: () => request<Record<string, unknown>>("/v2/global-macro"),
   macroSystems: () => request<Record<string, unknown>>("/v2/macro-systems"),
@@ -116,6 +122,19 @@ export const api = {
   evaluateThesis: (id: string) => request<Record<string, unknown>>(`/v2/theses/${id}/evaluate`),
   releases: () => request<ReleaseSummary[]>("/v2/releases?limit=500"),
   release: (id: string) => request<ReleaseDetail>(`/v2/releases/${id}`),
+  appendConsensus: (releaseId: string, payload: {
+    indicator_key: string;
+    consensus_value: number;
+    source_name: string;
+    source_url?: string;
+    captured_at: string;
+    quality_grade?: string;
+    is_manual?: boolean;
+    verification_notes?: string;
+  }) => request<{ release_id: string; snapshot_id: string; status: string }>(
+    `/v2/releases/${encodeURIComponent(releaseId)}/consensus`,
+    { method: "POST", body: JSON.stringify(payload) },
+  ),
   windows: (id: string) => request<WindowsResponse>(`/v2/releases/${id}/windows`),
   timeline: (id: string) => request<TimelineResponse>(`/v2/releases/${id}/timeline`),
   historical: (id: string) =>

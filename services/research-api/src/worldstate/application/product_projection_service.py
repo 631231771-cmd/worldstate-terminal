@@ -11,6 +11,7 @@ from worldstate.application.capability_service import build_capability_inventory
 from worldstate.application.daily_brief_service import build_daily_brief
 from worldstate.application.global_macro_service import build_global_macro
 from worldstate.application.market_research_service import build_market_dashboard
+from worldstate.application.release_queries import list_releases
 
 DataMode = Literal["observed", "fixture", "all"]
 DIMENSION_LABELS = {
@@ -115,9 +116,10 @@ def _country_projection(country: dict[str, Any]) -> dict[str, Any]:
         "key": country.get("iso3"),
         "label": COUNTRY_LABELS.get(str(country.get("iso3")), country.get("name")),
         "status": country.get("status", "missing"),
-        "available_dimensions": [DIMENSION_LABELS.get(key, key) for key in available],
+        "available_dimensions": available,
         "dimensions": {
-            DIMENSION_LABELS.get(key, key): {
+            key: {
+                "label": DIMENSION_LABELS.get(key, key),
                 "score": value.get("score"),
                 "direction": value.get("direction", "unavailable"),
                 "momentum": value.get("momentum"),
@@ -206,6 +208,41 @@ async def build_today_projection(
     }
 
 
+async def build_markets_projection(
+    engine: AsyncEngine,
+    *,
+    data_mode: DataMode = "observed",
+    as_of: datetime | None = None,
+) -> dict[str, Any]:
+    """Return all market horizons in one product response."""
+    now = (as_of or datetime.now(UTC)).astimezone(UTC)
+    import asyncio
+
+    horizons: tuple[Literal["1d", "1w", "1m", "3m"], ...] = ("1d", "1w", "1m", "3m")
+    dashboards = await asyncio.gather(
+        *[
+            build_market_dashboard(engine, data_mode=data_mode, horizon=horizon, as_of=now)
+            for horizon in horizons
+        ]
+    )
+    by_key: dict[str, dict[str, Any]] = {}
+    capability_inventory = await build_capability_inventory(engine, data_mode=data_mode, as_of=now)
+    capability_map = _capability_map(capability_inventory)
+    for horizon, dashboard in zip(horizons, dashboards, strict=True):
+        for item in dashboard.get("items", []):
+            key = str(item.get("instrument_key"))
+            if key not in by_key:
+                by_key[key] = _market_item(item, capability_map)
+            by_key[key].setdefault("horizons", {})[horizon] = item.get("change_value")
+    return {
+        "as_of": now.isoformat(),
+        "data_mode": data_mode,
+        "methodology_version": "wst-markets-v1",
+        "items": list(by_key.values()),
+        "limitations": capability_inventory.get("limitations", []),
+    }
+
+
 async def _load_projection_sources(
     engine: AsyncEngine, *, data_mode: DataMode, as_of: datetime
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -219,4 +256,41 @@ async def _load_projection_sources(
     )
 
 
-__all__ = ["build_today_projection"]
+async def build_macro_projection(
+    engine: AsyncEngine, *, data_mode: DataMode = "observed", as_of: datetime | None = None
+) -> dict[str, Any]:
+    """Stable macro product projection; canonical keys stay in the payload."""
+    now = (as_of or datetime.now(UTC)).astimezone(UTC)
+    payload = await build_global_macro(engine, data_mode=data_mode, as_of=now)
+    return {
+        "as_of": now.isoformat(),
+        "data_mode": data_mode,
+        "methodology_version": "wst-macro-v1",
+        "countries": [_country_projection(item) for item in payload.get("countries", [])],
+        "limitations": payload.get("limitations", []),
+    }
+
+
+async def build_events_projection(
+    engine: AsyncEngine, *, data_mode: DataMode = "observed", limit: int = 500
+) -> dict[str, Any]:
+    """Event workflow projection with clean labels and status metadata."""
+    items = await list_releases(engine, limit=limit, data_mode=data_mode)
+    return {
+        "as_of": datetime.now(UTC).isoformat(),
+        "data_mode": data_mode,
+        "methodology_version": "wst-events-v1",
+        "items": items,
+        "limitations": [
+            "Minute reaction analysis is available only where eligible observed bars exist.",
+            "Consensus is eligible only when captured before the release timestamp.",
+        ],
+    }
+
+
+__all__ = [
+    "build_events_projection",
+    "build_macro_projection",
+    "build_markets_projection",
+    "build_today_projection",
+]

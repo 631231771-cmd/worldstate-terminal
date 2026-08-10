@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import { Badge, DetailsDisclosure, Drawer, Panel, StateMessage } from "../components/Primitives";
 import { WorkspaceBoundary } from "../components/WorkspaceBoundary";
 import type { ReleaseDetail, ReleaseSummary } from "../types";
-import type { ProductCountry, ProductDimension, ProductMarketItem, ProductTodayResponse } from "../types/product";
+import type { ProductCountry, ProductDimension, ProductMarketItem, ProductMarketsResponse, ProductTodayResponse } from "../types/product";
 import { DataControlWorkspace } from "../workspaces/data-control/DataControlWorkspace";
 import { DataMethodsWorkspace } from "../workspaces/data-methods/DataMethodsWorkspace";
 import { ResearchWorkspace } from "../workspaces/research/ResearchWorkspace";
@@ -12,8 +12,9 @@ import { EventsBoard } from "../workspaces/rebuild/EventsBoard";
 import { MacroBoard } from "../workspaces/rebuild/MacroBoard";
 import { MarketsBoard } from "../workspaces/rebuild/MarketsBoard";
 import { TodayBoard } from "../workspaces/rebuild/TodayBoard";
+import { EventLabWorkspace } from "../workspaces/event-lab/EventLabWorkspace";
 
-type ProductView = "today" | "markets" | "macro" | "events" | "research" | "data-control" | "data-methods";
+type ProductView = "today" | "markets" | "macro" | "events" | "event-lab" | "research" | "data-control" | "data-methods";
 type DrawerState = { title: string; body: ComponentChildren } | null;
 const NAV = [
   { key: "today" as const, label: "Today", note: "Current environment" },
@@ -26,8 +27,10 @@ const NAV = [
 function initialView(): ProductView {
   const hash = window.location.hash.replace("#", "").split("?")[0] ?? "";
   if (hash === "markets" || hash === "cross-asset") return "markets";
+  if (hash === "macro") return "macro";
   if (["world-state", "countries", "series"].includes(hash)) return "macro";
-  if (["releases", "event-lab", "calendar"].includes(hash)) return "events";
+  if (hash === "event-lab") return "events";
+  if (["events", "releases", "calendar"].includes(hash)) return "events";
   if (hash === "research") return "research";
   if (hash === "data-control") return "data-control";
   if (hash === "data-methods") return "data-methods";
@@ -47,6 +50,7 @@ function CapabilityDetails({ capabilities, advanced }: { capabilities: Record<st
 export function App() {
   const [view, setView] = useState<ProductView>(initialView);
   const [data, setData] = useState<ProductTodayResponse | null>(null);
+  const [marketsData, setMarketsData] = useState<ProductMarketsResponse | null>(null);
   const [releases, setReleases] = useState<ReleaseSummary[]>([]);
   const [selectedRelease, setSelectedRelease] = useState<ReleaseSummary | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<ReleaseDetail | null>(null);
@@ -59,20 +63,49 @@ export function App() {
   const [collapsed, setCollapsed] = useState(() => window.localStorage.getItem("worldstate.sidebar_collapsed") === "on");
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
+  const [searchEntities, setSearchEntities] = useState<Array<{ key: string; label: string; note: string; action: () => void }>>([]);
 
   const refresh = async () => {
     setLoading(true); setError(null);
-    const [productResult, releaseResult, healthResult] = await Promise.allSettled([api.productToday(), api.releases(), api.health()]);
+    const [productResult, marketsResult, releaseResult, healthResult] = await Promise.allSettled([api.productToday(), api.productMarkets(), api.releases(), api.health()]);
     if (productResult.status === "fulfilled") setData(productResult.value);
+    if (marketsResult.status === "fulfilled") setMarketsData(marketsResult.value);
     if (releaseResult.status === "fulfilled") { setReleases(releaseResult.value); setSelectedRelease((current) => current ?? preferredRelease(releaseResult.value)); }
     if (healthResult.status === "fulfilled") setHealth(healthResult.value);
-    if (productResult.status === "rejected" && releaseResult.status === "rejected") setError(productResult.reason instanceof Error ? productResult.reason.message : "Unable to load WorldState");
+    if (productResult.status === "rejected" && marketsResult.status === "rejected" && releaseResult.status === "rejected") setError(productResult.reason instanceof Error ? productResult.reason.message : "Unable to load WorldState");
     setLoading(false);
   };
 
   useEffect(() => { void refresh(); }, []);
   useEffect(() => { window.history.replaceState(null, "", `#${view}${selectedRelease ? `?release=${encodeURIComponent(selectedRelease.id)}` : ""}`); }, [view, selectedRelease]);
+  useEffect(() => {
+    if (view !== "events" || !selectedRelease || selectedDetail?.id === selectedRelease.id) return;
+    void api.release(selectedRelease.id).then(setSelectedDetail).catch(() => setSelectedDetail(null));
+  }, [view, selectedRelease?.id]);
   useEffect(() => { const listener = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } }; window.addEventListener("keydown", listener); return () => window.removeEventListener("keydown", listener); }, []);
+  useEffect(() => {
+    const query = commandQuery.trim();
+    if (query.length < 2) { setSearchEntities([]); return; }
+    let active = true;
+    void Promise.allSettled([api.series(query), api.theses()]).then(([seriesResult, thesesResult]) => {
+      if (!active) return;
+      const next: Array<{ key: string; label: string; note: string; action: () => void }> = [];
+      if (seriesResult.status === "fulfilled") {
+        for (const item of seriesResult.value.slice(0, 5)) {
+          const key = String(item.canonical_key ?? item.key ?? item.id ?? "series");
+          next.push({ key: `series:${key}`, label: String(item.title ?? item.name ?? key), note: "Open series", action: () => setView("macro") });
+        }
+      }
+      if (thesesResult.status === "fulfilled") {
+        for (const item of thesesResult.value.slice(0, 3)) {
+          const key = String(item.id ?? item.key ?? "thesis");
+          next.push({ key: `thesis:${key}`, label: String(item.title ?? item.name ?? "Thesis"), note: "Open research", action: () => setView("research") });
+        }
+      }
+      setSearchEntities(next);
+    });
+    return () => { active = false; };
+  }, [commandQuery]);
 
   const openEvent = async (id: string) => {
     const item = releases.find((release) => release.id === id) ?? data?.latest_research.find((release) => release.id === id) ?? null;
@@ -96,10 +129,11 @@ export function App() {
   const results = useMemo(() => {
     const query = commandQuery.trim().toLowerCase();
     const nav = NAV.filter((item) => !query || `${item.label} ${item.note}`.toLowerCase().includes(query)).map((item) => ({ key: item.key, label: item.label, note: item.note, action: () => setView(item.key) }));
-    const markets = (data?.markets ?? []).filter((item) => !query || `${item.label} ${item.key} ${item.symbol ?? ""}`.toLowerCase().includes(query)).map((item) => ({ key: item.key, label: item.label, note: "Open market detail", action: () => openMarket(item) }));
+    const markets = (marketsData?.items ?? data?.markets ?? []).filter((item) => !query || `${item.label} ${item.key} ${item.symbol ?? ""}`.toLowerCase().includes(query)).map((item) => ({ key: item.key, label: item.label, note: "Open market detail", action: () => openMarket(item) }));
     const events = releases.filter((item) => !query || `${item.title} ${item.release_type} ${item.period_label}`.toLowerCase().includes(query)).slice(0, 8).map((item) => ({ key: item.id, label: item.title, note: item.period_label, action: () => void openEvent(item.id) }));
-    return [...nav, ...markets, ...events].slice(0, 12);
-  }, [commandQuery, data, releases]);
-  const pageTitle = NAV.find((item) => item.key === view)?.label ?? (view === "data-control" ? "Data Sources" : "Data & Methods");
-  return <div class={collapsed ? "terminal-shell terminal-shell--collapsed" : "terminal-shell"}><aside class="sidebar"><div class="brand"><div class="brand__mark">W<span>S</span></div><div><strong>WorldState</strong><span>Macro Research Terminal</span></div></div><button type="button" class="shell-toggle" onClick={toggleCollapsed} aria-label="Toggle sidebar">{collapsed ? ">" : "<"}</button><nav aria-label="Primary navigation">{NAV.map((item, index) => <button type="button" key={item.key} class={view === item.key ? "nav-item nav-item--active" : "nav-item"} onClick={() => setView(item.key)}><span class="nav-item__index">{String(index + 1).padStart(2, "0")}</span><span><strong>{item.label}</strong><small>{item.note}</small></span></button>)}</nav><div class="sidebar__advanced"><button type="button" class={view === "data-control" ? "nav-item nav-item--active" : "nav-item"} onClick={() => setView("data-control")}><span class="nav-item__index">A1</span><span><strong>Data Sources</strong><small>Settings and import</small></span></button><button type="button" class={view === "data-methods" ? "nav-item nav-item--active" : "nav-item"} onClick={() => setView("data-methods")}><span class="nav-item__index">A2</span><span><strong>Methods</strong><small>Advanced details</small></span></button></div></aside><main class="main"><header class="topbar"><div><span class="topbar__kicker">WORLDSTATE / MACRO TERMINAL</span><strong>{pageTitle}</strong></div><div class="topbar__status"><button type="button" class="shell-command" onClick={() => setCommandOpen(true)}><span>Search markets, countries, events</span><kbd>Ctrl K</kbd></button><button type="button" class={learningMode ? "mode-toggle mode-toggle--active" : "mode-toggle"} onClick={toggleLearning}>{learningMode ? "Learning on" : "Learning"}</button><button type="button" class={advancedMode ? "mode-toggle mode-toggle--active" : "mode-toggle"} onClick={toggleAdvanced}>{advancedMode ? "Advanced" : "Standard"}</button><Badge tone={health?.database.status === "ok" ? "good" : "warn"}>{health?.database.status === "ok" ? "Ready" : "Connecting"}</Badge></div></header>{loading ? <StateMessage title="Preparing WorldState" detail="Loading macro state, markets, and data capabilities." /> : error ? <StateMessage title="WorldState could not load" detail={error} action={<button type="button" class="button-primary" onClick={() => void refresh()}>Retry</button>} /> : <WorkspaceBoundary>{view === "today" && data ? <TodayBoard data={data} learningMode={learningMode} onOpenDimension={openDimension} onOpenMarket={openMarket} onOpenCountry={openCountry} onOpenEvent={(id) => void openEvent(id)} /> : null}{view === "markets" && data ? <MarketsBoard items={data.markets} onOpen={openMarket} /> : null}{view === "macro" && data ? <MacroBoard countries={data.global} onOpenCountry={openCountry} /> : null}{view === "events" ? <EventsBoard releases={releases} selected={selectedRelease} detail={selectedDetail} onSelect={(item) => void openEvent(item.id)} onOpenLab={() => setView("events")} onOpenDataSources={() => setView("data-control")} /> : null}{view === "research" ? <ResearchWorkspace /> : null}{view === "data-control" ? <DataControlWorkspace /> : null}{view === "data-methods" ? <DataMethodsWorkspace /> : null}</WorkspaceBoundary>}</main>{drawer ? <Drawer title={drawer.title} onClose={() => setDrawer(null)}>{drawer.body}</Drawer> : null}{commandOpen ? <div class="modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) setCommandOpen(false); }}><section class="modal command-palette" role="dialog" aria-modal="true"><div class="modal__header"><h2>Search WorldState</h2><button type="button" class="modal__close" onClick={() => setCommandOpen(false)}>×</button></div><div class="modal__body"><input autoFocus value={commandQuery} onInput={(event) => setCommandQuery(event.currentTarget.value)} placeholder="Try gold, CPI, China" /> <div class="command-results">{results.map((result) => <button type="button" key={result.key} onClick={() => { result.action(); setCommandOpen(false); setCommandQuery(""); }}><strong>{result.label}</strong><span>{result.note}</span></button>)}{!results.length ? <p class="muted">No matches</p> : null}</div></div></section></div> : null}</div>;
+    const countries = (data?.global ?? []).filter((item) => !query || `${item.label} ${item.key}`.toLowerCase().includes(query)).map((item) => ({ key: `country:${item.key}`, label: item.label, note: "Open country detail", action: () => openCountry(item) }));
+    return [...nav, ...markets, ...countries, ...events, ...searchEntities].slice(0, 16);
+  }, [commandQuery, data, marketsData, releases, searchEntities]);
+  const pageTitle = NAV.find((item) => item.key === view)?.label ?? (view === "event-lab" ? "Event Lab" : view === "data-control" ? "Data Sources" : "Data & Methods");
+  return <div class={collapsed ? "terminal-shell terminal-shell--collapsed" : "terminal-shell"}><aside class="sidebar"><div class="brand"><div class="brand__mark">W<span>S</span></div><div><strong>WorldState</strong><span>Macro Research Terminal</span></div></div><button type="button" class="shell-toggle" onClick={toggleCollapsed} aria-label="Toggle sidebar">{collapsed ? ">" : "<"}</button><nav aria-label="Primary navigation">{NAV.map((item, index) => <button type="button" key={item.key} class={view === item.key ? "nav-item nav-item--active" : "nav-item"} onClick={() => setView(item.key)}><span class="nav-item__index">{String(index + 1).padStart(2, "0")}</span><span><strong>{item.label}</strong><small>{item.note}</small></span></button>)}</nav><div class="sidebar__advanced"><button type="button" class={view === "data-control" ? "nav-item nav-item--active" : "nav-item"} onClick={() => setView("data-control")}><span class="nav-item__index">A1</span><span><strong>Data Sources</strong><small>Settings and import</small></span></button><button type="button" class={view === "data-methods" ? "nav-item nav-item--active" : "nav-item"} onClick={() => setView("data-methods")}><span class="nav-item__index">A2</span><span><strong>Methods</strong><small>Advanced details</small></span></button></div></aside><main class="main"><header class="topbar"><div><span class="topbar__kicker">WORLDSTATE / MACRO TERMINAL</span><strong>{pageTitle}</strong></div><div class="topbar__status"><button type="button" class="shell-command" onClick={() => setCommandOpen(true)}><span>Search markets, countries, events</span><kbd>Ctrl K</kbd></button><button type="button" class={learningMode ? "mode-toggle mode-toggle--active" : "mode-toggle"} onClick={toggleLearning}>{learningMode ? "Learning on" : "Learning"}</button><button type="button" class={advancedMode ? "mode-toggle mode-toggle--active" : "mode-toggle"} onClick={toggleAdvanced}>{advancedMode ? "Advanced" : "Standard"}</button><Badge tone={health?.database.status === "ok" ? "good" : "warn"}>{health?.database.status === "ok" ? "Ready" : "Connecting"}</Badge></div></header>{loading ? <StateMessage title="Preparing WorldState" detail="Loading macro state, markets, and data capabilities." /> : error ? <StateMessage title="WorldState could not load" detail={error} action={<button type="button" class="button-primary" onClick={() => void refresh()}>Retry</button>} /> : <WorkspaceBoundary key={view}>{view === "today" && data ? <TodayBoard data={data} learningMode={learningMode} onOpenDimension={openDimension} onOpenMarket={openMarket} onOpenCountry={openCountry} onOpenEvent={(id) => void openEvent(id)} /> : null}{view === "markets" && (marketsData ?? data) ? <MarketsBoard items={(marketsData ?? { items: data?.markets ?? [] }).items} onOpen={openMarket} /> : null}{view === "macro" && data ? <MacroBoard countries={data.global} onOpenCountry={openCountry} /> : null}{view === "events" ? <EventsBoard releases={releases} selected={selectedRelease} detail={selectedDetail} onSelect={(item) => void openEvent(item.id)} onOpenLab={() => setView("events")} onOpenDataSources={() => setView("data-control")} /> : null}{view === "research" ? <ResearchWorkspace /> : null}{view === "data-control" ? <DataControlWorkspace /> : null}{view === "data-methods" ? <DataMethodsWorkspace /> : null}</WorkspaceBoundary>}</main>{drawer ? <Drawer title={drawer.title} onClose={() => setDrawer(null)}>{drawer.body}</Drawer> : null}{commandOpen ? <div class="modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) setCommandOpen(false); }}><section class="modal command-palette" role="dialog" aria-modal="true"><div class="modal__header"><h2>Search WorldState</h2><button type="button" class="modal__close" onClick={() => setCommandOpen(false)}>×</button></div><div class="modal__body"><input autoFocus value={commandQuery} onInput={(event) => setCommandQuery(event.currentTarget.value)} placeholder="Try gold, CPI, China" /> <div class="command-results">{results.map((result) => <button type="button" key={result.key} onClick={() => { result.action(); setCommandOpen(false); setCommandQuery(""); }}><strong>{result.label}</strong><span>{result.note}</span></button>)}{!results.length ? <p class="muted">No matches</p> : null}</div></div></section></div> : null}</div>;
 }

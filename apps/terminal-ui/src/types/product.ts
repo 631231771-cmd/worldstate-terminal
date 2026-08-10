@@ -67,6 +67,7 @@ export interface ProductMarketItem {
   freshness: string;
   proxy: boolean;
   sparkline?: number[];
+  horizons?: Record<"1d" | "1w" | "1m" | "3m", number | null>;
   capabilities: Record<string, CapabilityDimension>;
   details: {
     provider: string | null;
@@ -85,6 +86,7 @@ export interface ProductCountry {
   status: "available" | "partial" | "missing" | string;
   available_dimensions: string[];
   dimensions: Record<string, {
+    label: string;
     score: number | null;
     direction: string;
     momentum: number | null;
@@ -126,5 +128,29 @@ export interface ProductTodayResponse {
   global: ProductCountry[];
   watch_next: string[];
   capability_summary: Record<string, number>;
+  limitations: string[];
+}
+
+export interface ProductMarketsResponse {
+  as_of: string;
+  data_mode: string;
+  methodology_version: string;
+  items: ProductMarketItem[];
+  limitations: string[];
+}
+
+export interface ProductMacroResponse {
+  as_of: string;
+  data_mode: string;
+  methodology_version: string;
+  countries: ProductCountry[];
+  limitations: string[];
+}
+
+export interface ProductEventsResponse {
+  as_of: string;
+  data_mode: string;
+  methodology_version: string;
+  items: ReleaseSummary[];
   limitations: string[];
 }

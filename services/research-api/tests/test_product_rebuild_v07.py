@@ -34,3 +34,29 @@ def test_today_projection_uses_product_labels_and_valid_session_changes(client: 
         assert item["details"]["canonical_key"] == item["key"]
     if payload["markets"]:
         assert all("window_semantics" not in item for item in payload["markets"])
+
+
+def test_macro_projection_keeps_canonical_dimension_keys(client: TestClient) -> None:
+    payload = client.get("/v2/product/today", params={"data_mode": "observed"}).json()
+    for country in payload["global"]:
+        for key, dimension in country["dimensions"].items():
+            assert key in {
+                "growth",
+                "inflation",
+                "liquidity",
+                "policy_tightness",
+                "credit",
+                "risk",
+                "fiscal",
+                "external",
+            }
+            assert dimension["label"]
+        for key in country["available_dimensions"]:
+            assert key in country["dimensions"]
+
+
+def test_markets_projection_returns_all_horizons_in_one_response(client: TestClient) -> None:
+    response = client.get("/v2/product/markets", params={"data_mode": "observed"})
+    assert response.status_code == 200
+    for item in response.json()["items"]:
+        assert set(item.get("horizons", {})) <= {"1d", "1w", "1m", "3m"}

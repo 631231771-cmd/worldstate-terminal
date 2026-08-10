@@ -49,7 +49,12 @@ from worldstate.application.market_research_service import (
     get_series_history,
     search_series,
 )
-from worldstate.application.product_projection_service import build_today_projection
+from worldstate.application.product_projection_service import (
+    build_events_projection,
+    build_macro_projection,
+    build_markets_projection,
+    build_today_projection,
+)
 from worldstate.application.release_commands import create_manual_release
 from worldstate.application.release_queries import (
     get_current_regime,
@@ -814,9 +819,7 @@ async def world_state(
     while this response describes the latest series state for the terminal.
     """
     mode = requested_data_mode(request, data_mode)
-    return await build_world_state(
-        request.app.state.database_engine, data_mode=mode, as_of=as_of
-    )
+    return await build_world_state(request.app.state.database_engine, data_mode=mode, as_of=as_of)
 
 
 @router.get("/global-macro", tags=["macro"])
@@ -851,9 +854,7 @@ async def daily_brief(
 ) -> dict[str, object]:
     """Build the deterministic daily entry point used by the Today workspace."""
     mode = requested_data_mode(request, data_mode)
-    return await build_daily_brief(
-        request.app.state.database_engine, data_mode=mode, as_of=as_of
-    )
+    return await build_daily_brief(request.app.state.database_engine, data_mode=mode, as_of=as_of)
 
 
 @router.get("/product/today", tags=["product"])
@@ -868,6 +869,41 @@ async def product_today(
         request.app.state.database_engine,
         data_mode=mode,
         as_of=as_of,
+    )
+
+
+@router.get("/product/markets", tags=["product"])
+async def product_markets(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
+) -> dict[str, object]:
+    return await build_markets_projection(
+        request.app.state.database_engine,
+        data_mode=data_mode,
+    )
+
+
+@router.get("/product/macro", tags=["product"])
+async def product_macro(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
+) -> dict[str, object]:
+    return await build_macro_projection(
+        request.app.state.database_engine,
+        data_mode=data_mode,
+    )
+
+
+@router.get("/product/events", tags=["product"])
+async def product_events(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
+    limit: int = Query(500, ge=1, le=1000),
+) -> dict[str, object]:
+    return await build_events_projection(
+        request.app.state.database_engine,
+        data_mode=data_mode,
+        limit=limit,
     )
 
 
