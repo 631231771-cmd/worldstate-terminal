@@ -43,6 +43,7 @@ def test_world_state_snapshot_history_is_replayable(client: TestClient) -> None:
     history = client.get("/v2/world-state/history?data_mode=fixture")
     assert history.status_code == 200
     assert history.json()[0]["source_snapshot_hash"] == snapshot["source_snapshot_hash"]
+    assert client.get("/v2/world-state/history?data_mode=fixture&window=7d").status_code == 200
 
 
 def test_watchlist_is_user_owned_and_idempotent(client: TestClient) -> None:

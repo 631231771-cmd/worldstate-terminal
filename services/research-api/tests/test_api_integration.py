@@ -242,6 +242,82 @@ def test_manual_release_consensus_csv_and_analysis_workflow(client: TestClient) 
     assert detail["latest_analysis"]["status"] == "completed"
 
 
+def test_observed_context_market_csv_is_separate_from_event_windows(client: TestClient) -> None:
+    csv_text = "\n".join(
+        [
+            "timestamp,instrument_key,open,high,low,close,volume",
+            "2030-01-01T00:00:00Z,gold_gc,2000,2010,1990,2005,100",
+            "2030-01-02T00:00:00Z,gold_gc,2005,2020,2000,2015,110",
+        ]
+    )
+    imported = client.post(
+        "/v2/market-bars/import-context",
+        json={
+            "instrument_key": "gold_gc",
+            "csv_text": csv_text,
+            "provider_key": "manual_context_test",
+            "source_name": "Verified daily context test",
+            "source_url": "https://example.test/daily-bars",
+            "verified": True,
+            "interval_seconds": 86400,
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    body = imported.json()
+    assert body["inserted"] == 2
+    assert body["data_mode"] == "observed"
+    assert body["context_only"] is True
+    assert body["not_event_window"] is True
+    repeated = client.post(
+        "/v2/market-bars/import-context",
+        json={
+            "instrument_key": "gold_gc",
+            "csv_text": csv_text,
+            "provider_key": "manual_context_test",
+            "source_name": "Verified daily context test",
+            "verified": True,
+            "interval_seconds": 86400,
+        },
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["idempotent_replay"] is True
+
+
+def test_consensus_csv_import_keeps_pre_t0_and_manual_provenance(
+    client: TestClient,
+    release_index: dict[str, dict[str, object]],
+) -> None:
+    release = release_index["US_CPI"]
+    scheduled = datetime.fromisoformat(str(release["scheduled_at"]))
+    csv_text = "\n".join(
+        [
+            "indicator_key,consensus_value,captured_at,source_name,source_url,quality_grade",
+            f"headline_mom,0.2,{(scheduled - timedelta(minutes=20)).isoformat()},Manual CSV,https://example.test/csv,B",
+        ]
+    )
+    response = client.post(
+        f"/v2/releases/{release['id']}/consensus/import-csv",
+        json={"csv_text": csv_text},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["inserted"] == 1
+    assert body["is_manual"] is True
+    assert body["point_in_time"] is True
+
+    late = "\n".join(
+        [
+            "indicator_key,consensus_value,captured_at",
+            f"headline_mom,0.2,{(scheduled + timedelta(minutes=5)).isoformat()}",
+        ]
+    )
+    rejected = client.post(
+        f"/v2/releases/{release['id']}/consensus/import-csv",
+        json={"csv_text": late},
+    )
+    assert rejected.status_code == 400
+
+
 def test_analysis_run_is_replayable_idempotent_and_evidence_bound(
     client: TestClient,
     release_index: dict[str, dict[str, object]],

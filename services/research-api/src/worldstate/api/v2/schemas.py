@@ -68,6 +68,12 @@ class ConsensusInput(StrictModel):
     verification_notes: str | None = None
 
 
+class ConsensusCsvInput(StrictModel):
+    csv_text: str = Field(min_length=1)
+    default_source_name: str = "Manual consensus CSV"
+    default_source_url: str | None = None
+
+
 class MarketCsvImportInput(StrictModel):
     instrument_key: str
     csv_text: str
@@ -76,6 +82,7 @@ class MarketCsvImportInput(StrictModel):
     source_url: str | None = None
     verified: bool = False
     is_fixture: bool = False
+    interval_seconds: int = Field(default=86400, ge=1)
 
 
 class BackfillRequestInput(StrictModel):

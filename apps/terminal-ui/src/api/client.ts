@@ -150,6 +150,20 @@ export const api = {
       { method: "POST", body: JSON.stringify({ start_date, end_date }) },
       [207, 424],
     ),
+  importContextMarketCsv: (payload: {
+    instrument_key: string;
+    csv_text: string;
+    provider_key?: string;
+    source_name?: string;
+    source_url?: string;
+    verified?: boolean;
+    interval_seconds?: number;
+  }) =>
+    request<Record<string, unknown>>(
+      "/v2/market-bars/import-context",
+      { method: "POST", body: JSON.stringify(payload) },
+      [207, 424],
+    ),
   estimateBackfill: (input: BackfillRequest) => {
     const query = new URLSearchParams({
       start_date: input.start_date,

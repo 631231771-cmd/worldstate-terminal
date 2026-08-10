@@ -84,6 +84,7 @@ async def persist_world_state_snapshot(
                 evidence_json=state.get("evidence", []),
                 data_gaps_json=state.get("data_gaps", []),
                 source_snapshot_hash=source_hash,
+                created_at=timestamp,
             )
             session.add(row)
         else:

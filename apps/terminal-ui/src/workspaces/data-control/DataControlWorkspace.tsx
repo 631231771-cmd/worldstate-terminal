@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../../api/client";
 import { Badge, Panel, StateMessage } from "../../components/Primitives";
 import type { DataFreshnessResponse, DataProviderStatus } from "../../types";
@@ -13,6 +13,7 @@ export function DataControlWorkspace() {
   const [data, setData] = useState<ControlData | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const marketFileRef = useRef<HTMLInputElement>(null);
 
   const reload = async () => {
     const [providers, freshness, systemsPayload] = await Promise.all([
@@ -64,6 +65,33 @@ export function DataControlWorkspace() {
     }
   };
 
+  const importMarketCsv = async (event: Event) => {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    const instrumentKey = window.prompt("请输入市场 instrument_key，例如 gold_gc 或 dollar_dxy", "gold_gc");
+    if (!instrumentKey) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await api.importContextMarketCsv({
+        instrument_key: instrumentKey,
+        csv_text: await file.text(),
+        provider_key: "manual_csv",
+        source_name: file.name,
+        verified: false,
+        interval_seconds: 86400,
+      });
+      setMessage(`已导入 ${String(result.inserted ?? 0)} 条 observed 日线，已标记为上下文数据`);
+      await reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "市场 CSV 导入失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!data) return <StateMessage title="正在读取数据控制中心" detail="检查 Provider、最新观测和数据新鲜度。" />;
   const summary = data.freshness.summary;
   return (
@@ -71,6 +99,8 @@ export function DataControlWorkspace() {
       <section class="page-heading">
         <div><div class="eyebrow">DATA CONTROL CENTER · v0.7</div><h1>数据控制中心</h1><p>观察真实数据是否存在、是否过期，以及哪些 Provider 可以继续同步。</p></div>
         <div class="page-heading__actions">
+          <input ref={marketFileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => void importMarketCsv(event)} />
+          <button class="button-secondary" disabled={busy} onClick={() => marketFileRef.current?.click()}>导入市场 CSV</button>
           <button class="button-secondary" disabled={busy} onClick={() => void syncBlsState()}>同步 BLS 当前观测</button>
           <button class="button-primary" disabled={busy} onClick={() => void bootstrap()}>{busy ? "同步中…" : "Bootstrap Free Data"}</button>
         </div>

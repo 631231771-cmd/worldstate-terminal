@@ -17,6 +17,7 @@ from worldstate.ai_researcher import answer_question
 from worldstate.api.v2.data_router import data_router, data_write_router
 from worldstate.api.v2.schemas import (
     AssistantInput,
+    ConsensusCsvInput,
     ConsensusInput,
     ContextAssistantInput,
     MarketCsvImportInput,
@@ -32,12 +33,15 @@ from worldstate.application.analysis_persistence import (
     get_analysis_manifest,
     replay_analysis_run,
 )
-from worldstate.application.consensus_service import append_consensus
+from worldstate.application.consensus_service import append_consensus, import_consensus_csv
 from worldstate.application.daily_brief_service import build_daily_brief
 from worldstate.application.evidence_service import get_evidence_pack
 from worldstate.application.global_macro_service import build_global_macro
 from worldstate.application.macro_system_service import build_macro_systems
-from worldstate.application.market_import_service import import_market_csv
+from worldstate.application.market_import_service import (
+    import_market_csv,
+    import_observed_market_csv,
+)
 from worldstate.application.market_research_service import (
     build_market_dashboard,
     get_series_history,
@@ -546,6 +550,30 @@ async def capture_consensus(
 
 
 @router.post(
+    "/releases/{release_id}/consensus/import-csv",
+    tags=["releases"],
+    dependencies=[Depends(require_write_access)],
+)
+async def import_consensus(
+    release_id: str,
+    payload: ConsensusCsvInput,
+    request: Request,
+) -> dict[str, object]:
+    try:
+        return await import_consensus_csv(
+            request.app.state.database_engine,
+            release_id=release_id,
+            csv_text=payload.csv_text,
+            default_source_name=payload.default_source_name,
+            default_source_url=payload.default_source_url,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
     "/releases/{release_id}/market-bars/import",
     tags=["providers"],
     dependencies=[Depends(require_write_access)],
@@ -566,6 +594,38 @@ async def import_bars(
             source_url=payload.source_url,
             verified=payload.verified,
             is_fixture=payload.is_fixture,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/market-bars/import-context",
+    tags=["providers"],
+    dependencies=[Depends(require_write_access)],
+)
+async def import_context_bars(
+    payload: MarketCsvImportInput,
+    request: Request,
+) -> dict[str, object]:
+    """Import observed daily context bars without attaching them to a release."""
+    if payload.is_fixture:
+        raise HTTPException(
+            status_code=400,
+            detail="context market import is observed-only; use fixture seed data separately",
+        )
+    try:
+        return await import_observed_market_csv(
+            request.app.state.database_engine,
+            instrument_key=payload.instrument_key,
+            csv_text=payload.csv_text,
+            provider_key=payload.provider_key,
+            source_name=payload.source_name,
+            source_url=payload.source_url,
+            verified=payload.verified,
+            interval_seconds=payload.interval_seconds,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -870,12 +930,14 @@ async def world_state_snapshot(
 async def world_state_history(
     request: Request,
     limit: int = Query(default=30, ge=1, le=365),
+    window: Literal["7d", "30d", "90d", "1y"] | None = Query(default=None),
     data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
 ) -> list[dict[str, object]]:
+    window_limits = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
     return await list_world_state_snapshots(
         request.app.state.database_engine,
         data_mode=requested_data_mode(request, data_mode),
-        limit=limit,
+        limit=window_limits.get(window, limit) if window else limit,
     )
 
 

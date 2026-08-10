@@ -1,6 +1,6 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-08-09
+Updated: 2026-08-10
 
 ## Product truth
 
@@ -18,11 +18,11 @@ longer part of the active architecture. Their final state is preserved at tag
 - Working branch: `feature/v0.7-live-global`
 - Last committed v0.4 baseline: `16544c373bb32fc9788b72538db49c3fcc2c1337`
 - v0.5 Data Foundation: committed as `4054a66e620db2f5aff9a4c70b6af9be3b9aad94`; local and GitHub CI validation complete
-- Database head in the worktree: `0009_operational_state`
+- Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- HEAD: `08ef57142` (`feat: checkpoint live activation truthfulness and BLS state path`)
-- Next resume point: continue v0.7 Live Activation Completion from this checkpoint; BLS public endpoint was unavailable during the capture attempt, so runtime growth from the new current-state path still needs a later live validation.
+- HEAD: checkpoint in progress for v0.7 Live Activation Completion (market-context CSV, consensus CSV, operational timestamp migration, and runtime snapshot validation)
+- Next resume point: finish the current checkpoint, push it, then continue BLS/US coverage and multi-asset observed market validation. BLS public endpoint was unavailable during the capture attempt.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
   `feature/v0.7-live-global`; do not mark any of them Ready or merge
 

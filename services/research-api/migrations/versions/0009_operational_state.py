@@ -30,7 +30,9 @@ def upgrade() -> None:
         sa.Column("evidence_json", sa.JSON(), nullable=False),
         sa.Column("data_gaps_json", sa.JSON(), nullable=False),
         sa.Column("source_snapshot_hash", sa.String(length=64), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("snapshot_date", "data_mode", name="uq_world_state_snapshot_day_mode"),
         )
@@ -48,8 +50,12 @@ def upgrade() -> None:
         sa.Column("label", sa.String(length=255), nullable=False),
         sa.Column("notes", sa.Text(), nullable=False, server_default=""),
         sa.Column("data_mode", sa.String(length=16), nullable=False, server_default="observed"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("item_type", "item_key", name="uq_watchlist_item_type_key"),
         )
