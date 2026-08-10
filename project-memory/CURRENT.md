@@ -21,7 +21,7 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- HEAD: `a56d20c` (`fix: route official macro import through v2 api`; keep PR #10 Draft)
+- HEAD: `bd177d1` (`feat: productize v07 terminal workflow`; keep PR #10 Draft)
 - Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot, 8,801 observed daily context bars, 50 catalog series with 29,701 observed macro observations, 28,247 FRED current-public observations and 621 BLS current-state observations are present. FRED no-key data is explicitly current-state/non-PIT; a FRED key is still required for ALFRED vintage semantics.
 - Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/EA/UK observed state coverage, Japan/China unavailable without an official export, 8 context instruments, one observed snapshot, zero observed consensus snapshots, and explicit market/data-quality boundaries.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
@@ -156,7 +156,7 @@ entitlement boundaries below.
   instruments. Macro systems report 4/4, 4/4, 5/5 and 3/3 observed
   components; Japan and China remain unavailable until an official export is
   imported. Freshness is LIVE 35 / STALE 15 / MISSING 0 for this runtime.
-- v0.7 final checks: 178 backend tests passed, Ruff and strict mypy passed,
+- v0.7 final checks: 181 backend tests passed, Ruff and strict mypy passed,
   Terminal UI production build passed, Tauri fmt/check and 4 unit tests passed,
   and the data-control page was read in the running browser against the v0.7
   API. HICP correctly displayed `STALE` based on covered period age.
