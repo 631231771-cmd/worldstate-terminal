@@ -21,8 +21,8 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- HEAD: checkpoint in progress for v0.7 Live Activation Completion (market-context CSV, consensus CSV, operational timestamp migration, and runtime snapshot validation)
-- Next resume point: finish the current checkpoint, push it, then continue BLS/US coverage and multi-asset observed market validation. BLS public endpoint was unavailable during the capture attempt.
+- HEAD: `590a834` (`feat: activate context markets and consensus imports`)
+- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot and 29 observed gold daily bars are present. Next resume point is BLS/US coverage and multi-asset observed market validation. BLS public endpoint was unavailable during the capture attempt.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
   `feature/v0.7-live-global`; do not mark any of them Ready or merge
 
