@@ -21,7 +21,7 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- HEAD: update after the v0.7 real-coverage checkpoint (keep PR #10 Draft)
+- HEAD: `cd6aafa` (`feat: expand v07 public macro and market coverage`; keep PR #10 Draft)
 - Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot, 8,801 observed daily context bars, 50 catalog series with 29,701 observed macro observations, 28,247 FRED current-public observations and 621 BLS current-state observations are present. FRED no-key data is explicitly current-state/non-PIT; a FRED key is still required for ALFRED vintage semantics.
 - Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/EA/UK observed state coverage, Japan/China unavailable without an official export, 8 context instruments, one observed snapshot, zero observed consensus snapshots, and explicit market/data-quality boundaries.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
