@@ -21,11 +21,16 @@ def test_today_projection_uses_product_labels_and_valid_session_changes(client: 
     assert response.status_code == 200
     payload = response.json()
     assert payload["data_mode"] == "observed"
-    assert {"macro_snapshot", "markets", "what_changed", "global", "capability_summary"} <= set(payload)
+    assert {
+        "macro_snapshot",
+        "markets",
+        "what_changed",
+        "global",
+        "capability_summary",
+    } <= set(payload)
     for item in payload["markets"]:
         assert "formatted_value" in item
         assert item["change_unit"] in {"%", "bp"}
         assert item["details"]["canonical_key"] == item["key"]
     if payload["markets"]:
         assert all("window_semantics" not in item for item in payload["markets"])
-
