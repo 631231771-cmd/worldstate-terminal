@@ -2,6 +2,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../../api/client";
 import { Badge, DetailsDisclosure, Modal, Panel, StateMessage } from "../../components/Primitives";
+import { ConceptStrip } from "../../components/ConceptHelp";
 import type { ReleaseSummary } from "../../types";
 import type { ConsensusCsvPreview, EventMinutePreview, ProductEventDetail } from "../../types/product";
 import { fromLocalDateTimeInput, localTimeZoneLabel, toLocalDateTimeInput } from "../../utils/time";
@@ -78,6 +79,7 @@ export function EventsBoard({
   onOpenLab,
   onOpenDataSources,
   onOpenMarkets,
+  learningMode = false,
 }: {
   releases: ReleaseSummary[];
   selected: ReleaseSummary | null;
@@ -86,6 +88,7 @@ export function EventsBoard({
   onOpenLab: () => void;
   onOpenDataSources: () => void;
   onOpenMarkets?: () => void;
+  learningMode?: boolean;
 }) {
   onOpenMarkets ??= () =>
     window.dispatchEvent(new CustomEvent("worldstate:navigate", { detail: "markets" }));
@@ -259,7 +262,7 @@ export function EventsBoard({
 
   return (
     <div class="workspace workspace--product">
-      <section class="page-heading page-heading--compact"><div><div class="eyebrow">EVENT RESEARCH</div><h1>宏观事件研究</h1><p>从预期、实际值和修订开始，沿着 Surprise、市场反应、历史背景与证据逐层阅读。</p></div><div class="page-heading__aside"><Badge tone="info">{releases.length} 个事件</Badge></div></section>
+      <section class="page-heading page-heading--compact"><div><div class="eyebrow">EVENT RESEARCH</div><h1>宏观事件研究</h1><p>从预期、实际值和修订开始，沿着 Surprise、市场反应、历史背景与证据逐层阅读。</p><ConceptStrip concepts={["consensus", "surprise", "revision", "reversal"]} active={learningMode} /></div><div class="page-heading__aside"><Badge tone="info">{releases.length} 个事件</Badge></div></section>
       <div class="events-layout events-layout--research">
         <Panel title="事件" eyebrow="CALENDAR">
           <div class="tabs-bar" role="tablist">{(["recent", "upcoming", "all"] as EventTab[]).map((tab) => <button type="button" class={eventTab === tab ? "active" : ""} onClick={() => setEventTab(tab)} role="tab" aria-selected={eventTab === tab}>{tab === "recent" ? "近期发布" : tab === "upcoming" ? "即将发生" : "全部"}</button>)}</div>

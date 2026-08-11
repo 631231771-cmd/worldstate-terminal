@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -14,7 +15,7 @@ from worldstate.application.market_research_service import _continuity_segments
 from worldstate.application.official_sync_service import _sync_derived_market_context
 from worldstate.application.product_projection_service import _change_projection, _market_horizon
 from worldstate.db.base import Base
-from worldstate.db.models import MarketBar, MarketInstrument
+from worldstate.db.models import DataQualityRecord, MarketBar, MarketInstrument
 from worldstate.db.session import create_engine
 
 
@@ -66,7 +67,7 @@ def test_market_continuity_does_not_join_provider_segments() -> None:
         metadata_json={},
     )
     start = datetime(2026, 1, 1, tzinfo=UTC)
-    rows = [
+    rows: list[tuple[MarketBar, MarketInstrument, DataQualityRecord | None]] = [
         (
             _market_bar(
                 instrument_id,
@@ -119,7 +120,7 @@ def test_market_continuity_does_not_join_provider_segments() -> None:
     assert segments[0]["active"] is True
 
 
-def test_derived_curve_bars_persist_formula_and_inputs(tmp_path) -> None:
+def test_derived_curve_bars_persist_formula_and_inputs(tmp_path: Path) -> None:
     async def scenario() -> None:
         engine = create_engine(f"sqlite+aiosqlite:///{(tmp_path / 'derived.db').as_posix()}")
         async with engine.begin() as connection:
@@ -309,6 +310,33 @@ def test_change_projection_does_not_repeat_dimension_label() -> None:
     )
     assert change["what"] == "通胀 state is weak"
     assert change["why"] == " 的主要驱动是 crude oil"
+
+
+def test_change_projection_uses_product_language_for_market_and_state_terms() -> None:
+    market_change = _change_projection(
+        {
+            "what_changed": "Brent spot reference (context) down 8.30%",
+            "why_it_matters": "cross-asset context",
+            "magnitude": -0.083,
+            "category": "market",
+        }
+    )
+    state_change = _change_projection(
+        {
+            "what_changed": "inflation \u72b6\u6001\u4e3a mixed",
+            "why_it_matters": (
+                "inflation \u7684\u4e3b\u8981\u9a71\u52a8\u662f "
+                "Crude Oil Prices, Brent"
+            ),
+            "magnitude": -0.4,
+            "category": "state",
+        }
+    )
+
+    assert market_change["what"] == "\u5e03\u4f26\u7279\u539f\u6cb9 \u4e0b\u8dcc 8.30%"
+    assert market_change["category_label"] == "\u5e02\u573a"
+    assert state_change["what"] == "\u901a\u80c0 \u72b6\u6001\u5206\u5316"
+    assert "\u5e03\u4f26\u7279\u539f\u6cb9" in str(state_change["why"])
 
 
 def test_product_event_detail_uses_product_route(client: TestClient) -> None:

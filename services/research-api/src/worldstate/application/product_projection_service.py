@@ -57,6 +57,40 @@ COUNTRY_LABELS = {
     "GBR": "\u82f1\u56fd",
 }
 
+STATE_DIRECTION_LABELS = {
+    "strong": "偏强",
+    "weak": "偏弱",
+    "mixed": "分化",
+    "up": "上行",
+    "down": "下行",
+    "flat": "持平",
+    "unavailable": "缺失",
+}
+
+PRODUCT_TERM_LABELS = {
+    "Crude Oil Prices, Brent": "布伦特原油",
+    "China Private Non-Financial Sector Credit": "中国非金融部门信贷",
+    "Federal Debt Held by the Public as Percent of GDP": "美国公众持有联邦债务/GDP",
+    "Japan M3 Growth": "日本 M3 增速",
+    "Japan Industrial Production": "日本工业生产",
+    "Nominal Broad U.S. Dollar Index": "广义美元指数",
+    "CBOE Volatility Index": "VIX",
+}
+
+MARKET_CHANGE_LABELS = {
+    "Brent spot reference (context)": "布伦特原油",
+    "WTI spot reference (context)": "WTI 原油",
+    "U.S. 2s10s Treasury curve": "美国 2s10s 利差",
+    "U.S. 3m10y Treasury curve": "美国 3m10y 利差",
+    "Broad U.S. Dollar Index (context)": "广义美元指数",
+}
+
+EVENT_TITLE_LABELS = {
+    "CPI": "美国 CPI",
+    "NFP": "美国非农就业",
+    "FOMC": "美联储利率决议",
+}
+
 COUNTRY_MARKETS = {
     "USA": (
         "ust2y_yield_context",
@@ -84,6 +118,14 @@ def _direction(value: Any) -> str:
         return "unavailable"
     number = float(value)
     return "up" if number > 0 else "down" if number < 0 else "flat"
+
+
+def _event_item(item: dict[str, Any]) -> dict[str, Any]:
+    projected = dict(item)
+    release_type = str(projected.get("release_type") or "").upper()
+    if release_type in EVENT_TITLE_LABELS:
+        projected["title"] = EVENT_TITLE_LABELS[release_type]
+    return projected
 
 
 def _market_item(item: dict[str, Any], capabilities: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -210,14 +252,31 @@ def _country_projection(country: dict[str, Any]) -> dict[str, Any]:
 def _change_projection(item: dict[str, Any]) -> dict[str, Any]:
     raw_what = str(item.get("what_changed") or "")
     category = str(item.get("category") or "research")
+    magnitude = item.get("magnitude")
+    if category == "market":
+        label = next(
+            (
+                label
+                for source, label in MARKET_CHANGE_LABELS.items()
+                if raw_what.startswith(source)
+            ),
+            raw_what.split(" up ", 1)[0].split(" down ", 1)[0].split(" flat ", 1)[0],
+        )
+        number = float(magnitude) if magnitude is not None else 0.0
+        direction = "上涨" if number > 0 else "下跌" if number < 0 else "持平"
+        raw_what = f"{label} {direction} {abs(number) * 100:.2f}%"
     inferred = next((key for key in DIMENSION_LABELS if key in raw_what), None)
     if inferred:
         category = inferred
         raw_what = raw_what.replace(inferred, DIMENSION_LABELS[inferred])
+    for key, label in STATE_DIRECTION_LABELS.items():
+        raw_what = raw_what.replace(f"状态为 {key}", f"状态{label}")
     raw_why = item.get("why_it_matters")
     if isinstance(raw_why, str):
         for key, label in DIMENSION_LABELS.items():
             raw_why = raw_why.replace(key, label)
+        for source, label in PRODUCT_TERM_LABELS.items():
+            raw_why = raw_why.replace(source, label)
         # The brief often prefixes the explanation with the same dimension
         # label already rendered as the change headline.  Keep the sentence
         # readable in the product projection instead of repeating it in the
@@ -230,11 +289,13 @@ def _change_projection(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "what": raw_what,
         "why": f" {raw_why}" if isinstance(raw_why, str) and raw_why else raw_why,
-        "magnitude": item.get("magnitude"),
+        "magnitude": magnitude,
         "direction": _direction(item.get("magnitude")),
         "confidence": item.get("confidence", 0.0),
         "category": category,
-        "category_label": DIMENSION_LABELS.get(category, category),
+        "category_label": DIMENSION_LABELS.get(
+            category, "市场" if category == "market" else category
+        ),
         "details_ref": f"/v2/product/{category}",
     }
 
@@ -265,7 +326,7 @@ async def build_today_projection(
     ]
     changes = [_change_projection(item) for item in brief.get("biggest_changes", [])[:5]]
     upcoming = sorted(
-        [item for item in brief.get("upcoming", []) if item.get("scheduled_at")],
+        [_event_item(item) for item in brief.get("upcoming", []) if item.get("scheduled_at")],
         key=lambda item: str(item["scheduled_at"]),
     )[:6]
     return {
@@ -276,7 +337,7 @@ async def build_today_projection(
         "markets": [_market_item(item, capability_map) for item in markets.get("items", [])],
         "what_changed": changes,
         "upcoming": upcoming,
-        "latest_research": brief.get("macro_events", [])[:5],
+        "latest_research": [_event_item(item) for item in brief.get("macro_events", [])[:5]],
         "global": [_country_projection(country) for country in global_macro.get("countries", [])],
         "watch_next": brief.get("watch_next", [])[:6],
         "capability_summary": inventory.get("summary", {}),
@@ -525,7 +586,10 @@ async def build_events_projection(
     engine: AsyncEngine, *, data_mode: DataMode = "observed", limit: int = 500
 ) -> dict[str, Any]:
     """Event workflow projection with clean labels and status metadata."""
-    items = await list_releases(engine, limit=limit, data_mode=data_mode)
+    items = [
+        _event_item(item)
+        for item in await list_releases(engine, limit=limit, data_mode=data_mode)
+    ]
     now = datetime.now(UTC)
 
     def scheduled(item: dict[str, Any]) -> datetime:
@@ -581,7 +645,16 @@ async def build_event_detail_projection(
     data_mode: DataMode = "observed",
 ) -> dict[str, Any] | None:
     """Return a product workflow projection while retaining Event Lab compatibility."""
-    return await build_event_product_detail(engine, release_id, data_mode=data_mode)
+    detail = await build_event_product_detail(engine, release_id, data_mode=data_mode)
+    if detail is None:
+        return None
+    projected = _event_item(detail)
+    if isinstance(projected.get("event"), dict):
+        event = _event_item(projected["event"])
+        if projected.get("title"):
+            event["title"] = projected["title"]
+        projected["event"] = event
+    return projected
 
 
 __all__ = [

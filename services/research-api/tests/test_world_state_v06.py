@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -43,7 +44,7 @@ def test_state_signal_reports_insufficient_history_and_zero_variance() -> None:
     assert gap is None
 
 
-def test_state_history_uses_one_latest_vintage_per_period(tmp_path) -> None:
+def test_state_history_uses_one_latest_vintage_per_period(tmp_path: Path) -> None:
     async def scenario() -> None:
         engine = create_engine(f"sqlite+aiosqlite:///{(tmp_path / 'pit.db').as_posix()}")
         async with engine.begin() as connection:
@@ -155,8 +156,8 @@ def test_state_history_uses_one_latest_vintage_per_period(tmp_path) -> None:
                 as_of=revised_available + timedelta(days=1),
                 data_mode="observed",
             )
-        assert [float(item.value) for item in before_revision] == [100.0]
-        assert [float(item.value) for item in latest] == [105.0, 110.0]
+        assert [item.value for item in before_revision] == [Decimal("100")]
+        assert [item.value for item in latest] == [Decimal("105"), Decimal("110")]
         await engine.dispose()
 
     asyncio.run(scenario())

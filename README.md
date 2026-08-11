@@ -43,8 +43,9 @@ Series Explorer、Thesis Book、结构化上下文助手和全球宏观第一层
   按官方来源工作。没有密钥/权限时 API 会返回 `not_configured` 或 `unavailable`。
 - **Fixture 作用**：干净 demo 数据只用于确认页面和确定性方法链，provider 和
   `data_mode` 都单独标记。真实 observed 覆盖仍需按 v0.5 数据源边界导入。
-- **发布边界**：Tauri/Windows 入口保持可用，但没有冻结 Python sidecar 或签名
-  安装包；空白电脑仍需 Python 3.12、Node.js 20+ 等本机依赖。
+- **发布边界**：已有可重复的 PyInstaller onedir Research API 构建与
+  `/v2/health` smoke，生成物不依赖系统 Python。Tauri 尚未正式捆绑该目录，
+  也没有签名安装包；当前桌面 EXE 仍不是空白电脑独立运行版。
 
 详细方法见 [`docs/macro/v0.6-operational-intelligence.md`](docs/macro/v0.6-operational-intelligence.md)。
 
@@ -56,7 +57,10 @@ v0.5 Data Foundation 正在 PR #8 的 Draft 分支上实施和稳定化，尚未
 - **fixture 已测试**：内置 CPI、非农和 FOMC 研究切片，以及 Provider 响应适配、成本闸门、调度状态机和对账服务的测试样例。fixture 只证明流程可运行，不代表真实数据就绪。
 - **可接真实数据（observed-ready）**：BLS 公共档和 Federal Reserve 公开网页无需密钥；FOMC 支持 2015–2020 官方历史页以及当前/未来会议日历；FRED/ALFRED、Trading Economics 和 Databento 有明确的凭据、PIT、成本和许可边界；CSV 与手工录入仍可用于合法获得的数据。
 - **尚未完成**：本轮无密钥环境没有形成完整 observed 历史。FRED/ALFRED 因缺少 FRED key 被阻塞；TE 当前抓取因缺少 key 被阻塞，历史回放还需要 PIT entitlement；Databento 因缺少 key/数据权限且付费开关默认关闭而被阻塞。BLS 公共模式不需要 key，但本验证网络访问其 schedule HTML 时收到 HTTP 403，且当前 API 不能重建旧的首次公布值；Federal Reserve 公共页已可验证。公开可访问不等于已完成全量回填。
-- **发布打包未就绪**：Tauri 开发构建仍依赖本机 Python 3.12；当前没有冻结 Python sidecar，也没有签名安装包，不能把单独 EXE 当作可在空白电脑独立运行的发布版本。
+- **发布打包未就绪**：日常 Tauri/BAT 启动路径仍使用项目 Python 环境。
+  `scripts/build-research-sidecar.ps1` 已能生成并验证无需系统 Python 的
+  Research API 目录，但尚未接入 Tauri bundle，也没有签名安装包；不能把
+  当前单独桌面 EXE 当作空白电脑独立运行版。
 
 最终测试、迁移和 GitHub CI 结果以 [`docs/stabilization/v0.5-data-foundation-report.md`](docs/stabilization/v0.5-data-foundation-report.md) 的验证记录为准；验证完成前不应将 PR #8 标记为 Ready 或合并。
 

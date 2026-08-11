@@ -21,8 +21,8 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- Product code checkpoints: `c04c1ef` (event workflow), `16621c5` (global observed depth) and `a97385f` (interactive daily markets). Country/dimension drill-down and durable product deep links are the current uncommitted checkpoint; PR #11 remains Draft.
-- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; the local runtime currently contains 147,710 observed macro rows across 70 populated series and 49,832 observed daily/context market bars across 19 instruments. Of those market rows, 5,802 are explicitly WorldState-derived 2s10s/3m10y curve observations. The runtime still has one observed world-state snapshot, zero observed consensus snapshots, zero observed minute bars and zero observed completed AnalysisRuns. Repeated current-public captures can produce more storage rows than unique period observations; product state selects one latest-known row per period at the requested `as_of`.
+- Product code checkpoints: `c04c1ef` (event workflow), `16621c5` (global observed depth), `a97385f` (interactive daily markets) and `ecfc7c7` (country/dimension drill-down and durable deep links). Product/API/sidecar maturation is the current checkpoint; PR #11 remains Draft.
+- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; the local runtime currently contains 148,331 observed macro rows across 70 populated series and 49,832 observed daily/context market bars across 19 instruments. Of those market rows, 5,802 are explicitly WorldState-derived 2s10s/3m10y curve observations. The runtime still has one observed world-state snapshot, zero observed consensus snapshots, zero observed minute bars and zero observed completed AnalysisRuns. Repeated current-public captures can produce more storage rows than unique period observations; product state selects one latest-known row per period at the requested `as_of`.
 - Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/EA/UK observed state coverage, Japan/China unavailable without an official export, 8 context instruments, one observed snapshot, zero observed consensus snapshots, and explicit market/data-quality boundaries.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
   `feature/v0.7-live-global`; do not mark any of them Ready or merge
@@ -271,8 +271,9 @@ Details: [`docs/macro/v0.7-productization.md`](../docs/macro/v0.7-productization
   proxy, not an exchange settlement/close; unavailable semantics produce a gap.
 - DX/VX are futures. ZT/ZN are Treasury-futures price proxies, not exact cash
   yield basis-point series.
-- Python is not frozen into a sidecar; the current desktop build is not a
-  standalone signed installer for a blank computer.
+- A frozen Python sidecar directory now builds and passes migration/health
+  smoke, but Tauri does not yet bundle or select it; the current desktop build
+  is not a standalone signed installer for a blank computer.
 - In a no-key observed database, World State, Daily Brief market confirmation,
   Series Explorer and global country cards can still be partial. The UI
   displays those gaps rather than substituting demo rows; current FRED context
@@ -374,3 +375,24 @@ data or proprietary raw payloads.
 - Ctrl+K searches actual markets, Series, releases, countries and Theses. Live
   browser smoke verified Gold, China CPI, the China/inflation country view and
   a concrete FOMC release.
+
+## Product architecture and sidecar checkpoint (2026-08-11)
+
+- Stable `/v2/product/*` routes now live in `api/v2/product_router.py`; the
+  top-level v2 router only includes that focused router and all URLs remain
+  compatible. The Terminal UI similarly separates shared transport from the
+  Product API while older clients migrate gradually.
+- Learning Mode now uses a concise 12-item concept registry for macro states,
+  rates, risk and event research. Explanations appear only when Learning Mode
+  is enabled and stay contextual rather than becoming encyclopedia pages.
+- Today now renders state directions, focus changes, market freshness, country
+  coverage and actionable empty states in product Chinese. Provider/context
+  labels remain available in Data Details but no longer leak into the first
+  screen.
+- `scripts/build-research-sidecar.ps1` reproducibly creates a PyInstaller
+  onedir Research API for Windows. A clean-database migration and independent
+  `/v2/health` smoke pass without system Python. The verified folder contains
+  1,028 files / 75.2 MB and a 16.6 MB launcher.
+- CI now builds, smokes and uploads the Windows sidecar artifact. Tauri does
+  not yet bundle or select this folder, so the current desktop EXE is still not
+  described as a self-contained release.

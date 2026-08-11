@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 import uuid
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta
@@ -46,6 +47,14 @@ from worldstate.config import Settings
 from worldstate.db.models import BackfillJob, MacroRelease
 from worldstate.db.session import create_engine
 from worldstate.macro_core.errors import MacroEngineError
+
+
+def service_root() -> Path:
+    """Locate Alembic resources in source and PyInstaller sidecar builds."""
+    frozen_root = getattr(sys, "_MEIPASS", None)
+    if frozen_root:
+        return Path(str(frozen_root)).resolve()
+    return Path(__file__).resolve().parents[2]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -455,8 +464,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         from alembic import command
         from alembic.config import Config
 
-        service_root = Path(__file__).resolve().parents[2]
-        command.upgrade(Config(service_root / "alembic.ini"), "head")
+        command.upgrade(Config(service_root() / "alembic.ini"), "head")
         _emit({"status": "ok", "revision": "head"})
         return 0
     return asyncio.run(_run_async(args, settings))

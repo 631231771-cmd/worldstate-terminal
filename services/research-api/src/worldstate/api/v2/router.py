@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from worldstate import __version__
 from worldstate.ai_researcher import answer_question
 from worldstate.api.v2.data_router import data_router, data_write_router
+from worldstate.api.v2.product_router import product_router
 from worldstate.api.v2.schemas import (
     AssistantInput,
     ConsensusCsvInput,
@@ -22,12 +23,6 @@ from worldstate.api.v2.schemas import (
     ContextAssistantInput,
     MarketCsvImportInput,
     OfficialMacroCsvInput,
-    ProductCountryResponse,
-    ProductEventDetail,
-    ProductEventsResponse,
-    ProductMacroResponse,
-    ProductMarketsResponse,
-    ProductTodayResponse,
     ReleaseCreateInput,
     ThesisInput,
     ThesisUpdateInput,
@@ -59,14 +54,6 @@ from worldstate.application.market_research_service import (
     build_market_dashboard,
     get_series_history,
     search_series,
-)
-from worldstate.application.product_projection_service import (
-    build_country_projection,
-    build_event_detail_projection,
-    build_events_projection,
-    build_macro_projection,
-    build_markets_projection,
-    build_today_projection,
 )
 from worldstate.application.release_commands import create_manual_release
 from worldstate.application.release_queries import (
@@ -923,90 +910,6 @@ async def daily_brief(
     return await build_daily_brief(request.app.state.database_engine, data_mode=mode, as_of=as_of)
 
 
-@router.get("/product/today", response_model=ProductTodayResponse, tags=["product"])
-async def product_today(
-    request: Request,
-    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
-    as_of: datetime | None = None,
-) -> dict[str, object]:
-    """Capability-driven first-screen projection for the terminal shell."""
-    mode = requested_data_mode(request, data_mode)
-    return await build_today_projection(
-        request.app.state.database_engine,
-        data_mode=mode,
-        as_of=as_of,
-    )
-
-
-@router.get("/product/markets", response_model=ProductMarketsResponse, tags=["product"])
-async def product_markets(
-    request: Request,
-    data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
-) -> dict[str, object]:
-    return await build_markets_projection(
-        request.app.state.database_engine,
-        data_mode=data_mode,
-    )
-
-
-@router.get("/product/macro", response_model=ProductMacroResponse, tags=["product"])
-async def product_macro(
-    request: Request,
-    data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
-) -> dict[str, object]:
-    return await build_macro_projection(
-        request.app.state.database_engine,
-        data_mode=data_mode,
-    )
-
-
-@router.get(
-    "/product/macro/{country_key}",
-    response_model=ProductCountryResponse,
-    tags=["product"],
-)
-async def product_country(
-    country_key: str,
-    request: Request,
-    dimension: str | None = Query(default=None),
-    data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
-) -> dict[str, object]:
-    detail = await build_country_projection(
-        request.app.state.database_engine,
-        country_key.upper(),
-        data_mode=data_mode,
-        dimension=dimension,
-    )
-    return required(detail, "country not found")
-
-
-@router.get("/product/events", response_model=ProductEventsResponse, tags=["product"])
-async def product_events(
-    request: Request,
-    data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
-    limit: int = Query(500, ge=1, le=1000),
-) -> dict[str, object]:
-    return await build_events_projection(
-        request.app.state.database_engine,
-        data_mode=data_mode,
-        limit=limit,
-    )
-
-
-@router.get("/product/events/{release_id}", response_model=ProductEventDetail, tags=["product"])
-async def product_event_detail(
-    release_id: str,
-    request: Request,
-    data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
-) -> dict[str, object]:
-    detail = await build_event_detail_projection(
-        request.app.state.database_engine,
-        release_id,
-        data_mode=data_mode,
-    )
-    return required(detail, "event not found")
-
-
 @router.get("/market-dashboard", tags=["market"])
 async def market_dashboard(
     request: Request,
@@ -1275,5 +1178,6 @@ async def context_assistant(
 
 
 # Data Foundation has public read routes and separately protected state-changing routes.
+router.include_router(product_router)
 router.include_router(data_router)
 router.include_router(data_write_router, dependencies=[Depends(require_write_access)])

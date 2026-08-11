@@ -61,3 +61,24 @@ jobs:
       - run: cargo check --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml
       - run: cargo test --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml
       - run: npm run build --prefix apps/desktop-tauri -- --no-bundle
+
+  research-sidecar-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.31"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --group dev --directory services/research-api
+      - name: Build and smoke frozen Research API
+        shell: powershell
+        run: ./scripts/build-research-sidecar.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worldstate-research-api-windows
+          path: apps/desktop-tauri/src-tauri/bin/worldstate-research-api
+          if-no-files-found: error

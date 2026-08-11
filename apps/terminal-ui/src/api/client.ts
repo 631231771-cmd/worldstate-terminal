@@ -16,68 +16,14 @@ import type {
   WorldStateResponse,
   DataFreshnessResponse,
 } from "../types";
-import type { ConsensusCsvPreview, DatasetCapability, EventMinutePreview, ProductCountryDetail, ProductEventDetail, ProductEventsResponse, ProductMacroResponse, ProductMarketsResponse, ProductTodayResponse } from "../types/product";
+import type { ConsensusCsvPreview, DatasetCapability, EventMinutePreview } from "../types/product";
+import { productApi } from "./product";
+import { request } from "./transport";
 
-const configuredBase = import.meta.env.VITE_RESEARCH_API_URL as string | undefined;
-export const API_BASE = configuredBase?.replace(/\/$/, "") ?? "";
-
-export class ApiError extends Error {
-  readonly status: number | null;
-  readonly technicalDetail: string;
-
-  constructor(message: string, status: number | null, technicalDetail = message) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.technicalDetail = technicalDetail;
-  }
-}
-
-async function request<T>(
-  path: string,
-  init?: RequestInit,
-  acceptedErrorStatuses: readonly number[] = [],
-  timeoutMs = 15_000,
-): Promise<T> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    let response: Response;
-    try {
-      response = await fetch(`${API_BASE}${path}`, {
-        ...init,
-        signal: controller.signal,
-        headers: { "Content-Type": "application/json", ...init?.headers },
-      });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        throw new ApiError("Data request timed out. Try again.", null, error.message);
-      }
-      throw new ApiError("Research service is unavailable. Check that WorldState is running.", null, error instanceof Error ? error.message : String(error));
-    }
-    if (!response.ok && !acceptedErrorStatuses.includes(response.status)) {
-      const raw = await response.text();
-      let detail = raw;
-      try {
-        const parsed = JSON.parse(raw) as { detail?: string };
-        detail = parsed.detail ?? raw;
-      } catch {
-        // Keep the raw body as technical detail when it is not JSON.
-      }
-      const userMessage = response.status >= 500
-        ? "The research service returned an error. Open Data Sources for diagnostics."
-        : response.status === 404
-          ? "This research view is not available in the current service version."
-          : detail || `Request failed (${response.status})`;
-      throw new ApiError(userMessage, response.status, detail || `HTTP ${response.status}`);
-    }
-    return (await response.json()) as T;
-  } finally {
-    window.clearTimeout(timeout);
-  }
-}
+export { API_BASE, ApiError } from "./transport";
 
 export const api = {
+  ...productApi,
   health: () =>
     request<{
       status: string;
@@ -96,18 +42,6 @@ export const api = {
       data_note: string;
     }>("/v2/today"),
   dailyBrief: () => request<DailyBriefResponse>("/v2/daily-brief"),
-  productToday: (dataMode: "observed" | "fixture" | "all" = "observed") =>
-    request<ProductTodayResponse>(`/v2/product/today?data_mode=${dataMode}`, undefined, [], 45_000),
-  productMarkets: (dataMode: "observed" | "fixture" | "all" = "observed") =>
-    request<ProductMarketsResponse>(`/v2/product/markets?data_mode=${dataMode}`, undefined, [], 45_000),
-  productMacro: (dataMode: "observed" | "fixture" | "all" = "observed") =>
-    request<ProductMacroResponse>(`/v2/product/macro?data_mode=${dataMode}`, undefined, [], 45_000),
-  productCountry: (country: string, dimension?: string, dataMode: "observed" | "fixture" | "all" = "observed") =>
-    request<ProductCountryDetail>(`/v2/product/macro/${encodeURIComponent(country)}?data_mode=${dataMode}${dimension ? `&dimension=${encodeURIComponent(dimension)}` : ""}`, undefined, [], 45_000),
-  productEvents: (dataMode: "observed" | "fixture" | "all" = "observed", limit = 500) =>
-    request<ProductEventsResponse>(`/v2/product/events?data_mode=${dataMode}&limit=${limit}`, undefined, [], 45_000),
-  productEvent: (id: string, dataMode: "observed" | "fixture" | "all" = "observed") =>
-    request<ProductEventDetail>(`/v2/product/events/${encodeURIComponent(id)}?data_mode=${dataMode}`, undefined, [], 45_000),
   worldState: () => request<WorldStateResponse>("/v2/world-state"),
   globalMacro: () => request<Record<string, unknown>>("/v2/global-macro"),
   macroSystems: () => request<Record<string, unknown>>("/v2/macro-systems"),

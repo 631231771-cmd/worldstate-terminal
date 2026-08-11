@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import type { ProductCountry, ProductMacroResponse } from "../../types/product";
 import { Badge, DetailsDisclosure, Panel } from "../../components/Primitives";
+import { ConceptStrip } from "../../components/ConceptHelp";
 
 const DIMENSIONS = ["growth", "inflation", "policy_tightness", "liquidity", "credit", "risk"] as const;
 const DIMENSION_LABELS: Record<string, string> = {
@@ -37,12 +38,12 @@ function CountryCell({ country, dimension, onOpen }: { country: ProductCountry; 
   </button>;
 }
 
-export function MacroBoard({ data, selectedCountryKey, onOpenCountry }: { data: ProductMacroResponse; selectedCountryKey?: string | null; onOpenCountry: (country: ProductCountry, dimension?: string) => void }) {
+export function MacroBoard({ data, selectedCountryKey, learningMode, onOpenCountry }: { data: ProductMacroResponse; selectedCountryKey?: string | null; learningMode: boolean; onOpenCountry: (country: ProductCountry, dimension?: string) => void }) {
   const [selected, setSelected] = useState<ProductCountry | null>(null);
   const active = data.countries.find((item) => item.key === selectedCountryKey) ?? selected ?? data.countries[0] ?? null;
   return <div class="workspace workspace--product">
     <section class="page-heading page-heading--compact">
-      <div><div class="eyebrow">MACRO / GLOBAL MATRIX</div><h1>全球宏观矩阵</h1><p>只比较本地真实序列支持的国家与维度；缺失、较旧和部分覆盖不会被自动补齐。</p></div>
+      <div><div class="eyebrow">MACRO / GLOBAL MATRIX</div><h1>全球宏观矩阵</h1><p>只比较本地真实序列支持的国家与维度；缺失、较旧和部分覆盖不会被自动补齐。</p><ConceptStrip concepts={["growth", "inflation", "liquidity", "policy_tightness"]} active={learningMode} /></div>
       <div class="page-heading__aside"><Badge tone="info">{data.countries.filter((item) => item.available_dimensions.length > 0).length} 个经济体有数据</Badge></div>
     </section>
     <Panel title="全球状态" eyebrow="GROWTH / INFLATION / POLICY / LIQUIDITY / CREDIT / RISK">
