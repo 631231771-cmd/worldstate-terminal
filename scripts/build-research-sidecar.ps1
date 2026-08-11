@@ -73,15 +73,27 @@ Copy-Item -Path (Join-Path $builtRoot "*") -Destination $TargetRoot -Recurse -Fo
 Move-Item -LiteralPath (Join-Path $TargetRoot "worldstate-research-api.exe") -Destination $TargetPath -Force
 
 if (-not $SkipSmoke) {
-    $SmokeRoot = Join-Path $env:TEMP "worldstate-sidecar-smoke"
-    New-Item -ItemType Directory -Force -Path $SmokeRoot | Out-Null
+    # Smoke from a clean, repo-independent install directory.  This catches
+    # accidental imports/resources from the source checkout and keeps the
+    # database in a writable runtime directory rather than beside the EXE.
+    $SmokeRoot = Join-Path $env:TEMP "worldstate-sidecar-smoke-v07"
+    $SmokeInstall = Join-Path $SmokeRoot "install"
+    $SmokeWorking = Join-Path $SmokeRoot "working"
+    $smokeParent = [System.IO.Path]::GetFullPath((Split-Path -Parent $SmokeRoot))
+    $tempRoot = [System.IO.Path]::GetFullPath($env:TEMP)
+    if (-not $smokeParent.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to clean a smoke path outside TEMP: $SmokeRoot"
+    }
+    if (Test-Path -LiteralPath $SmokeRoot) { Remove-Item -LiteralPath $SmokeRoot -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $SmokeInstall, $SmokeWorking | Out-Null
+    Copy-Item -Path (Join-Path $builtRoot "*") -Destination $SmokeInstall -Recurse -Force
+    $SmokeExe = Join-Path $SmokeInstall "worldstate-research-api.exe"
     $DatabasePath = Join-Path $SmokeRoot "worldstate.db"
-    if (Test-Path -LiteralPath $DatabasePath) { Remove-Item -LiteralPath $DatabasePath -Force }
     $env:WORLDSTATE_DATABASE_URL = "sqlite+aiosqlite:///$($DatabasePath.Replace('\', '/'))"
-    $env:WORLDSTATE_ROOT = $RepoRoot
-    & $TargetPath migrate
+    Remove-Item Env:WORLDSTATE_ROOT -ErrorAction SilentlyContinue
+    & $SmokeExe migrate
     if ($LASTEXITCODE -ne 0) { throw "Frozen sidecar migration smoke failed" }
-    $Process = Start-Process -FilePath $TargetPath -ArgumentList @("serve", "--host", "127.0.0.1", "--port", "8765") -PassThru -WindowStyle Hidden
+    $Process = Start-Process -FilePath $SmokeExe -WorkingDirectory $SmokeWorking -ArgumentList @("serve", "--host", "127.0.0.1", "--port", "8765") -PassThru -WindowStyle Hidden
     try {
         $Healthy = $false
         for ($attempt = 0; $attempt -lt 30; $attempt++) {
@@ -95,6 +107,14 @@ if (-not $SkipSmoke) {
             } catch { }
         }
         if (-not $Healthy) { throw "Frozen sidecar did not pass /v2/health smoke" }
+        foreach ($endpoint in @("today", "markets", "macro", "events")) {
+            $bodyPath = Join-Path $SmokeRoot "$endpoint.json"
+            $statusCode = (& curl.exe --silent --show-error --max-time 5 --output $bodyPath --write-out "%{http_code}" "http://127.0.0.1:8765/v2/product/$endpoint").Trim()
+            if ($statusCode -ne "200") {
+                $body = if (Test-Path -LiteralPath $bodyPath) { Get-Content -LiteralPath $bodyPath -Raw } else { "" }
+                throw "Frozen sidecar product smoke failed: $endpoint ($statusCode) $body"
+            }
+        }
     } finally {
         if (-not $Process.HasExited) { Stop-Process -Id $Process.Id -Force }
     }
