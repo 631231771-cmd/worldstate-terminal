@@ -66,7 +66,9 @@ export interface ProductMarketItem {
   status: "available" | "missing";
   freshness: string;
   proxy: boolean;
+  derived: boolean;
   sparkline?: number[];
+  chart_points?: Array<{ time: string; value: number }>;
   horizons?: Record<"1d" | "1w" | "1m" | "3m", { value: number | null; unit: "%" | "bp"; direction: string }>;
   capabilities: Record<string, CapabilityDimension>;
   details: {
@@ -77,6 +79,10 @@ export interface ProductMarketItem {
     limitation: string | null;
     timestamp: string | null;
     granularity_seconds: number | null;
+    derivation?: { input_datasets?: string[]; formula?: string | null; calculation_version?: string | null; calculated_at?: string | null } | null;
+    continuity_status?: string | null;
+    continuity_segments?: Array<{ active: boolean; provider: string; source_symbol: string; interval_seconds: number; start: string; end: string; rows: number }>;
+    active_segment_rows?: number | null;
   };
 }
 

@@ -168,6 +168,13 @@ async def _ensure_catalog(session: AsyncSession) -> None:
         row.canonical_key: row for row in (await session.scalars(select(MarketInstrument))).all()
     }
     for instrument_definition in INSTRUMENTS:
+        instrument_metadata = {
+            "catalog_version": CODE_VERSION,
+            "derived": instrument_definition.is_derived,
+            "input_datasets": list(instrument_definition.input_datasets),
+            "formula": instrument_definition.formula,
+            "calculation_version": instrument_definition.calculation_version,
+        }
         existing_instrument = existing_instruments.get(instrument_definition.key)
         if existing_instrument is not None:
             existing_instrument.symbol = instrument_definition.symbol
@@ -181,7 +188,7 @@ async def _ensure_catalog(session: AsyncSession) -> None:
             existing_instrument.is_proxy = instrument_definition.is_proxy
             existing_instrument.proxy_for = instrument_definition.proxy_for
             existing_instrument.active = True
-            existing_instrument.metadata_json = {"catalog_version": CODE_VERSION}
+            existing_instrument.metadata_json = instrument_metadata
             continue
         session.add(
             MarketInstrument(
@@ -198,7 +205,7 @@ async def _ensure_catalog(session: AsyncSession) -> None:
                 is_proxy=instrument_definition.is_proxy,
                 proxy_for=instrument_definition.proxy_for,
                 active=True,
-                metadata_json={"catalog_version": CODE_VERSION},
+                metadata_json=instrument_metadata,
                 created_at=now,
                 updated_at=now,
             )

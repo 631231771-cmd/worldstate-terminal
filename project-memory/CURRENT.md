@@ -22,7 +22,7 @@ longer part of the active architecture. Their final state is preserved at tag
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
 - Product code checkpoint: `c04c1ef` (`feat: operationalize event research workflow`); the global-depth follow-up is being validated and PR #11 remains Draft.
-- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; the local runtime currently contains 129,547 observed macro rows across 64 populated series, 20,026 observed daily/context market bars across eight instruments, one observed world-state snapshot, zero observed consensus snapshots, zero observed minute bars and zero observed completed AnalysisRuns. Repeated current-public captures can produce more storage rows than unique period observations; product state selects one latest-known row per period at the requested `as_of`.
+- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; the local runtime currently contains 147,710 observed macro rows across 70 populated series and 49,832 observed daily/context market bars across 19 instruments. Of those market rows, 5,802 are explicitly WorldState-derived 2s10s/3m10y curve observations. The runtime still has one observed world-state snapshot, zero observed consensus snapshots, zero observed minute bars and zero observed completed AnalysisRuns. Repeated current-public captures can produce more storage rows than unique period observations; product state selects one latest-known row per period at the requested `as_of`.
 - Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/EA/UK observed state coverage, Japan/China unavailable without an official export, 8 context instruments, one observed snapshot, zero observed consensus snapshots, and explicit market/data-quality boundaries.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
   `feature/v0.7-live-global`; do not mark any of them Ready or merge
@@ -291,6 +291,15 @@ Details: [`docs/macro/v0.7-productization.md`](../docs/macro/v0.7-productization
   `as_of`, not from the fetch timestamp or today's date. FRED catalog sync also
   preserves USA/China/Japan/euro-area/UK entity ownership instead of assigning
   all catalog series to USA.
+
+- The daily market board has 19 locally populated assets: 3M/2Y/5Y/10Y/30Y
+  Treasury yields, 10Y real yield, 2s10s and 3m10y curves, broad USD,
+  EUR/USD, USD/JPY, USD/CNY, S&P 500, Nasdaq-100, gold, WTI, Brent, VIX and
+  U.S. high-yield spread. Public FRED rows remain daily context/non-PIT. Curve
+  bars are calculated locally from matched observed input dates and persist
+  input bar IDs, formula, calculation version and calculated-at metadata.
+  Market change and chart paths use only the newest compatible continuity
+  segment; provider/identity changes or large gaps are not silently joined.
 
 - On 2026-08-10 the public BLS current-state sync completed (659 rows read,
   532 written in the five-year catch-up; 621 observed rows remain after

@@ -72,13 +72,36 @@ _FRED_FOUNDATION_SERIES = {
 
 _FRED_MARKET_CONTEXT = {
     "SP500": "sp500_cash",
+    "NASDAQ100": "nasdaq100_cash",
     "VIXCLS": "vix_cash",
     "DCOILWTICO": "wti_spot",
     "DCOILBRENTEU": "brent_spot",
     "DTWEXBGS": "dollar_broad_context",
     "DGS2": "ust2y_yield_context",
+    "DGS3MO": "ust3m_yield_context",
+    "DGS5": "ust5y_yield_context",
     "DGS10": "ust10y_yield_context",
+    "DGS30": "ust30y_yield_context",
+    "DFII10": "ust10y_real_yield_context",
+    "DEXUSEU": "eurusd_context",
+    "DEXJPUS": "usdjpy_context",
+    "DEXCHUS": "usdcny_context",
+    "BAMLH0A0HYM2": "hy_spread_context",
 }
+
+_DERIVED_MARKET_CONTEXT = {
+    "curve_2s10s_derived": (
+        "ust10y_yield_context",
+        "ust2y_yield_context",
+        "US10Y - US2Y",
+    ),
+    "curve_3m10y_derived": (
+        "ust10y_yield_context",
+        "ust3m_yield_context",
+        "US10Y - US3M",
+    ),
+}
+_DERIVED_MARKET_VERSION = "market-derived-v1"
 
 _FOMC_VALUE_PARSER_VERSION = "fomc-target-range-v2"
 _INVALIDATED_RELEASE_STATUS = "invalidated"
@@ -154,6 +177,123 @@ async def _upsert_fred_context_bar(
     else:
         for key, value in values.items():
             setattr(bar, key, value)
+
+
+async def _sync_derived_market_context(
+    engine: AsyncEngine, *, calculated_at: datetime
+) -> int:
+    """Persist auditable curve spreads from locally observed input bars."""
+
+    written = 0
+    factory = _factory(engine)
+    async with factory() as session, session.begin():
+        keys = {
+            key
+            for output_key, (left_key, right_key, _) in _DERIVED_MARKET_CONTEXT.items()
+            for key in (output_key, left_key, right_key)
+        }
+        instruments = {
+            row.canonical_key: row
+            for row in (
+                await session.scalars(
+                    select(MarketInstrument).where(MarketInstrument.canonical_key.in_(keys))
+                )
+            ).all()
+        }
+        for output_key, (left_key, right_key, formula) in _DERIVED_MARKET_CONTEXT.items():
+            output = instruments.get(output_key)
+            left = instruments.get(left_key)
+            right = instruments.get(right_key)
+            if output is None or left is None or right is None:
+                continue
+            left_bars = {
+                _aware(row.timestamp): row
+                for row in (
+                    await session.scalars(
+                        select(MarketBar).where(
+                            MarketBar.instrument_id == left.id,
+                            MarketBar.provider_key == "fred_alfred",
+                            MarketBar.interval_seconds == 86400,
+                            MarketBar.data_mode == "observed",
+                        )
+                    )
+                ).all()
+            }
+            right_bars = {
+                _aware(row.timestamp): row
+                for row in (
+                    await session.scalars(
+                        select(MarketBar).where(
+                            MarketBar.instrument_id == right.id,
+                            MarketBar.provider_key == "fred_alfred",
+                            MarketBar.interval_seconds == 86400,
+                            MarketBar.data_mode == "observed",
+                        )
+                    )
+                ).all()
+            }
+            existing = {
+                _aware(row.timestamp): row
+                for row in (
+                    await session.scalars(
+                        select(MarketBar).where(
+                            MarketBar.instrument_id == output.id,
+                            MarketBar.provider_key == "worldstate_derived",
+                            MarketBar.interval_seconds == 86400,
+                            MarketBar.data_mode == "observed",
+                        )
+                    )
+                ).all()
+            }
+            for timestamp in sorted(left_bars.keys() & right_bars.keys()):
+                left_bar = left_bars[timestamp]
+                right_bar = right_bars[timestamp]
+                value = left_bar.close_value - right_bar.close_value
+                metadata = {
+                    "context_only": True,
+                    "not_event_window": True,
+                    "derived": True,
+                    "input_datasets": [left_key, right_key],
+                    "input_bar_ids": [left_bar.id, right_bar.id],
+                    "formula": formula,
+                    "calculation_version": _DERIVED_MARKET_VERSION,
+                    "calculated_at": calculated_at.isoformat(),
+                    "point_in_time": bool(left_bar.metadata_json.get("point_in_time"))
+                    and bool(right_bar.metadata_json.get("point_in_time")),
+                }
+                values = {
+                    "open_value": value,
+                    "high_value": value,
+                    "low_value": value,
+                    "close_value": value,
+                    "volume": None,
+                    "source_symbol": f"{left.symbol}-{right.symbol}",
+                    "contract_code": "",
+                    "is_regular_session": True,
+                    "quality_id": left_bar.quality_id
+                    if left_bar.quality_id == right_bar.quality_id
+                    else None,
+                    "fetched_at": calculated_at,
+                    "metadata_json": metadata,
+                }
+                row = existing.get(timestamp)
+                if row is None:
+                    session.add(
+                        MarketBar(
+                            instrument_id=output.id,
+                            futures_contract_id=None,
+                            timestamp=timestamp,
+                            interval_seconds=86400,
+                            provider_key="worldstate_derived",
+                            data_mode="observed",
+                            **values,
+                        )
+                    )
+                    written += 1
+                else:
+                    for field, field_value in values.items():
+                        setattr(row, field, field_value)
+    return written
 
 
 async def _upsert_release_stage(
@@ -1612,6 +1752,14 @@ async def sync_fred_foundation(
                             retrieved_at=batch.retrieved_at,
                             native_id=definition.native_id,
                         )
+        derived_written = await _sync_derived_market_context(
+            engine, calculated_at=datetime.now(UTC)
+        )
+        written += derived_written
+        if derived_written:
+            warnings.append(
+                f"persisted {derived_written} WorldState-derived Treasury curve observations"
+            )
         await upsert_entitlement(
             engine,
             provider_key=clients.fred.key,

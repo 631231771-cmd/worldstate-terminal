@@ -186,7 +186,9 @@ class ProductMarketItem(StrictModel):
     status: str
     freshness: str
     proxy: bool = False
+    derived: bool = False
     sparkline: list[float] = Field(default_factory=list)
+    chart_points: list[dict[str, object]] = Field(default_factory=list)
     horizons: dict[Literal["1d", "1w", "1m", "3m"], MarketHorizon] = Field(default_factory=dict)
     capabilities: dict[str, object] = Field(default_factory=dict)
     details: dict[str, object] = Field(default_factory=dict)

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.0",
+    "lightweight-charts": "^5.2.0",
     "preact": "^10.25.4"
   },
   "devDependencies": {

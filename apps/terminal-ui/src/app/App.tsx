@@ -2,6 +2,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api/client";
 import { Badge, DetailsDisclosure, Drawer, Panel, StateMessage } from "../components/Primitives";
+import { TimeSeriesChart, type ChartHorizon } from "../components/TimeSeriesChart";
 import { WorkspaceBoundary } from "../components/WorkspaceBoundary";
 import type { ReleaseSummary } from "../types";
 import type { ProductCountry, ProductDimension, ProductEventDetail, ProductEventsResponse, ProductMarketItem, ProductMarketsResponse, ProductMacroResponse, ProductTodayResponse } from "../types/product";
@@ -44,7 +45,24 @@ function preferredRelease(items: ReleaseSummary[]): ReleaseSummary | null {
 
 function CapabilityDetails({ capabilities, advanced }: { capabilities: Record<string, { available: boolean; status: string; reason: string | null }>; advanced: boolean }) {
   const names = ["CURRENT_STATE", "MACRO_HISTORY", "POINT_IN_TIME", "EVENT_INTRADAY", "HISTORICAL_REPLAY", "SURPRISE_ELIGIBLE"];
-  return <dl class="detail-grid">{names.map((name) => <div key={name}><dt>{name.replaceAll("_", " ")}</dt><dd>{capabilities[name]?.available ? "Available" : advanced ? capabilities[name]?.reason ?? "Not available" : "Not available"}</dd></div>)}</dl>;
+  const labels: Record<string, string> = { CURRENT_STATE: "当前状态", MACRO_HISTORY: "宏观历史", POINT_IN_TIME: "PIT", EVENT_INTRADAY: "事件分钟", HISTORICAL_REPLAY: "历史回放", SURPRISE_ELIGIBLE: "惊喜计算" };
+  return <dl class="detail-grid">{names.map((name) => <div key={name}><dt>{labels[name] ?? name}</dt><dd>{capabilities[name]?.available ? "可用" : advanced ? capabilities[name]?.reason ?? "不可用" : "不可用"}</dd></div>)}</dl>;
+}
+
+function MarketDrawerContent({ item, advanced }: { item: ProductMarketItem; advanced: boolean }) {
+  const [horizon, setHorizon] = useState<ChartHorizon>("1m");
+  const horizons: ChartHorizon[] = ["1w", "1m", "3m", "1y"];
+  return <>
+    <div class="drawer-kpi"><strong>{item.formatted_value}</strong><Badge tone={item.direction === "down" ? "warn" : "info"}>{item.change == null ? "暂无变化" : `${item.change > 0 ? "+" : ""}${item.change.toFixed(2)} ${item.change_unit}`}</Badge></div>
+    <Panel title="价格轨迹" eyebrow="CONTINUOUS OBSERVATIONS" aside={item.derived ? <Badge tone="info">派生序列</Badge> : null}>
+      <div class="chart-horizons">{horizons.map((value) => <button type="button" class={horizon === value ? "active" : ""} onClick={() => setHorizon(value)} key={value}>{value.toUpperCase()}</button>)}</div>
+      <TimeSeriesChart points={item.chart_points ?? []} horizon={horizon} />
+      {item.details.continuity_status === "segmented" ? <p class="chart-warning">检测到不兼容的数据区段；图表和涨跌只使用最新连续区段。</p> : null}
+    </Panel>
+    <Panel title="研究关联" eyebrow="MACRO CONTEXT"><div class="context-links"><span>实际利率</span><span>美元</span><span>通胀</span><span>流动性</span></div></Panel>
+    <Panel title="数据能力" eyebrow="CAPABILITY"><CapabilityDetails capabilities={item.capabilities} advanced={advanced} /></Panel>
+    <DetailsDisclosure label="数据详情"><dl class="detail-grid"><div><dt>来源</dt><dd>{item.details.provider ?? "未记录"}</dd></div><div><dt>质量</dt><dd>{item.details.quality ?? "UNKNOWN"}</dd></div><div><dt>限制</dt><dd>{item.details.limitation ?? "无额外记录"}</dd></div><div><dt>最新时间</dt><dd>{item.details.timestamp ?? "—"}</dd></div>{item.derived ? <><div><dt>公式</dt><dd>{item.details.derivation?.formula ?? "—"}</dd></div><div><dt>计算版本</dt><dd>{item.details.derivation?.calculation_version ?? "—"}</dd></div></> : null}<div><dt>连续区段</dt><dd>{item.details.continuity_segments?.length ?? 0}</dd></div></dl></DetailsDisclosure>
+  </>;
 }
 
 export function App() {
@@ -143,12 +161,7 @@ export function App() {
     try { setSelectedDetail(await api.productEvent(id)); } catch { setSelectedDetail(null); }
   };
   const openMarket = (item: ProductMarketItem) => {
-    const values = item.sparkline ?? [];
-    const min = values.length ? Math.min(...values) : 0;
-    const max = values.length ? Math.max(...values) : 1;
-    const span = max - min || 1;
-    const points = values.map((value, index) => `${(index / Math.max(1, values.length - 1)) * 100},${28 - ((value - min) / span) * 24}`).join(" ");
-    setDrawer({ title: item.label, body: <><div class="drawer-kpi"><strong>{item.formatted_value}</strong><Badge tone={item.direction === "down" ? "warn" : "info"}>{item.change == null ? "No change" : `${item.change > 0 ? "+" : ""}${item.change.toFixed(2)} ${item.change_unit}`}</Badge></div><Panel title="Trend" eyebrow="VALID OBSERVATIONS"><div class="drawer-chart"><svg viewBox="0 0 100 30" preserveAspectRatio="none"><polyline points={points} /></svg></div></Panel><Panel title="Data capability" eyebrow="CAPABILITY"><CapabilityDetails capabilities={item.capabilities} advanced={advancedMode} /></Panel><DetailsDisclosure label="Data details"><dl class="detail-grid"><div><dt>Provider</dt><dd>{item.details.provider ?? "Not recorded"}</dd></div><div><dt>Quality</dt><dd>{item.details.quality ?? "UNKNOWN"}</dd></div><div><dt>Limitation</dt><dd>{item.details.limitation ?? "None recorded"}</dd></div><div><dt>Latest</dt><dd>{item.details.timestamp ?? "—"}</dd></div></dl></DetailsDisclosure></> });
+    setDrawer({ title: item.label, body: <MarketDrawerContent item={item} advanced={advancedMode} /> });
   };
   const openDimension = (item: ProductDimension) => setDrawer({ title: item.label, body: <><div class="drawer-kpi"><strong>{item.score == null ? "—" : item.score.toFixed(2)}</strong><Badge tone="info">{item.direction}</Badge></div><Panel title="Current state" eyebrow="MACRO DIMENSION"><dl class="detail-grid"><div><dt>Momentum</dt><dd>{item.momentum == null ? "—" : item.momentum.toFixed(2)}</dd></div><div><dt>Confidence</dt><dd>{Math.round(item.confidence * 100)}%</dd></div><div><dt>Coverage</dt><dd>{Math.round(item.coverage * 100)}%</dd></div></dl></Panel><Panel title="Top drivers" eyebrow="STRUCTURED INPUTS"><ul class="boundary-list">{item.drivers.map((driver) => <li key={driver.series_key}>{driver.title ?? driver.series_key ?? "Series"}</li>)}</ul></Panel><DetailsDisclosure label="Why this state?"><p class="method-note">This is a structured state signal, not a trading signal or a single causal conclusion.</p></DetailsDisclosure></> });
   const openCountry = (item: ProductCountry) => setDrawer({ title: item.label, body: <><div class="drawer-kpi"><strong>{item.status}</strong><Badge tone={item.status === "available" ? "good" : item.status === "partial" ? "warn" : "neutral"}>{item.available_dimensions.length} dimensions</Badge></div><Panel title="Country state" eyebrow="COUNTRY DETAIL"><div class="board-grid board-grid--markets">{Object.entries(item.dimensions).map(([key, value]) => <div class="metric-tile" key={key}><span class="metric-tile__label">{key}</span><strong class="metric-tile__value">{value.score == null ? "—" : value.score.toFixed(2)}</strong><span class="metric-tile__meta">{value.direction}</span></div>)}</div></Panel><DetailsDisclosure label="Data boundaries"><p class="method-note">{item.details.limitations.join(" ") || "Computed from local Series and Observation data."}</p></DetailsDisclosure></> });

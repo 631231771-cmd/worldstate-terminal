@@ -35,12 +35,18 @@ MARKET_LABELS = {
     "ust5y_yield_context": "\u7f8e\u56fd 5Y",
     "ust10y_yield_context": "\u7f8e\u56fd 10Y",
     "ust30y_yield_context": "\u7f8e\u56fd 30Y",
+    "ust3m_yield_context": "\u7f8e\u56fd 3M",
+    "ust10y_real_yield_context": "\u7f8e\u56fd 10Y \u5b9e\u9645\u5229\u7387",
+    "curve_2s10s_derived": "2s10s \u5229\u5dee",
+    "curve_3m10y_derived": "3m10y \u5229\u5dee",
     "dollar_broad_context": "\u7f8e\u5143",
     "eurusd_context": "EUR/USD",
     "usdjpy_context": "USD/JPY",
+    "usdcny_context": "USD/CNY",
     "wti_spot": "WTI \u539f\u6cb9",
     "brent_spot": "\u5e03\u4f26\u7279\u539f\u6cb9",
     "copper_spot": "\u94dc",
+    "hy_spread_context": "\u7f8e\u56fd\u9ad8\u6536\u76ca\u5229\u5dee",
 }
 COUNTRY_LABELS = {
     "USA": "\u7f8e\u56fd",
@@ -65,7 +71,9 @@ def _direction(value: Any) -> str:
 def _market_item(item: dict[str, Any], capabilities: dict[str, dict[str, Any]]) -> dict[str, Any]:
     key = str(item.get("instrument_key"))
     capability = capabilities.get(key, {})
-    is_rate = "yield" in key or "rate" in str(item.get("instrument_type", "")).lower()
+    is_rate = item.get("change_unit") == "bp" or (
+        "yield" in key or "rate" in str(item.get("instrument_type", "")).lower()
+    )
     change = item.get("change_value")
     if change is None and item.get("change_percent") is not None:
         change = float(item["change_percent"]) / 100.0
@@ -96,7 +104,9 @@ def _market_item(item: dict[str, Any], capabilities: dict[str, dict[str, Any]]) 
         "status": "available" if state.get("available") else "missing",
         "freshness": freshness.get("status", "MISSING"),
         "proxy": bool(item.get("is_proxy")),
+        "derived": bool(item.get("is_derived")),
         "sparkline": item.get("sparkline", []),
+        "chart_points": item.get("chart_points", []),
         "capabilities": capability.get("capabilities", {}),
         "details": {
             "provider": item.get("provider"),
@@ -106,6 +116,10 @@ def _market_item(item: dict[str, Any], capabilities: dict[str, dict[str, Any]]) 
             "limitation": item.get("quality_limitation") or item.get("limitation"),
             "timestamp": item.get("timestamp"),
             "granularity_seconds": item.get("granularity_seconds"),
+            "derivation": item.get("derivation"),
+            "continuity_status": item.get("continuity_status"),
+            "continuity_segments": item.get("continuity_segments", []),
+            "active_segment_rows": item.get("active_segment_rows"),
         },
     }
 
@@ -260,30 +274,61 @@ async def build_markets_projection(
 ) -> dict[str, Any]:
     """Return all market horizons in one product response."""
     now = (as_of or datetime.now(UTC)).astimezone(UTC)
-    import asyncio
-
     horizons: tuple[Literal["1d", "1w", "1m", "3m"], ...] = ("1d", "1w", "1m", "3m")
-    dashboards = await asyncio.gather(
-        *[
-            build_market_dashboard(engine, data_mode=data_mode, horizon=horizon, as_of=now)
-            for horizon in horizons
-        ]
+    dashboard = await build_market_dashboard(
+        engine, data_mode=data_mode, horizon="1d", as_of=now
     )
+    capability_map: dict[str, dict[str, Any]] = {}
+    for item in dashboard.get("items", []):
+        key = str(item.get("instrument_key"))
+        timestamp_text = item.get("timestamp")
+        latest_at = (
+            datetime.fromisoformat(str(timestamp_text).replace("Z", "+00:00")).astimezone(UTC)
+            if timestamp_text
+            else None
+        )
+        stale = latest_at is not None and (now - latest_at).days > 7
+        is_daily = int(item.get("granularity_seconds") or 0) >= 86400
+        is_intraday = int(item.get("granularity_seconds") or 0) <= 60
+        capability_map[key] = {
+            "capabilities": {
+                "CURRENT_STATE": {"available": True, "status": "AVAILABLE", "reason": None},
+                "DAILY_MARKET": {
+                    "available": is_daily,
+                    "status": "AVAILABLE" if is_daily else "MISSING",
+                    "reason": None if is_daily else "No daily bar is stored.",
+                },
+                "EVENT_INTRADAY": {
+                    "available": is_intraday,
+                    "status": "AVAILABLE" if is_intraday else "MISSING",
+                    "reason": None if is_intraday else "Daily context is not event intraday data.",
+                },
+            },
+            "freshness": {
+                "status": "STALE" if stale else "AVAILABLE",
+                "reason": "Latest bar is more than seven days old." if stale else None,
+            },
+        }
     by_key: dict[str, dict[str, Any]] = {}
-    capability_inventory = await build_capability_inventory(engine, data_mode=data_mode, as_of=now)
-    capability_map = _capability_map(capability_inventory)
-    for horizon, dashboard in zip(horizons, dashboards, strict=True):
-        for item in dashboard.get("items", []):
-            key = str(item.get("instrument_key"))
-            if key not in by_key:
-                by_key[key] = _market_item(item, capability_map)
-            by_key[key].setdefault("horizons", {})[horizon] = _market_horizon(item)
+    for item in dashboard.get("items", []):
+        key = str(item.get("instrument_key"))
+        by_key[key] = _market_item(item, capability_map)
+        changes = item.get("horizon_changes", {})
+        by_key[key]["horizons"] = {
+            horizon: _market_horizon(
+                {
+                    **item,
+                    **(changes.get(horizon, {}) if isinstance(changes, dict) else {}),
+                }
+            )
+            for horizon in horizons
+        }
     return {
         "as_of": now.isoformat(),
         "data_mode": data_mode,
         "methodology_version": "wst-markets-v1",
         "items": list(by_key.values()),
-        "limitations": capability_inventory.get("limitations", []),
+        "limitations": dashboard.get("limitations", []),
     }
 
 

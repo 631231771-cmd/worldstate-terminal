@@ -6,7 +6,7 @@ import math
 from datetime import UTC, date, datetime
 from typing import Any, Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from worldstate.application.quality_resolver import resolve_quality_grade
@@ -32,10 +32,79 @@ def _horizon_sessions(horizon: Horizon) -> int:
     }[horizon]
 
 
+_HORIZONS: tuple[Horizon, ...] = ("1d", "1w", "1m", "3m")
+_MARKET_HISTORY_PER_INSTRUMENT = 400
+
+
 def _percentile(value: float, sample: list[float]) -> float | None:
     if not sample:
         return None
     return round(100.0 * sum(item <= value for item in sample) / len(sample), 2)
+
+
+MarketRow = tuple[MarketBar, MarketInstrument, DataQualityRecord | None]
+
+
+def _aware(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _continuity_segments(rows: list[MarketRow]) -> tuple[list[MarketRow], list[dict[str, Any]]]:
+    """Split bars at provider/identity changes and material time gaps.
+
+    The newest compatible segment is the only segment used for changes and the
+    sparkline. Older or incompatible history remains disclosed but is never
+    connected into a synthetic trend.
+    """
+
+    by_signature: dict[tuple[str, int, str, str], list[MarketRow]] = {}
+    for row in rows:
+        bar = row[0]
+        signature = (
+            str(bar.provider_key),
+            int(bar.interval_seconds),
+            str(bar.source_symbol or ""),
+            str(bar.contract_code or ""),
+        )
+        by_signature.setdefault(signature, []).append(row)
+    segments: list[list[MarketRow]] = []
+    for signature_rows in by_signature.values():
+        ordered = sorted(signature_rows, key=lambda item: _aware(item[0].timestamp))
+        current: list[MarketRow] = []
+        previous_at: datetime | None = None
+        for row in ordered:
+            timestamp = _aware(row[0].timestamp)
+            interval = max(1, int(row[0].interval_seconds))
+            maximum_gap = max(interval * 4, 7 * 86400 if interval >= 86400 else interval * 4)
+            if previous_at is not None and (timestamp - previous_at).total_seconds() > maximum_gap:
+                if current:
+                    segments.append(current)
+                current = []
+            current.append(row)
+            previous_at = timestamp
+        if current:
+            segments.append(current)
+    segments.sort(
+        key=lambda segment: (_aware(segment[-1][0].timestamp), len(segment)), reverse=True
+    )
+    descriptions: list[dict[str, Any]] = []
+    for index, segment in enumerate(segments):
+        first = segment[0][0]
+        last = segment[-1][0]
+        descriptions.append(
+            {
+                "active": index == 0,
+                "provider": first.provider_key,
+                "source_symbol": first.source_symbol,
+                "contract_code": first.contract_code or None,
+                "interval_seconds": first.interval_seconds,
+                "start": _aware(first.timestamp).isoformat(),
+                "end": _aware(last.timestamp).isoformat(),
+                "rows": len(segment),
+            }
+        )
+    active = list(reversed(segments[0])) if segments else []
+    return active, descriptions
 
 
 async def build_market_dashboard(
@@ -49,21 +118,39 @@ async def build_market_dashboard(
     session_lag = _horizon_sessions(horizon)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
+        filters = [MarketBar.timestamp <= cutoff]
+        if data_mode != "all":
+            filters.append(MarketBar.data_mode == data_mode)
+        ranked = (
+            select(
+                MarketBar.id.label("bar_id"),
+                func.row_number()
+                .over(
+                    partition_by=MarketBar.instrument_id,
+                    order_by=(MarketBar.timestamp.desc(), MarketBar.id.desc()),
+                )
+                .label("rank"),
+            )
+            .where(*filters)
+            .subquery()
+        )
         query = (
             select(MarketBar, MarketInstrument, DataQualityRecord)
+            .join(ranked, MarketBar.id == ranked.c.bar_id)
             .join(MarketInstrument, MarketInstrument.id == MarketBar.instrument_id)
             .outerjoin(DataQualityRecord, DataQualityRecord.id == MarketBar.quality_id)
-            .where(MarketBar.timestamp <= cutoff)
+            .where(ranked.c.rank <= _MARKET_HISTORY_PER_INSTRUMENT)
             .order_by(MarketBar.timestamp.desc())
         )
-        if data_mode != "all":
-            query = query.where(MarketBar.data_mode == data_mode)
-        rows = (await session.execute(query.limit(30_000))).all()
-    by_key: dict[str, list[tuple[MarketBar, MarketInstrument, DataQualityRecord | None]]] = {}
+        rows = (await session.execute(query)).all()
+    by_key: dict[str, list[MarketRow]] = {}
     for bar, instrument, quality in rows:
         by_key.setdefault(str(instrument.canonical_key), []).append((bar, instrument, quality))
     items: list[dict[str, Any]] = []
-    for key, series in by_key.items():
+    for key, all_rows in by_key.items():
+        series, continuity_segments = _continuity_segments(all_rows)
+        if not series:
+            continue
         latest, instrument, latest_quality = series[0]
         # Use the previous valid observation/session, not wall-clock time.
         # This avoids reporting a false 0.00% on weekends and holidays.
@@ -74,10 +161,19 @@ async def build_market_dashboard(
         if baseline is not None and float(baseline.close_value) != 0:
             change = latest_value / float(baseline.close_value) - 1.0
         level_change = latest_value - float(baseline.close_value) if baseline is not None else None
-        is_rate = "yield" in key or "rate" in instrument.instrument_type.lower()
+        is_rate = instrument.measurement_type in {"yield", "spread"} or (
+            "yield" in key or "rate" in instrument.instrument_type.lower()
+        )
         sparkline = [
             float(bar.close_value)
             for bar, _, _ in reversed(series[:60])
+        ]
+        chart_points = [
+            {
+                "time": _aware(bar.timestamp).isoformat(),
+                "value": float(bar.close_value),
+            }
+            for bar, _, _ in reversed(series)
         ]
         returns: list[float] = []
         previous: float | None = None
@@ -86,6 +182,26 @@ async def build_market_dashboard(
             if previous is not None and previous != 0:
                 returns.append(close / previous - 1.0)
             previous = close
+        horizon_changes: dict[str, dict[str, float | str | None]] = {}
+        for horizon_key in _HORIZONS:
+            lag = _horizon_sessions(horizon_key)
+            horizon_baseline = series[lag][0] if len(series) > lag else None
+            horizon_percent = None
+            horizon_value = None
+            if horizon_baseline is not None:
+                baseline_value = float(horizon_baseline.close_value)
+                if baseline_value != 0:
+                    horizon_percent = latest_value / baseline_value - 1.0
+                horizon_value = latest_value - baseline_value
+            horizon_changes[horizon_key] = {
+                "change_percent": round(horizon_percent * 100, 4)
+                if horizon_percent is not None
+                else None,
+                "change_value": round(horizon_value, 6)
+                if horizon_value is not None
+                else None,
+                "change_unit": "bp" if is_rate else "percent",
+            }
         items.append(
             {
                 "instrument_key": key,
@@ -95,6 +211,15 @@ async def build_market_dashboard(
                 "instrument_type": instrument.instrument_type,
                 "is_proxy": instrument.is_proxy,
                 "proxy_for": instrument.proxy_for,
+                "is_derived": bool(instrument.metadata_json.get("derived")),
+                "derivation": {
+                    "input_datasets": instrument.metadata_json.get("input_datasets", []),
+                    "formula": instrument.metadata_json.get("formula"),
+                    "calculation_version": instrument.metadata_json.get("calculation_version"),
+                    "calculated_at": latest.metadata_json.get("calculated_at"),
+                }
+                if instrument.metadata_json.get("derived")
+                else None,
                 "latest": latest_value,
                 "change_percent": round(change * 100, 4) if change is not None else None,
                 "change_value": round(level_change, 6) if level_change is not None else None,
@@ -103,6 +228,7 @@ async def build_market_dashboard(
                 "window_observations": len(series),
                 "window_semantics": "valid_observation_lag",
                 "sparkline": sparkline,
+                "chart_points": chart_points,
                 "direction": "up"
                 if change and change > 0.0005
                 else "down"
@@ -122,7 +248,13 @@ async def build_market_dashboard(
                 ),
                 "granularity_seconds": latest.interval_seconds,
                 "bar_count": len(series),
-                "data_gap": baseline is None,
+                "data_gap": baseline is None or len(continuity_segments) > 1,
+                "continuity_status": "segmented"
+                if len(continuity_segments) > 1
+                else "continuous",
+                "continuity_segments": continuity_segments,
+                "active_segment_rows": len(series),
+                "horizon_changes": horizon_changes,
                 "limitation": "代理合约或非结算价；仅作跨资产确认线索。"
                 if instrument.is_proxy
                 else None,
