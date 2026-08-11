@@ -16,7 +16,7 @@ import type {
   WorldStateResponse,
   DataFreshnessResponse,
 } from "../types";
-import type { DatasetCapability, ProductEventsResponse, ProductMacroResponse, ProductMarketsResponse, ProductTodayResponse } from "../types/product";
+import type { ConsensusCsvPreview, DatasetCapability, EventMinutePreview, ProductEventDetail, ProductEventsResponse, ProductMacroResponse, ProductMarketsResponse, ProductTodayResponse } from "../types/product";
 
 const configuredBase = import.meta.env.VITE_RESEARCH_API_URL as string | undefined;
 export const API_BASE = configuredBase?.replace(/\/$/, "") ?? "";
@@ -105,7 +105,7 @@ export const api = {
   productEvents: (dataMode: "observed" | "fixture" | "all" = "observed", limit = 500) =>
     request<ProductEventsResponse>(`/v2/product/events?data_mode=${dataMode}&limit=${limit}`, undefined, [], 45_000),
   productEvent: (id: string, dataMode: "observed" | "fixture" | "all" = "observed") =>
-    request<ReleaseDetail>(`/v2/product/events/${encodeURIComponent(id)}?data_mode=${dataMode}`, undefined, [], 45_000),
+    request<ProductEventDetail>(`/v2/product/events/${encodeURIComponent(id)}?data_mode=${dataMode}`, undefined, [], 45_000),
   worldState: () => request<WorldStateResponse>("/v2/world-state"),
   globalMacro: () => request<Record<string, unknown>>("/v2/global-macro"),
   macroSystems: () => request<Record<string, unknown>>("/v2/macro-systems"),
@@ -138,6 +138,16 @@ export const api = {
     `/v2/releases/${encodeURIComponent(releaseId)}/consensus`,
     { method: "POST", body: JSON.stringify(payload) },
   ),
+  previewConsensusCsv: (releaseId: string, csvText: string) =>
+    request<ConsensusCsvPreview>(
+      `/v2/releases/${encodeURIComponent(releaseId)}/consensus/import-csv/preview`,
+      { method: "POST", body: JSON.stringify({ csv_text: csvText }) },
+    ),
+  importConsensusCsv: (releaseId: string, csvText: string) =>
+    request<{ release_id: string; inserted: number; warnings: string[]; preview_summary: ConsensusCsvPreview["summary"] }>(
+      `/v2/releases/${encodeURIComponent(releaseId)}/consensus/import-csv`,
+      { method: "POST", body: JSON.stringify({ csv_text: csvText }) },
+    ),
   windows: (id: string) => request<WindowsResponse>(`/v2/releases/${id}/windows`),
   timeline: (id: string) => request<TimelineResponse>(`/v2/releases/${id}/timeline`),
   historical: (id: string) =>
@@ -192,10 +202,26 @@ export const api = {
     source_url?: string;
     verified?: boolean;
     is_fixture?: boolean;
+    timezone?: string;
+    column_mapping?: Record<string, string>;
   }) => request<Record<string, unknown>>(
     `/v2/releases/${encodeURIComponent(releaseId)}/market-bars/import`,
     { method: "POST", body: JSON.stringify(payload) },
     [207, 424],
+  ),
+  previewMarketBars: (releaseId: string, payload: {
+    instrument_key: string;
+    csv_text: string;
+    provider_key?: string;
+    source_name?: string;
+    source_url?: string;
+    verified?: boolean;
+    is_fixture?: boolean;
+    timezone?: string;
+    column_mapping?: Record<string, string>;
+  }) => request<EventMinutePreview>(
+    `/v2/releases/${encodeURIComponent(releaseId)}/market-bars/preview`,
+    { method: "POST", body: JSON.stringify(payload) },
   ),
   importOfficialMacroCsv: (payload: {
     csv_text: string;

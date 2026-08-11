@@ -3,8 +3,8 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api/client";
 import { Badge, DetailsDisclosure, Drawer, Panel, StateMessage } from "../components/Primitives";
 import { WorkspaceBoundary } from "../components/WorkspaceBoundary";
-import type { ReleaseDetail, ReleaseSummary } from "../types";
-import type { ProductCountry, ProductDimension, ProductEventsResponse, ProductMarketItem, ProductMarketsResponse, ProductMacroResponse, ProductTodayResponse } from "../types/product";
+import type { ReleaseSummary } from "../types";
+import type { ProductCountry, ProductDimension, ProductEventDetail, ProductEventsResponse, ProductMarketItem, ProductMarketsResponse, ProductMacroResponse, ProductTodayResponse } from "../types/product";
 import { DataControlWorkspace } from "../workspaces/data-control/DataControlWorkspace";
 import { DataMethodsWorkspace } from "../workspaces/data-methods/DataMethodsWorkspace";
 import { ResearchWorkspace } from "../workspaces/research/ResearchWorkspace";
@@ -55,7 +55,7 @@ export function App() {
   const [eventsData, setEventsData] = useState<ProductEventsResponse | null>(null);
   const [releases, setReleases] = useState<ReleaseSummary[]>([]);
   const [selectedRelease, setSelectedRelease] = useState<ReleaseSummary | null>(null);
-  const [selectedDetail, setSelectedDetail] = useState<ReleaseDetail | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<ProductEventDetail | null>(null);
   const [health, setHealth] = useState<Awaited<ReturnType<typeof api.health>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +104,14 @@ export function App() {
     void api.productEvent(selectedRelease.id).then(setSelectedDetail).catch(() => setSelectedDetail(null));
   }, [view, selectedRelease?.id]);
   useEffect(() => { const listener = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } }; window.addEventListener("keydown", listener); return () => window.removeEventListener("keydown", listener); }, []);
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const destination = (event as CustomEvent<ProductView>).detail;
+      if (destination) setView(destination);
+    };
+    window.addEventListener("worldstate:navigate", listener);
+    return () => window.removeEventListener("worldstate:navigate", listener);
+  }, []);
   useEffect(() => {
     const query = commandQuery.trim();
     if (query.length < 2) { setSearchEntities([]); return; }

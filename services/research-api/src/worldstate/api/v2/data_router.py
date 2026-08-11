@@ -18,7 +18,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationErro
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from worldstate.api.v2.schemas import BackfillRequestInput
+from worldstate.api.v2.schemas import BackfillAsset, BackfillEventType, BackfillRequestInput
 from worldstate.application.analysis_orchestrator import select_analysis_inputs_from_rows
 from worldstate.application.backfill_service import (
     BackfillEstimate,
@@ -1201,9 +1201,7 @@ def normalize_multi_operation_result(result: dict[str, Any]) -> dict[str, Any]:
     nested_blocked = {
         key: status for key, status in nested_statuses.items() if status in blocked_statuses
     }
-    nested_partial = {
-        key: status for key, status in nested_statuses.items() if status == "partial"
-    }
+    nested_partial = {key: status for key, status in nested_statuses.items() if status == "partial"}
     successful_count = sum(status in successful_statuses for status in nested_statuses.values())
     # A result without its own status is a successful legacy operation result.
     successful_count += sum(not isinstance(value, dict) for value in result_rows.values())
@@ -1429,9 +1427,7 @@ async def bootstrap_free_data(
         )
     except Exception as exc:
         failures["public_macro"] = _safe_service_failure(exc, settings)
-    result = normalize_multi_operation_result(
-        {"results": results, "failures": failures}
-    )
+    result = normalize_multi_operation_result({"results": results, "failures": failures})
     _set_multi_status(response, result)
     return {
         **result,
@@ -1548,8 +1544,10 @@ async def estimate_backfill_endpoint(
         payload = BackfillRequestInput(
             start_date=start_date,
             end_date=end_date,
-            event_types=parse_csv_values(event_types, DEFAULT_EVENT_TYPES),
-            assets=parse_csv_values(assets, DEFAULT_ASSETS),
+            event_types=cast(
+                list[BackfillEventType], list(parse_csv_values(event_types, DEFAULT_EVENT_TYPES))
+            ),
+            assets=cast(list[BackfillAsset], list(parse_csv_values(assets, DEFAULT_ASSETS))),
         )
     except ValidationError as exc:
         detail = [

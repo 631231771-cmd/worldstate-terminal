@@ -39,8 +39,13 @@ from worldstate.application.analysis_persistence import (
     get_analysis_manifest,
     replay_analysis_run,
 )
-from worldstate.application.consensus_service import append_consensus, import_consensus_csv
+from worldstate.application.consensus_service import (
+    append_consensus,
+    import_consensus_csv,
+    preview_consensus_csv,
+)
 from worldstate.application.daily_brief_service import build_daily_brief
+from worldstate.application.event_intraday_service import preview_event_minute_csv
 from worldstate.application.evidence_service import get_evidence_pack
 from worldstate.application.global_macro_service import build_global_macro
 from worldstate.application.macro_import_service import import_official_macro_csv
@@ -564,6 +569,29 @@ async def capture_consensus(
 
 
 @router.post(
+    "/releases/{release_id}/consensus/import-csv/preview",
+    tags=["releases"],
+)
+async def preview_consensus_import(
+    release_id: str,
+    payload: ConsensusCsvInput,
+    request: Request,
+) -> dict[str, object]:
+    try:
+        return await preview_consensus_csv(
+            request.app.state.database_engine,
+            release_id=release_id,
+            csv_text=payload.csv_text,
+            default_source_name=payload.default_source_name,
+            default_source_url=payload.default_source_url,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
     "/releases/{release_id}/consensus/import-csv",
     tags=["releases"],
     dependencies=[Depends(require_write_access)],
@@ -581,6 +609,34 @@ async def import_consensus(
             default_source_name=payload.default_source_name,
             default_source_url=payload.default_source_url,
         )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/releases/{release_id}/market-bars/preview",
+    tags=["providers"],
+)
+async def preview_bars(
+    release_id: str,
+    payload: MarketCsvImportInput,
+    request: Request,
+) -> dict[str, object]:
+    try:
+        result = await preview_event_minute_csv(
+            request.app.state.database_engine,
+            release_id=release_id,
+            instrument_key=payload.instrument_key,
+            csv_text=payload.csv_text,
+            timezone_name=payload.timezone,
+            column_mapping=payload.column_mapping,
+            verified=payload.verified,
+            is_fixture=payload.is_fixture,
+        )
+        result.pop("normalized_csv", None)
+        return result
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -608,6 +664,8 @@ async def import_bars(
             source_url=payload.source_url,
             verified=payload.verified,
             is_fixture=payload.is_fixture,
+            timezone_name=payload.timezone,
+            column_mapping=payload.column_mapping,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -9,9 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from worldstate.application.capability_service import build_capability_inventory
 from worldstate.application.daily_brief_service import build_daily_brief
+from worldstate.application.event_product_service import build_event_product_detail
 from worldstate.application.global_macro_service import build_global_macro
 from worldstate.application.market_research_service import build_market_dashboard
-from worldstate.application.release_queries import get_release_detail, list_releases
+from worldstate.application.release_queries import list_releases
 
 DataMode = Literal["observed", "fixture", "all"]
 DIMENSION_LABELS = {
@@ -359,11 +360,8 @@ async def build_event_detail_projection(
     *,
     data_mode: DataMode = "observed",
 ) -> dict[str, Any] | None:
-    """Return the event workflow detail through the product API boundary."""
-    detail = await get_release_detail(engine, release_id)
-    if detail is None or (data_mode != "all" and detail.get("data_mode") != data_mode):
-        return None
-    return detail
+    """Return a product workflow projection while retaining Event Lab compatibility."""
+    return await build_event_product_detail(engine, release_id, data_mode=data_mode)
 
 
 __all__ = [

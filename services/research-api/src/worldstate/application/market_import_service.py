@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from worldstate.application.event_intraday_service import preview_event_minute_csv
 from worldstate.db.models import (
     DataQualityRecord,
     MacroRelease,
@@ -53,8 +54,22 @@ async def import_market_csv(
     source_url: str | None,
     verified: bool,
     is_fixture: bool,
+    timezone_name: str = "UTC",
+    column_mapping: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Import minute bars bounded to a release's declared event window."""
+    preview = await preview_event_minute_csv(
+        engine,
+        release_id=release_id,
+        instrument_key=instrument_key,
+        csv_text=csv_text,
+        timezone_name=timezone_name,
+        column_mapping=column_mapping,
+        verified=verified,
+        is_fixture=is_fixture,
+    )
+    normalized_csv = str(preview["normalized_csv"])
+    eligibility = dict(preview["eligibility"])
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session, session.begin():
         release = await session.get(MacroRelease, uuid.UUID(release_id))
@@ -70,7 +85,7 @@ async def import_market_csv(
         )
         if instrument is None:
             raise LookupError("market instrument not found")
-        content_hash = hashlib.sha256(csv_text.encode()).hexdigest()
+        content_hash = hashlib.sha256(normalized_csv.encode()).hexdigest()
         idempotency_key = (
             f"csv:{release_id}:{instrument_key}:{provider_key}:{requested_mode}:{content_hash}"
         )
@@ -90,6 +105,7 @@ async def import_market_csv(
                 "quality_grade": previous_run.quality_grade,
                 "warnings": ["identical import already completed; no rows were rewritten"],
                 "idempotent_replay": True,
+                "eligibility": eligibility,
             }
         stages = (
             await session.scalars(
@@ -101,7 +117,7 @@ async def import_market_csv(
         start = min(_aware(item.scheduled_at) for item in stages) - timedelta(minutes=60)
         end = max(_aware(item.scheduled_at) for item in stages) + timedelta(days=7)
         provider = CsvMarketBarProvider(
-            csv_text,
+            normalized_csv,
             provider_key=provider_key,
             source_name=source_name,
             source_url=source_url,
@@ -244,7 +260,7 @@ async def import_market_csv(
                 end_at=max(item.timestamp for item in contract_bars),
                 interval_seconds=60,
                 row_count=len(contract_bars),
-                size_bytes=len(csv_text.encode()),
+                size_bytes=len(normalized_csv.encode()),
                 data_mode=requested_mode,
                 quality_grade=quality.quality_grade,
                 is_aggregated=False,
@@ -263,6 +279,9 @@ async def import_market_csv(
                     "no_cross_contract_splice": True,
                     "verified": verified,
                     "fixture": is_fixture,
+                    "event_intraday_eligibility": eligibility["status"],
+                    "event_intraday_eligibility_v1": eligibility,
+                    "source_timezone": timezone_name,
                 },
             )
             session.add(manifest)
@@ -272,6 +291,7 @@ async def import_market_csv(
             "inserted": inserted,
             "updated": updated,
             "manifest_ids": manifest_ids,
+            "eligibility": eligibility,
         }
         return {
             "release_id": release_id,
@@ -282,6 +302,7 @@ async def import_market_csv(
             "warnings": batch.warnings,
             "idempotent_replay": False,
             "manifest_ids": manifest_ids,
+            "eligibility": eligibility,
         }
 
 

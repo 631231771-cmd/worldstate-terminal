@@ -157,3 +157,171 @@ export interface ProductEventsResponse {
   default_event_id: string | null;
   limitations: string[];
 }
+
+export interface ProductSupportedIndicator {
+  key: string;
+  label: string;
+  unit: string;
+  family: string;
+  hotter_when_higher: boolean;
+}
+
+export interface ProductEventDetail {
+  event: {
+    id: string;
+    release_key: string;
+    type: string;
+    title: string;
+    country: string;
+    period_label: string;
+    scheduled_at: string;
+    released_at: string | null;
+    source_timezone: string;
+    status: string;
+    data_mode: string;
+  };
+  supported_indicators: ProductSupportedIndicator[];
+  expectations: {
+    available: boolean;
+    eligible_count: number;
+    rule: string;
+    indicators: Array<ProductSupportedIndicator & {
+      consensus: number | null;
+      captured_at: string | null;
+      source: string | null;
+      snapshot_id: string | null;
+      eligibility: "pre_t0" | "missing";
+    }>;
+  };
+  actual: {
+    available: boolean;
+    indicators: Array<ProductSupportedIndicator & {
+      actual: number | null;
+      previous: number | null;
+      revised_previous: number | null;
+      revision: number | null;
+      source: string | null;
+      release_value_id: string | null;
+    }>;
+  };
+  surprise: {
+    available: boolean;
+    classification: string | null;
+    score: number | null;
+    direction: string | null;
+    methodology: string | null;
+    indicators: Array<ProductSupportedIndicator & {
+      available: boolean;
+      raw_surprise: number | null;
+      relative_surprise: number | null;
+      surprise_z: number | null;
+      threshold_scaled_surprise: number | null;
+      direction: string | null;
+      sample_count: number | null;
+    }>;
+  };
+  market_reaction: {
+    status: "available" | "partial" | "missing";
+    available: boolean;
+    available_assets: EventReactionAsset[];
+    partial_assets: EventReactionAsset[];
+    missing_assets: EventReactionAsset[];
+    required_granularity_seconds: number;
+    limitations: string[];
+    matrix: Array<{
+      stage_key: string;
+      instrument_key: string;
+      instrument_label: string;
+      symbol: string;
+      is_proxy: boolean;
+      windows: Record<string, { value: number | null; unit: "%" | "bp"; direction: string; coverage: number | null; reversal: boolean; missing_reason: string | null }>;
+    }>;
+    analysis_run_id: string | null;
+  };
+  historical_context: Record<string, unknown>;
+  analysis: {
+    run_id: string | null;
+    status: string;
+    reproducibility: string | null;
+    confidence: number | null;
+    data_gaps: string[];
+  };
+  actions: {
+    can_add_consensus: boolean;
+    can_import_consensus_csv: boolean;
+    can_import_minutes: boolean;
+    can_run_analysis: boolean;
+    analysis_blockers: string[];
+  };
+  stages: Array<Record<string, unknown>>;
+  contamination: Record<string, unknown>;
+  source: Record<string, unknown> | null;
+  data_provenance: Record<string, unknown>;
+  data_quality: Array<Record<string, unknown>>;
+  id: string;
+  values: Record<string, Record<string, unknown>>;
+  bundle: Record<string, unknown>;
+  latest_analysis: Record<string, unknown> | null;
+}
+
+export interface EventReactionAsset {
+  key: string;
+  label: string;
+  symbol: string | null;
+  status?: string;
+  eligible?: boolean;
+  row_count?: number;
+  quality?: string;
+  is_proxy: boolean;
+  proxy_for: string | null;
+}
+
+export interface ConsensusCsvPreview {
+  release_id: string;
+  t0: string;
+  supported_indicators: ProductSupportedIndicator[];
+  items: Array<{
+    row: number;
+    indicator_key: string;
+    indicator_label: string;
+    consensus_value: string;
+    captured_at: string;
+    source_name: string;
+    source_url: string | null;
+    status: "eligible" | "post_t0" | "unknown_indicator" | "invalid";
+    eligible: boolean;
+    reason: string | null;
+  }>;
+  summary: { eligible: number; post_t0: number; unknown_indicator: number; invalid: number; total: number };
+  can_confirm: boolean;
+}
+
+export interface EventMinutePreview {
+  release_id: string;
+  instrument: EventReactionAsset;
+  t0: string;
+  timezone: string;
+  eligibility: {
+    status: "eligible" | "partial" | "ineligible";
+    eligible: boolean;
+    reasons: string[];
+    limitations: string[];
+    bar_count: number;
+    first_timestamp: string;
+    last_timestamp: string;
+    nearest_t0_seconds: number;
+    pre_event_minutes: number;
+    post_event_minutes: number;
+    missing_bar_count: number;
+    duplicate_count: number;
+    one_minute_interval_ratio: number;
+    granularity_seconds: number;
+    data_mode: string;
+    is_fixture: boolean;
+    manual: boolean;
+    verified: boolean;
+  };
+  preview: Array<{ timestamp: string; open: string; high: string; low: string; close: string; volume: string | null }>;
+  parse_errors: string[];
+  warnings: string[];
+}

@@ -111,4 +111,12 @@ def test_product_event_detail_uses_product_route(client: TestClient) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["id"] == event_id
-    assert "values" in payload
+    assert payload["event"]["id"] == event_id
+    assert payload["supported_indicators"]
+    assert {"expectations", "actual", "surprise", "market_reaction", "analysis", "actions"} <= set(
+        payload
+    )
+    assert all(
+        item["key"] not in {"headline_cpi_mom", "target_rate_upper"}
+        for item in payload["supported_indicators"]
+    )

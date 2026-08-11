@@ -40,9 +40,8 @@ def _bar_matches_manifest(bar: MarketBar, manifest: MarketDataManifest) -> bool:
     ):
         return False
     if manifest.futures_contract_id is not None:
-        return (
-            bar.futures_contract_id == manifest.futures_contract_id
-            and bar.contract_code == (manifest.contract_code or bar.contract_code)
+        return bar.futures_contract_id == manifest.futures_contract_id and bar.contract_code == (
+            manifest.contract_code or bar.contract_code
         )
     if manifest.contract_code:
         return bar.contract_code == manifest.contract_code
@@ -110,8 +109,7 @@ class SelectedMarketSeries:
         if self.interval_seconds != 86_400:
             return "intraday"
         declared = {
-            str(row.metadata_json.get("daily_boundary", "")).lower()
-            for row in self.manifests
+            str(row.metadata_json.get("daily_boundary", "")).lower() for row in self.manifests
         }
         supported = any(
             row.metadata_json.get("session_close_semantics_supported") is True
@@ -148,9 +146,7 @@ class SelectedMarketSeries:
                 {
                     "manifest_id": str(row.id),
                     "manifest_hash": row.manifest_hash,
-                    "provider_run_id": (
-                        str(row.provider_run_id) if row.provider_run_id else None
-                    ),
+                    "provider_run_id": (str(row.provider_run_id) if row.provider_run_id else None),
                     "source_artifact_id": (
                         str(row.source_artifact_id) if row.source_artifact_id else None
                     ),
@@ -197,9 +193,7 @@ class ReleaseMarketSelection:
     series: dict[tuple[uuid.UUID, int], SelectedMarketSeries]
     rejected_manifest_ids: tuple[uuid.UUID, ...]
 
-    def get(
-        self, instrument_id: uuid.UUID, interval_seconds: int
-    ) -> SelectedMarketSeries | None:
+    def get(self, instrument_id: uuid.UUID, interval_seconds: int) -> SelectedMarketSeries | None:
         return self.series.get((instrument_id, interval_seconds))
 
     @property
@@ -237,10 +231,13 @@ async def select_release_market_data(
             )
         ).all()
     )
-    grouped: dict[
-        tuple[uuid.UUID, int, str, str, str, str], list[MarketDataManifest]
-    ] = defaultdict(list)
+    grouped: dict[tuple[uuid.UUID, int, str, str, str, str], list[MarketDataManifest]] = (
+        defaultdict(list)
+    )
     for manifest in manifests:
+        declared_eligibility = manifest.metadata_json.get("event_intraday_eligibility")
+        if manifest.interval_seconds == 60 and declared_eligibility not in (None, "eligible"):
+            continue
         grouped[
             (
                 manifest.instrument_id,
@@ -311,8 +308,7 @@ async def select_release_market_data(
                 "removed within the selected series."
             )
         daily_boundaries = {
-            str(row.metadata_json.get("daily_boundary", "")).upper()
-            for row in relevant_manifests
+            str(row.metadata_json.get("daily_boundary", "")).upper() for row in relevant_manifests
         }
         if interval == 86_400 and "UTC" in daily_boundaries:
             limitations.append(
@@ -337,10 +333,7 @@ async def select_release_market_data(
         covered_seconds = sum(
             max(
                 0.0,
-                (
-                    min(upper, _aware(row.end_at))
-                    - max(lower, _aware(row.start_at))
-                ).total_seconds(),
+                (min(upper, _aware(row.end_at)) - max(lower, _aware(row.start_at))).total_seconds(),
             )
             for row in relevant_manifests
         )

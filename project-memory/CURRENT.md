@@ -201,11 +201,24 @@ Detailed v0.7 evidence and limits are in
   Japan CPI and China industrial-production series are stale by covered-period
   age and are shown as such.
 - Event detail supports a typed release projection and a consensus-entry modal.
-  Minute event reaction remains unavailable until a legal, verified minute-bar
-  import is present; daily context bars are never promoted to event windows.
+  It now presents one continuous Overview → Expectations → Actual/Revision →
+  Surprise → Market Reaction → Cross Asset → Historical Context →
+  Interpretation → Evidence workflow.
+- Consensus supports canonical indicator choices plus preview-first CSV import;
+  post-T0 and unknown-indicator rows are reported and excluded from Surprise.
+- The minute import wizard normalizes user-selected columns and timezone to UTC,
+  reports duplicates/gaps/T0 coverage, and classifies each file as eligible,
+  partial or ineligible. Only eligible release-linked manifests enter the Event
+  Engine. Fixture files remain usable only inside fixture demonstrations and
+  cannot enter observed research.
+- Minute event reaction remains unavailable in the real runtime until a legal,
+  verified eligible file is imported; daily context bars are never promoted to
+  event windows. Current observed minute bars and observed consensus remain 0.
 - Validation for this checkpoint: backend suite 190 passed; targeted product
-  projection tests, Ruff, strict mypy and the Terminal UI production build
-  pass. PR #11 remains Draft and has not been merged.
+  projection/import tests, Ruff, strict mypy and the Terminal UI production
+  build pass. The 1920×1080 browser smoke covered the split Events workflow,
+  Consensus modal, minute wizard and Events → Markets action with no console
+  errors. PR #11 remains Draft and has not been merged.
 
 ## v0.7 Productization & Architecture Rationalization
 
