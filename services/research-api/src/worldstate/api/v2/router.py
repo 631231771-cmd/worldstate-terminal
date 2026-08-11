@@ -29,7 +29,11 @@ from worldstate.api.v2.schemas import (
     WatchlistInput,
     stage_payload,
 )
-from worldstate.application.analysis_orchestrator import METHODOLOGY_VERSION, analyze_release
+from worldstate.application.analysis_orchestrator import (
+    METHODOLOGY_VERSION,
+    AnalysisReadinessError,
+    analyze_release,
+)
 from worldstate.application.analysis_persistence import (
     diff_analysis_runs,
     get_analysis_manifest,
@@ -42,6 +46,7 @@ from worldstate.application.consensus_service import (
 )
 from worldstate.application.daily_brief_service import build_daily_brief
 from worldstate.application.event_intraday_service import preview_event_minute_csv
+from worldstate.application.event_readiness import build_analysis_readiness
 from worldstate.application.evidence_service import get_evidence_pack
 from worldstate.application.global_macro_service import build_global_macro
 from worldstate.application.macro_import_service import import_official_macro_csv
@@ -736,11 +741,21 @@ async def run_analysis(
             idempotency_key=idempotency_key,
             force=force,
         )
+    except AnalysisReadinessError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "analysis_not_ready", "readiness": exc.readiness.as_dict()},
+        ) from exc
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"release_id": release_id, "analysis_run_id": run_id, "status": "completed"}
+
+
+@router.get("/releases/{release_id}/analysis-readiness", tags=["analysis"])
+async def analysis_readiness(release_id: str, request: Request) -> object:
+    return (await build_analysis_readiness(request.app.state.database_engine, release_id)).as_dict()
 
 
 @router.get("/analysis-runs/{run_id}", tags=["analysis"])

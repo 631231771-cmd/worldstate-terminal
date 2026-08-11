@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from worldstate.ai_researcher.claims import deterministic_claims, validate_claims
 from worldstate.application.data_foundation_service import redact_sensitive_text
+from worldstate.application.event_readiness import AnalysisReadiness, build_analysis_readiness
 from worldstate.application.market_selection_service import select_release_market_data
 from worldstate.config import repository_root
 from worldstate.db.models import (
@@ -85,6 +86,14 @@ from worldstate.research_engine.history import compare_historical_events, magnit
 METHODOLOGY_VERSION = "macro-event-engine-v0.7-live-global"
 CODE_VERSION = "macro-research-terminal-v0.5"
 _NAMESPACE = uuid.UUID("fbf59be7-d632-4f3c-a5a0-104425f478c2")
+
+
+class AnalysisReadinessError(ValueError):
+    """Raised when a release is not eligible for a completed analysis run."""
+
+    def __init__(self, readiness: AnalysisReadiness) -> None:
+        self.readiness = readiness
+        super().__init__("analysis readiness blocked: " + "; ".join(readiness.blockers))
 
 
 def _factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
@@ -557,6 +566,16 @@ async def _seed_release(session: AsyncSession, fixture: dict[str, Any]) -> uuid.
                     "fixture": True,
                     "no_cross_contract_splice": True,
                     "source_content_hash": manifest_hash,
+                    "is_fixture": True,
+                    "event_intraday_eligibility": "eligible",
+                    "event_intraday_eligibility_v1": {
+                        "policy_version": "event-intraday-v1",
+                        "status": "eligible",
+                        "eligible": True,
+                        "data_mode": "fixture",
+                        "is_fixture": True,
+                        "window_coverage": {},
+                    },
                 },
             )
         )
@@ -2120,9 +2139,21 @@ async def analyze_release(
             )
             if existing is not None:
                 return str(existing.id)
+    # Observed analysis is gated before the transactional run is created.  A
+    # missing consensus or minute manifest therefore cannot leave a misleading
+    # completed/failed run behind; fixture demonstrations retain their legacy
+    # workflow and remain explicitly fixture-labelled.
+    async with factory() as session:
+        release = await session.get(MacroRelease, release_uuid)
+    if release is None:
+        raise LookupError("macro release not found")
+    if release.data_mode == "observed":
+        readiness = await build_analysis_readiness(engine, release_id)
+        if not readiness.ready:
+            raise AnalysisReadinessError(readiness)
     try:
         run_id = await _execute_analysis(engine, release_id)
-    except LookupError:
+    except (LookupError, AnalysisReadinessError):
         raise
     except Exception as exc:
         # The analysis transaction has rolled back all partial windows/reactions.

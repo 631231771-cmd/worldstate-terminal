@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from itertools import pairwise
 from typing import Any
@@ -15,6 +15,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from worldstate.db.models import MacroRelease, MarketInstrument, ReleaseStage
+
+EVENT_INTRADAY_ELIGIBILITY_VERSION = "event-intraday-v1"
+EVENT_INTRADAY_REQUIRED_WINDOWS: tuple[tuple[str, int, int], ...] = (
+    ("pre_5m", -300, 0),
+    ("post_1m", 0, 60),
+    ("post_5m", 0, 300),
+    ("post_15m", 0, 900),
+    ("post_30m", 0, 1800),
+    ("post_60m", 0, 3600),
+)
 
 DEFAULT_COLUMN_MAPPING: dict[str, str] = {
     "timestamp": "timestamp",
@@ -41,6 +51,28 @@ EVENT_ASSETS: tuple[dict[str, str], ...] = (
 
 def _aware(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def resolve_release_t0(
+    release: MacroRelease,
+    stages: list[ReleaseStage] | tuple[ReleaseStage, ...] = (),
+) -> datetime:
+    """Resolve one aware UTC event anchor for import, display and analysis."""
+
+    ordered = sorted(stages, key=lambda item: (item.sequence, str(item.id)))
+    candidates = [item for item in ordered if item.released_at or item.scheduled_at]
+    if release.release_type == "FOMC":
+        statement = next((item for item in candidates if item.stage_key == "statement"), None)
+        if statement is not None:
+            return _aware(statement.released_at or statement.scheduled_at)
+    release_stage = next(
+        (item for item in candidates if item.stage_key in {"release", "decision"}), None
+    )
+    if release_stage is not None:
+        return _aware(release_stage.released_at or release_stage.scheduled_at)
+    if candidates:
+        return _aware(candidates[0].released_at or candidates[0].scheduled_at)
+    return _aware(release.released_at or release.scheduled_at)
 
 
 def _parse_timestamp(value: str, timezone_name: str) -> datetime:
@@ -227,9 +259,30 @@ def evaluate_event_intraday_eligibility(
     if not verified:
         limitations.append("数据由用户手工导入且尚未人工核验")
 
+    window_coverage: dict[str, dict[str, Any]] = {}
+    for key, start_offset, end_offset in EVENT_INTRADAY_REQUIRED_WINDOWS:
+        start = anchor + timedelta(seconds=start_offset)
+        end = anchor + timedelta(seconds=end_offset)
+        window_rows = [item for item in timestamps if start <= item <= end]
+        expected = int((end - start).total_seconds() // 60) + 1
+        actual = len({item.replace(second=0, microsecond=0) for item in window_rows})
+        window_coverage[key] = {
+            "required": True,
+            "available": actual >= expected,
+            "expected_bar_count": expected,
+            "actual_bar_count": actual,
+            "missing_bar_count": max(0, expected - actual),
+            "start_at": start.isoformat(),
+            "end_at": end.isoformat(),
+        }
+        if actual < expected:
+            limitations.append(
+                f"window {key} is unavailable: {expected - actual} minute bar(s) missing"
+            )
+
     if hard_failure:
         status = "ineligible"
-    elif pre_minutes >= 15 and post_minutes >= 60 and not normalized["missing_bar_count"]:
+    elif pre_minutes >= 15 and post_minutes >= 60:
         status = "eligible"
     else:
         status = "partial"
@@ -239,6 +292,8 @@ def evaluate_event_intraday_eligibility(
         reasons.append("T0 可用，但覆盖或完整性不足，暂不进入 Event Engine")
     return {
         "status": status,
+        "policy_version": EVENT_INTRADAY_ELIGIBILITY_VERSION,
+        "window_coverage": window_coverage,
         "eligible": status == "eligible",
         "reasons": reasons,
         "limitations": limitations,
@@ -256,6 +311,54 @@ def evaluate_event_intraday_eligibility(
         "is_fixture": is_fixture,
         "manual": True,
         "verified": verified,
+    }
+
+
+def evaluate_stored_event_intraday_manifest(
+    metadata: dict[str, Any] | None,
+    *,
+    data_mode: str,
+    row_count: int,
+    interval_seconds: int,
+    is_fixture: bool | None = None,
+) -> dict[str, Any]:
+    """Re-check persisted event metadata before it enters the Event Engine."""
+
+    payload = metadata or {}
+    status = str(payload.get("event_intraday_eligibility") or "")
+    policy = payload.get("event_intraday_eligibility_v1")
+    reasons: list[str] = []
+    if interval_seconds != 60:
+        reasons.append("event_intraday_requires_60_second_bars")
+    if row_count <= 0:
+        reasons.append("manifest_has_no_rows")
+    if data_mode not in {"observed", "fixture"}:
+        reasons.append("unsupported_data_mode")
+    if status != "eligible":
+        reasons.append("manifest_not_marked_eligible")
+    if not isinstance(policy, dict):
+        reasons.append("missing_event_intraday_eligibility_metadata")
+    elif str(policy.get("policy_version")) != EVENT_INTRADAY_ELIGIBILITY_VERSION:
+        reasons.append("unsupported_event_intraday_eligibility_version")
+    if isinstance(policy, dict) and str(policy.get("data_mode")) != data_mode:
+        reasons.append("eligibility_data_mode_mismatch")
+    declared_fixture = payload.get("is_fixture")
+    if (
+        is_fixture is not None
+        and declared_fixture is not None
+        and bool(declared_fixture) != is_fixture
+    ):
+        reasons.append("fixture_flag_mismatch")
+    return {
+        "status": "eligible" if not reasons else "ineligible",
+        "eligible": not reasons,
+        "policy_version": policy.get("policy_version") if isinstance(policy, dict) else None,
+        "reasons": reasons,
+        "window_coverage": (
+            policy.get("window_coverage", {}) if isinstance(policy, dict) else {}
+        ),
+        "data_mode": data_mode,
+        "row_count": row_count,
     }
 
 
@@ -293,11 +396,7 @@ async def preview_event_minute_csv(
                 )
             ).all()
         )
-        t0 = _aware(
-            (stages[0].released_at or stages[0].scheduled_at)
-            if stages
-            else (release.released_at or release.scheduled_at)
-        )
+        t0 = resolve_release_t0(release, stages)
     normalized = normalize_event_minute_csv(
         csv_text,
         instrument_key=instrument_key,
@@ -370,8 +469,12 @@ async def release_event_assets(engine: AsyncEngine) -> list[dict[str, Any]]:
 __all__ = [
     "DEFAULT_COLUMN_MAPPING",
     "EVENT_ASSETS",
+    "EVENT_INTRADAY_ELIGIBILITY_VERSION",
+    "EVENT_INTRADAY_REQUIRED_WINDOWS",
     "evaluate_event_intraday_eligibility",
+    "evaluate_stored_event_intraday_manifest",
     "normalize_event_minute_csv",
     "preview_event_minute_csv",
     "release_event_assets",
+    "resolve_release_t0",
 ]

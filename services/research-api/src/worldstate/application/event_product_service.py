@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from worldstate.application.consensus_service import supported_indicators_for_release
-from worldstate.application.event_intraday_service import release_event_assets
+from worldstate.application.event_intraday_service import (
+    evaluate_stored_event_intraday_manifest,
+    release_event_assets,
+)
+from worldstate.application.event_readiness import build_analysis_readiness
 from worldstate.application.release_queries import (
     get_release_detail,
     get_release_historical,
     get_release_windows,
 )
-from worldstate.db.models import MarketDataManifest, MarketInstrument
+from worldstate.db.models import MacroRelease, MarketDataManifest, MarketInstrument
 
 REACTION_WINDOWS = ("post_1m", "post_5m", "post_15m", "post_30m", "post_60m")
 
@@ -46,6 +51,19 @@ def _expectation_indicator(
     key: str, supported: dict[str, object], value: dict[str, object], *, t0: str
 ) -> dict[str, object]:
     captured_at = value.get("consensus_captured_at")
+    eligible = False
+    if captured_at:
+        try:
+            captured = datetime.fromisoformat(str(captured_at).replace("Z", "+00:00"))
+            anchor = datetime.fromisoformat(str(t0).replace("Z", "+00:00"))
+            if captured.tzinfo is None:
+                captured = captured.replace(tzinfo=UTC)
+            else:
+                captured = captured.astimezone(UTC)
+            anchor = anchor.replace(tzinfo=UTC) if anchor.tzinfo is None else anchor.astimezone(UTC)
+            eligible = captured < anchor
+        except ValueError:
+            eligible = False
     return {
         "key": key,
         "label": supported["label"],
@@ -54,7 +72,7 @@ def _expectation_indicator(
         "captured_at": captured_at,
         "source": value.get("consensus_source"),
         "snapshot_id": value.get("consensus_snapshot_id"),
-        "eligibility": "pre_t0" if captured_at and str(captured_at) < t0 else "missing",
+        "eligibility": "pre_t0" if eligible else "missing",
     }
 
 
@@ -89,6 +107,14 @@ async def _market_capability(
             release_uuid = uuid.UUID(release_id)
         except ValueError:
             return {"status": "missing", "available_assets": [], "missing_assets": assets}
+        release = await session.get(MacroRelease, release_uuid)
+        if release is None:
+            return {
+                "status": "missing",
+                "available": False,
+                "available_assets": [],
+                "missing_assets": assets,
+            }
         rows = list(
             (
                 await session.execute(
@@ -96,6 +122,7 @@ async def _market_capability(
                     .join(MarketInstrument, MarketInstrument.id == MarketDataManifest.instrument_id)
                     .where(
                         MarketDataManifest.macro_release_id == release_uuid,
+                        MarketDataManifest.data_mode == release.data_mode,
                         MarketDataManifest.interval_seconds == 60,
                         MarketDataManifest.row_count > 0,
                     )
@@ -105,16 +132,24 @@ async def _market_capability(
         )
     declared: dict[str, dict[str, object]] = {}
     for manifest, instrument in rows:
+        validation = evaluate_stored_event_intraday_manifest(
+            manifest.metadata_json,
+            data_mode=release.data_mode,
+            row_count=manifest.row_count,
+            interval_seconds=manifest.interval_seconds,
+            is_fixture=release.data_mode == "fixture",
+        )
         eligibility = manifest.metadata_json.get("event_intraday_eligibility_v1")
-        status = str(manifest.metadata_json.get("event_intraday_eligibility") or "eligible")
+        status = str(manifest.metadata_json.get("event_intraday_eligibility") or "ineligible")
+        effective_eligible = bool(validation["eligible"])
         current = declared.get(instrument.canonical_key)
-        if current is None or status == "eligible":
+        if current is None or effective_eligible:
             declared[instrument.canonical_key] = {
                 "key": instrument.canonical_key,
                 "label": instrument.title,
                 "symbol": instrument.symbol,
                 "status": status,
-                "eligible": status == "eligible",
+                "eligible": effective_eligible,
                 "row_count": manifest.row_count,
                 "start_at": manifest.start_at.isoformat(),
                 "end_at": manifest.end_at.isoformat(),
@@ -123,6 +158,7 @@ async def _market_capability(
                 "is_proxy": instrument.is_proxy,
                 "proxy_for": instrument.proxy_for,
                 "eligibility": eligibility if isinstance(eligibility, dict) else None,
+                "rejection_reasons": validation["reasons"],
             }
     available = [item for item in declared.values() if item["eligible"]]
     partial = [item for item in declared.values() if not item["eligible"]]
@@ -183,7 +219,24 @@ async def build_event_product_detail(
     supported = {str(item["key"]): item for item in supported_rows}
     values = cast(dict[str, dict[str, object]], raw.get("values", {}))
     bundle = cast(dict[str, object], raw.get("bundle", {}))
-    t0 = str(raw.get("released_at") or raw["scheduled_at"])
+    stage_items = cast(list[dict[str, object]], raw.get("stages") or [])
+    anchor_stage = next(
+        (
+            item
+            for item in stage_items
+            if (
+                (raw.get("release_type") == "FOMC" and item.get("key") == "statement")
+                or item.get("key") in {"release", "decision"}
+            )
+        ),
+        stage_items[0] if stage_items else None,
+    )
+    t0 = str(
+        (anchor_stage or {}).get("released_at")
+        or (anchor_stage or {}).get("scheduled_at")
+        or raw.get("released_at")
+        or raw["scheduled_at"]
+    )
     expectations = [
         _expectation_indicator(key, item, dict(values.get(key, {})), t0=t0)
         for key, item in supported.items()
@@ -199,8 +252,9 @@ async def build_event_product_detail(
     windows = await get_release_windows(engine, release_id)
     historical = await get_release_historical(engine, release_id)
     analysis = raw.get("latest_analysis")
-    actual_available = any(item["actual"] is not None for item in actual)
-    consensus_available = any(item["consensus"] is not None for item in expectations)
+    readiness = await build_analysis_readiness(engine, release_id, data_mode=data_mode)
+    actual_available = bool(readiness.release_inputs.get("ready"))
+    consensus_available = bool(readiness.surprise_inputs.get("ready"))
     market_available = bool(market_capability["available"])
     return {
         "event": {
@@ -225,7 +279,7 @@ async def build_event_product_detail(
         },
         "actual": {"available": actual_available, "indicators": actual},
         "surprise": {
-            "available": actual_available and consensus_available,
+            "available": bool(readiness.surprise_inputs.get("matched_indicators")),
             "classification": bundle.get("classification"),
             "score": bundle.get("score"),
             "direction": bundle.get("direction"),
@@ -251,17 +305,10 @@ async def build_event_product_detail(
             "can_add_consensus": bool(supported_rows),
             "can_import_consensus_csv": bool(supported_rows),
             "can_import_minutes": bool(assets),
-            "can_run_analysis": actual_available and consensus_available and market_available,
-            "analysis_blockers": [
-                label
-                for condition, label in (
-                    (actual_available, "缺少 Actual"),
-                    (consensus_available, "缺少 T0 前 Consensus"),
-                    (market_available, "缺少通过 Eligibility 的分钟行情"),
-                )
-                if not condition
-            ],
+            "can_run_analysis": readiness.ready and market_available,
+            "analysis_blockers": list(readiness.blockers),
         },
+        "analysis_readiness": readiness.as_dict(),
         "stages": raw.get("stages", []),
         "contamination": raw.get("contamination", {}),
         "source": raw.get("source"),
