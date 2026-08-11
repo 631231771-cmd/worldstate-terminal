@@ -32,6 +32,10 @@ from worldstate.application.backfill_service import (
 from worldstate.application.bls_state_service import sync_bls_current_state
 from worldstate.application.capability_service import build_capability_inventory
 from worldstate.application.data_foundation_service import get_provider_data_status
+from worldstate.application.event_intraday_service import (
+    EVENT_ASSETS,
+    evaluate_stored_event_intraday_manifest,
+)
 from worldstate.application.freshness_service import build_data_freshness
 from worldstate.application.licensed_sync_service import (
     snapshot_trading_economics_consensus,
@@ -58,6 +62,7 @@ from worldstate.db.models import (
     DataReconciliationRecord,
     MacroRelease,
     MarketDataManifest,
+    MarketInstrument,
     Observation,
     Provider,
     ProviderRun,
@@ -74,6 +79,7 @@ data_router = APIRouter(prefix="/data", tags=["data"])
 data_write_router = APIRouter(prefix="/data", tags=["data"])
 
 AssetRoot = Literal["GC", "SI", "CL", "ES", "NQ", "ZT", "ZN", "DX", "VX"]
+EVENT_INSTRUMENT_KEYS = {candidate["key"] for candidate in EVENT_ASSETS}
 
 
 def _default_asset_roots() -> list[AssetRoot]:
@@ -586,6 +592,10 @@ async def build_data_coverage(
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
+        instrument_keys = {
+            item.id: item.canonical_key
+            for item in (await session.scalars(select(MarketInstrument))).all()
+        }
         releases = (
             await session.scalars(
                 select(MacroRelease).where(
@@ -705,11 +715,22 @@ async def build_data_coverage(
 
     def eligible_manifest(item: MarketDataManifest) -> bool:
         checks = market_reconciliation_by_subject.get(str(item.id), [])
+        intraday_policy_ok = True
+        if (
+            item.interval_seconds <= 60 or "1m" in item.schema_name.lower()
+        ) and instrument_keys.get(item.instrument_id) in EVENT_INSTRUMENT_KEYS:
+            intraday_policy_ok = evaluate_stored_event_intraday_manifest(
+                item.metadata_json,
+                data_mode=data_mode,
+                row_count=item.row_count,
+                interval_seconds=item.interval_seconds,
+            )["eligible"]
         return (
             item.row_count > 0
             and item.quality_grade.upper() in {"A", "B", "C"}
             and bool(checks)
             and all(check.status in {"matched", "resolved"} for check in checks)
+            and intraday_policy_ok
         )
 
     items: list[dict[str, Any]] = []

@@ -16,6 +16,7 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from worldstate.application.event_intraday_service import evaluate_stored_event_intraday_manifest
 from worldstate.application.freshness_service import build_data_freshness
 from worldstate.db.models import (
     AnalysisRun,
@@ -391,7 +392,13 @@ async def build_capability_inventory(
             for analysis_run in analysis_by_release[release.id]
         )
         intraday = any(
-            manifest.interval_seconds <= 60 and manifest.row_count > 0
+            manifest.interval_seconds <= 60
+            and evaluate_stored_event_intraday_manifest(
+                manifest.metadata_json,
+                data_mode=data_mode,
+                row_count=manifest.row_count,
+                interval_seconds=manifest.interval_seconds,
+            )["eligible"]
             for manifest in event_manifests
         )
         items.append(
