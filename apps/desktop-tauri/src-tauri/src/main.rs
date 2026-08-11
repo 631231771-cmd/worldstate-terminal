@@ -14,6 +14,7 @@ use tauri::{AppHandle, Manager, RunEvent};
 const KEYRING_SERVICE: &str = "worldstate-terminal";
 const API_URL: &str = "http://127.0.0.1:8000/v2/health";
 const EXPECTED_PRODUCT: &str = "worldstate-terminal";
+const SIDECAR_EXECUTABLE: &str = "worldstate-research-api-x86_64-pc-windows-msvc.exe";
 const ALLOWED_SECRET_NAMES: [&str; 6] = [
     "OPENAI_API_KEY",
     "WORLDSTATE_AI_COMPATIBLE_API_KEY",
@@ -126,6 +127,20 @@ fn resolve_service_root(app: &AppHandle) -> PathBuf {
         .unwrap_or_else(|_| development_root().join("services/research-api"))
 }
 
+fn resolve_bundled_sidecar(app: &AppHandle) -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        return None;
+    }
+    app.path()
+        .resource_dir()
+        .ok()
+        .map(|root| {
+            root.join("services/research-api-sidecar")
+                .join(SIDECAR_EXECUTABLE)
+        })
+        .filter(|path| path.exists())
+}
+
 fn python_command(service_root: &Path) -> PathBuf {
     let bundled = service_root.join(".venv/Scripts/python.exe");
     if bundled.exists() {
@@ -158,7 +173,8 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         return Ok(());
     }
     let service_root = resolve_service_root(app);
-    if !service_root.join("pyproject.toml").exists() {
+    let bundled_sidecar = resolve_bundled_sidecar(app);
+    if bundled_sidecar.is_none() && !service_root.join("pyproject.toml").exists() {
         return Err(format!(
             "Research API files are missing at {}",
             service_root.display()
@@ -193,13 +209,27 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
     let trading_economics_secret = read_secret("TRADING_ECONOMICS_API_KEY");
     let databento_secret = read_secret("DATABENTO_API_KEY");
 
-    let mut migration_command = Command::new(&python);
+    let command_dir = bundled_sidecar
+        .as_ref()
+        .map(|_| data_dir.clone())
+        .unwrap_or_else(|| service_root.clone());
+    let mut migration_command = if let Some(sidecar) = bundled_sidecar.as_ref() {
+        let mut command = Command::new(sidecar);
+        command.arg("migrate");
+        command
+    } else {
+        let mut command = Command::new(&python);
+        command.args(["-m", "worldstate.cli", "migrate"]);
+        command
+    };
     migration_command
-        .args(["-m", "worldstate.cli", "migrate"])
-        .current_dir(&service_root)
-        .env("WORLDSTATE_DATABASE_URL", &database_url)
-        .env("WORLDSTATE_ROOT", worldstate_root)
-        .env("PYTHONPATH", &python_path);
+        .current_dir(&command_dir)
+        .env("WORLDSTATE_DATABASE_URL", &database_url);
+    if bundled_sidecar.is_none() {
+        migration_command
+            .env("WORLDSTATE_ROOT", worldstate_root)
+            .env("PYTHONPATH", &python_path);
+    }
     let secret_environment = secret_environment(
         openai_secret.as_deref(),
         compatible_secret.as_deref(),
@@ -226,9 +256,13 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         .open(&log_path)
         .map_err(|error| error.to_string())?;
     let stderr = stdout.try_clone().map_err(|error| error.to_string())?;
-    let mut api_command = Command::new(&python);
-    api_command
-        .args([
+    let mut api_command = if let Some(sidecar) = bundled_sidecar.as_ref() {
+        let mut command = Command::new(sidecar);
+        command.args(["serve", "--host", "127.0.0.1", "--port", "8000"]);
+        command
+    } else {
+        let mut command = Command::new(&python);
+        command.args([
             "-m",
             "worldstate.cli",
             "serve",
@@ -236,14 +270,20 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
             "127.0.0.1",
             "--port",
             "8000",
-        ])
-        .current_dir(&service_root)
+        ]);
+        command
+    };
+    api_command
+        .current_dir(&command_dir)
         .env("WORLDSTATE_DATABASE_URL", database_url)
-        .env("WORLDSTATE_ROOT", worldstate_root)
-        .env("PYTHONPATH", python_path)
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
+    if bundled_sidecar.is_none() {
+        api_command
+            .env("WORLDSTATE_ROOT", worldstate_root)
+            .env("PYTHONPATH", python_path);
+    }
     for (name, secret) in &secret_environment {
         api_command.env(name, secret);
     }
@@ -264,6 +304,12 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         .source
         .lock()
         .map_err(|_| "Backend state lock failed")? = "spawned".into();
+    if bundled_sidecar.is_some() {
+        *state
+            .source
+            .lock()
+            .map_err(|_| "Backend state lock failed")? = "bundled-sidecar".into();
+    }
     Ok(())
 }
 

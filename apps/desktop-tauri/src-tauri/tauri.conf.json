@@ -43,7 +43,8 @@
     ],
     "resources": {
       "../../../services/research-api": "services/research-api",
-      "../../../data/fixtures": "data/fixtures"
+      "../../../data/fixtures": "data/fixtures",
+      "../../../apps/desktop-tauri/src-tauri/bin/worldstate-research-api": "services/research-api-sidecar"
     }
   }
 }
