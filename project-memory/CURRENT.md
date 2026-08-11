@@ -21,8 +21,8 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- HEAD: `118b786` (`fix: satisfy research api lint`; PR #11 remains Draft)
-- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; one observed world-state snapshot, 8,801 observed daily context bars, 50 catalog series with 29,701 observed macro observations, 28,247 FRED current-public observations and 621 BLS current-state observations are present. FRED no-key data is explicitly current-state/non-PIT; a FRED key is still required for ALFRED vintage semantics.
+- Product code checkpoint: `62989e1` (`feat: activate product projections and global macro coverage`); the documentation follow-up is the current HEAD and PR #11 remains Draft.
+- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; the local runtime currently contains 62,340 observed macro observations, 20,017 observed daily/context market bars, one observed world-state snapshot and zero observed consensus snapshots. FRED no-key data is explicitly current-state/non-PIT; a FRED key is still required for ALFRED vintage semantics.
 - Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/EA/UK observed state coverage, Japan/China unavailable without an official export, 8 context instruments, one observed snapshot, zero observed consensus snapshots, and explicit market/data-quality boundaries.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
   `feature/v0.7-live-global`; do not mark any of them Ready or merge
@@ -178,6 +178,34 @@ entitlement boundaries below.
 
 Detailed v0.7 evidence and limits are in
 [`docs/macro/v0.7-live-global.md`](../docs/macro/v0.7-live-global.md).
+
+## v0.7 Terminal Rebuild — current working checkpoint (2026-08-11)
+
+- Product projections are now the source for the Today, Markets, Macro and
+  Events workspaces. The API exposes typed `/v2/product/*` responses and a
+  release detail projection; event ordering is server-defined (recent
+  completed/reproducible first, then recent releases, then upcoming events).
+- Market horizons are returned with explicit units: rates use basis points and
+  price-like instruments use percentages. The frontend does not recompute
+  financial changes from raw values.
+- Product requests are loaded by active workspace, keeping the SQLite pool from
+  being exhausted by five heavyweight projections during every navigation.
+- The public FRED catalog now has observed China CPI, China industrial
+  production, Japan CPI and Japan industrial production rows. The China OECD
+  industrial-production export is already a same-period-prior-year index and
+  is therefore stored as a level, not transformed a second time.
+- Local runtime evidence after the public sync: China CPI 124 rows through
+  2025-04, China industrial production 107 rows through 2023-11, Japan CPI 78
+  rows through 2021-06, and Japan industrial production 111 rows through
+  2024-03. These are current-public FRED observations, not PIT vintages; the
+  Japan CPI and China industrial-production series are stale by covered-period
+  age and are shown as such.
+- Event detail supports a typed release projection and a consensus-entry modal.
+  Minute event reaction remains unavailable until a legal, verified minute-bar
+  import is present; daily context bars are never promoted to event windows.
+- Validation for this checkpoint: backend suite 190 passed; targeted product
+  projection tests, Ruff, strict mypy and the Terminal UI production build
+  pass. PR #11 remains Draft and has not been merged.
 
 ## v0.7 Productization & Architecture Rationalization
 
