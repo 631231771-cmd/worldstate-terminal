@@ -1,6 +1,6 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-08-10
+Updated: 2026-08-11
 
 ## Product truth
 
@@ -21,8 +21,8 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- Product code checkpoint: `62989e1` (`feat: activate product projections and global macro coverage`); the documentation follow-up is the current HEAD and PR #11 remains Draft.
-- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; the local runtime currently contains 62,340 observed macro observations, 20,017 observed daily/context market bars, one observed world-state snapshot and zero observed consensus snapshots. FRED no-key data is explicitly current-state/non-PIT; a FRED key is still required for ALFRED vintage semantics.
+- Product code checkpoint: `c04c1ef` (`feat: operationalize event research workflow`); the global-depth follow-up is being validated and PR #11 remains Draft.
+- Runtime checkpoint: database migrated to `0010_operational_state_defaults`; the local runtime currently contains 129,547 observed macro rows across 64 populated series, 20,026 observed daily/context market bars across eight instruments, one observed world-state snapshot, zero observed consensus snapshots, zero observed minute bars and zero observed completed AnalysisRuns. Repeated current-public captures can produce more storage rows than unique period observations; product state selects one latest-known row per period at the requested `as_of`.
 - Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/EA/UK observed state coverage, Japan/China unavailable without an official export, 8 context instruments, one observed snapshot, zero observed consensus snapshots, and explicit market/data-quality boundaries.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
   `feature/v0.7-live-global`; do not mark any of them Ready or merge
@@ -277,9 +277,20 @@ Details: [`docs/macro/v0.7-productization.md`](../docs/macro/v0.7-productization
   Series Explorer and global country cards can still be partial. The UI
   displays those gaps rather than substituting demo rows; current FRED context
   is not a replacement for licensed minute/event data.
-- The first global layer has reliable observed coverage only where a provider
-  has populated the Series/Observation catalog; the other country cards are
-  scaffolding with explicit `unavailable` status.
+- The global layer now has locally observed current-public history for USA,
+  China, Japan, the euro area and the UK. China has growth/inflation/credit;
+  Japan has growth/inflation/policy/liquidity; the euro area has
+  growth/inflation/liquidity/external; and the UK has growth/inflation/policy.
+  China and Japan are marked stale because important component series end well
+  before the current date. These FRED graph histories are non-PIT and do not
+  replace official national first-print/vintage or event-window data.
+
+- Global state loading selects one latest-known observation for each period at
+  the requested `as_of`; repeated retrieval vintages no longer inflate signal
+  history. Freshness is calculated from the covered period against the requested
+  `as_of`, not from the fetch timestamp or today's date. FRED catalog sync also
+  preserves USA/China/Japan/euro-area/UK entity ownership instead of assigning
+  all catalog series to USA.
 
 - On 2026-08-10 the public BLS current-state sync completed (659 rows read,
   532 written in the five-year catch-up; 621 observed rows remain after

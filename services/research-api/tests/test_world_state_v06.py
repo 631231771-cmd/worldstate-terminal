@@ -1,9 +1,24 @@
 from __future__ import annotations
 
+import asyncio
+import uuid
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
+
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from worldstate.application.market_research_service import _transform
-from worldstate.application.world_state_service import calculate_signal, classify_regime
+from worldstate.application.world_state_service import (
+    SeriesSignal,
+    aggregate_dimension,
+    calculate_signal,
+    classify_regime,
+    load_point_in_time_observations,
+)
+from worldstate.db.base import Base
+from worldstate.db.models import EconomicEntity, Observation, Provider, Series
+from worldstate.db.session import create_engine
 
 
 def test_state_signal_is_bounded_and_orientation_aware() -> None:
@@ -26,6 +41,149 @@ def test_state_signal_reports_insufficient_history_and_zero_variance() -> None:
     assert score == 0
     assert momentum == 0
     assert gap is None
+
+
+def test_state_history_uses_one_latest_vintage_per_period(tmp_path) -> None:
+    async def scenario() -> None:
+        engine = create_engine(f"sqlite+aiosqlite:///{(tmp_path / 'pit.db').as_posix()}")
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        series_id = uuid.uuid4()
+        first_available = datetime(2026, 1, 10, tzinfo=UTC)
+        revised_available = datetime(2026, 2, 10, tzinfo=UTC)
+        async with factory() as session, session.begin():
+            provider = Provider(
+                key="pit-test", name="PIT Test", base_url="https://example.test", enabled=True
+            )
+            entity = EconomicEntity(iso3="TST", name="Test", entity_type="country")
+            session.add_all([provider, entity])
+            await session.flush()
+            session.add(
+                Series(
+                    id=series_id,
+                    provider_id=provider.id,
+                    entity_id=entity.id,
+                    native_id="TEST",
+                    canonical_key="TST.GROWTH.TEST",
+                    title="Test series",
+                    frequency="monthly",
+                    unit="index",
+                    observation_type="official_series",
+                    source_url="https://example.test/series",
+                    availability_method="provider_realtime_start",
+                    availability_precision="day",
+                    default_transform="level",
+                    active=True,
+                    metadata_json={},
+                )
+            )
+            await session.flush()
+            session.add_all(
+                [
+                    Observation(
+                        series_id=series_id,
+                        period_start=date(2025, 12, 1),
+                        period_end=date(2025, 12, 1),
+                        value=Decimal("100"),
+                        vintage_date=first_available.date(),
+                        available_at=first_available,
+                        availability_method="provider_realtime_start",
+                        availability_precision="day",
+                        fetched_at=first_available,
+                        data_mode="observed",
+                        quality_flags=[],
+                        source_hash="first",
+                    ),
+                    Observation(
+                        series_id=series_id,
+                        period_start=date(2025, 12, 1),
+                        period_end=date(2025, 12, 1),
+                        value=Decimal("105"),
+                        vintage_date=revised_available.date(),
+                        available_at=revised_available,
+                        availability_method="provider_realtime_start",
+                        availability_precision="day",
+                        fetched_at=revised_available,
+                        data_mode="observed",
+                        quality_flags=[],
+                        source_hash="revision",
+                    ),
+                    Observation(
+                        series_id=series_id,
+                        period_start=date(2026, 1, 1),
+                        period_end=date(2026, 1, 1),
+                        value=Decimal("110"),
+                        vintage_date=revised_available.date(),
+                        available_at=revised_available,
+                        availability_method="provider_realtime_start",
+                        availability_precision="day",
+                        fetched_at=revised_available,
+                        data_mode="observed",
+                        quality_flags=[],
+                        source_hash="next-period",
+                    ),
+                    # Imported after the revision but carrying an older
+                    # availability timestamp. Persist order must not override
+                    # the genuinely later-known vintage.
+                    Observation(
+                        series_id=series_id,
+                        period_start=date(2025, 12, 1),
+                        period_end=date(2025, 12, 1),
+                        value=Decimal("99"),
+                        vintage_date=date(2026, 1, 15),
+                        available_at=datetime(2026, 1, 15, tzinfo=UTC),
+                        availability_method="provider_realtime_start",
+                        availability_precision="day",
+                        fetched_at=revised_available + timedelta(days=1),
+                        data_mode="observed",
+                        quality_flags=[],
+                        source_hash="late-import-of-older-vintage",
+                    ),
+                ]
+            )
+        async with factory() as session:
+            before_revision = await load_point_in_time_observations(
+                session,
+                series_id=series_id,
+                as_of=first_available + timedelta(days=1),
+                data_mode="observed",
+            )
+            latest = await load_point_in_time_observations(
+                session,
+                series_id=series_id,
+                as_of=revised_available + timedelta(days=1),
+                data_mode="observed",
+            )
+        assert [float(item.value) for item in before_revision] == [100.0]
+        assert [float(item.value) for item in latest] == [105.0, 110.0]
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_dimension_freshness_uses_covered_period_not_recent_fetch_time() -> None:
+    signal = SeriesSignal(
+        series_key="CHN.GROWTH.TEST",
+        title="Old current-public series",
+        dimension="growth",
+        score=0.2,
+        momentum=0.1,
+        latest_value=100.0,
+        period_start=date.today() - timedelta(days=365),
+        available_at=datetime.now(UTC),
+        observation_count=24,
+        provider_key="fred_alfred",
+        source_url="https://example.test",
+        data_mode="observed",
+        quality="B",
+        missing_reason=None,
+        evidence_ids=("observation:test",),
+        freshness_half_life_days=45.0,
+    )
+    result = aggregate_dimension([signal])
+    assert result["freshness"] < 0.001
+    assert result["confidence"] < 0.5
 
 
 def test_regime_label_does_not_treat_positive_as_unconditionally_good() -> None:

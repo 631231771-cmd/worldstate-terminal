@@ -133,10 +133,24 @@ def _market_horizon(item: dict[str, Any]) -> dict[str, Any]:
 def _country_projection(country: dict[str, Any]) -> dict[str, Any]:
     dimensions = country.get("dimensions", {})
     available = [key for key, value in dimensions.items() if value.get("score") is not None]
+    stale_dimensions = [
+        key for key in available if (dimensions[key].get("freshness") or 0.0) < 0.3679
+    ]
+    if available and len(stale_dimensions) == len(available):
+        status = "stale"
+    elif stale_dimensions:
+        status = "partial"
+    else:
+        status = country.get("status", "missing")
+    limitations = list(country.get("limitations", []))
+    if stale_dimensions:
+        limitations.append(
+            "数据较旧：" + "、".join(DIMENSION_LABELS.get(key, key) for key in stale_dimensions)
+        )
     return {
         "key": country.get("iso3"),
         "label": COUNTRY_LABELS.get(str(country.get("iso3")), country.get("name")),
-        "status": country.get("status", "missing"),
+        "status": status,
         "available_dimensions": available,
         "dimensions": {
             key: {
@@ -156,7 +170,7 @@ def _country_projection(country: dict[str, Any]) -> dict[str, Any]:
         "details": {
             "entity_registered": country.get("entity_registered"),
             "source": country.get("source"),
-            "limitations": country.get("limitations", []),
+            "limitations": limitations,
         },
     }
 

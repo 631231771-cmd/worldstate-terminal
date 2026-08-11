@@ -1403,26 +1403,36 @@ async def sync_fred_foundation(
                 )
                 session.add(provider_row)
                 await session.flush()
-            entity = await session.scalar(
-                select(EconomicEntity).where(EconomicEntity.iso3 == "USA")
-            )
-            if entity is None:
-                entity = EconomicEntity(
-                    iso2="US",
-                    iso3="USA",
-                    name="United States",
-                    entity_type="country",
-                    parent_id=None,
-                    currency="USD",
-                    timezone="America/New_York",
-                    latitude=None,
-                    longitude=None,
-                    metadata_json={},
+            entity_definitions = {
+                "US": ("US", "USA", "United States", "USD", "America/New_York"),
+                "CHN": ("CN", "CHN", "China", "CNY", "Asia/Shanghai"),
+                "JPN": ("JP", "JPN", "Japan", "JPY", "Asia/Tokyo"),
+                "EA19": ("EA", "EA19", "Euro Area", "EUR", "Europe/Brussels"),
+                "GBR": ("GB", "GBR", "United Kingdom", "GBP", "Europe/London"),
+            }
+            entity_ids: dict[str, int] = {}
+            for entity_code in sorted({item.entity for item in catalog}):
+                iso2, iso3, name, currency, timezone = entity_definitions[entity_code]
+                entity = await session.scalar(
+                    select(EconomicEntity).where(EconomicEntity.iso3 == iso3)
                 )
-                session.add(entity)
-                await session.flush()
+                if entity is None:
+                    entity = EconomicEntity(
+                        iso2=iso2,
+                        iso3=iso3,
+                        name=name,
+                        entity_type="country",
+                        parent_id=None,
+                        currency=currency,
+                        timezone=timezone,
+                        latitude=None,
+                        longitude=None,
+                        metadata_json={"catalog_source": "fred_alfred"},
+                    )
+                    session.add(entity)
+                    await session.flush()
+                entity_ids[entity_code] = entity.id
             provider_id = provider_row.id
-            entity_id = entity.id
         for definition in catalog:
             if public_current:
                 batch = await clients.fred.fetch_public_current_batch(
@@ -1490,7 +1500,7 @@ async def sync_fred_foundation(
                         provider_id=provider_id,
                         native_id=definition.native_id,
                         canonical_key=definition.canonical_key,
-                        entity_id=entity_id,
+                        entity_id=entity_ids[definition.entity],
                         title=definition.title,
                         description=None,
                         frequency=definition.frequency,
@@ -1527,6 +1537,7 @@ async def sync_fred_foundation(
                     session.add(series)
                     await session.flush()
                 else:
+                    series.entity_id = entity_ids[definition.entity]
                     prior_source_mode = str(series.metadata_json.get("source_mode") or "")
                     series.metadata_json = {
                         **series.metadata_json,
