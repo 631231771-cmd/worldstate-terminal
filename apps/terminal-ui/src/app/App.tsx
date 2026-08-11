@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import { Badge, DetailsDisclosure, Drawer, Panel, StateMessage } from "../components/Primitives";
 import { WorkspaceBoundary } from "../components/WorkspaceBoundary";
 import type { ReleaseDetail, ReleaseSummary } from "../types";
-import type { ProductCountry, ProductDimension, ProductMarketItem, ProductMarketsResponse, ProductTodayResponse } from "../types/product";
+import type { ProductCountry, ProductDimension, ProductEventsResponse, ProductMarketItem, ProductMarketsResponse, ProductMacroResponse, ProductTodayResponse } from "../types/product";
 import { DataControlWorkspace } from "../workspaces/data-control/DataControlWorkspace";
 import { DataMethodsWorkspace } from "../workspaces/data-methods/DataMethodsWorkspace";
 import { ResearchWorkspace } from "../workspaces/research/ResearchWorkspace";
@@ -51,6 +51,8 @@ export function App() {
   const [view, setView] = useState<ProductView>(initialView);
   const [data, setData] = useState<ProductTodayResponse | null>(null);
   const [marketsData, setMarketsData] = useState<ProductMarketsResponse | null>(null);
+  const [macroData, setMacroData] = useState<ProductMacroResponse | null>(null);
+  const [eventsData, setEventsData] = useState<ProductEventsResponse | null>(null);
   const [releases, setReleases] = useState<ReleaseSummary[]>([]);
   const [selectedRelease, setSelectedRelease] = useState<ReleaseSummary | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<ReleaseDetail | null>(null);
@@ -67,20 +69,39 @@ export function App() {
 
   const refresh = async () => {
     setLoading(true); setError(null);
-    const [productResult, marketsResult, releaseResult, healthResult] = await Promise.allSettled([api.productToday(), api.productMarkets(), api.releases(), api.health()]);
-    if (productResult.status === "fulfilled") setData(productResult.value);
-    if (marketsResult.status === "fulfilled") setMarketsData(marketsResult.value);
-    if (releaseResult.status === "fulfilled") { setReleases(releaseResult.value); setSelectedRelease((current) => current ?? preferredRelease(releaseResult.value)); }
+    const todayRequest = view === "today" ? api.productToday() : Promise.resolve(null as ProductTodayResponse | null);
+    const marketsRequest = view === "markets" ? api.productMarkets() : Promise.resolve(null as ProductMarketsResponse | null);
+    const macroRequest = view === "macro" ? api.productMacro() : Promise.resolve(null as ProductMacroResponse | null);
+    const eventsRequest = view === "today" || view === "events" || view === "event-lab" ? api.productEvents() : Promise.resolve(null as ProductEventsResponse | null);
+    const [productResult, marketsResult, macroResult, eventsResult, healthResult] = await Promise.allSettled([todayRequest, marketsRequest, macroRequest, eventsRequest, api.health()]);
+    if (productResult.status === "fulfilled" && productResult.value) setData(productResult.value);
+    if (marketsResult.status === "fulfilled" && marketsResult.value) setMarketsData(marketsResult.value);
+    if (macroResult.status === "fulfilled" && macroResult.value) {
+      const macro = macroResult.value;
+      setMacroData(macro);
+      setData((current) => current ?? {
+        as_of: macro.as_of,
+        data_mode: macro.data_mode,
+        methodology_version: macro.methodology_version,
+        macro_snapshot: [], markets: [], what_changed: [], upcoming: [], latest_research: [],
+        global: macro.countries, watch_next: [], capability_summary: {}, limitations: macro.limitations,
+      });
+    }
+    if (eventsResult.status === "fulfilled" && eventsResult.value) {
+      const events = eventsResult.value;
+      setEventsData(events); setReleases(events.items); setSelectedRelease((current) => current ?? events.items.find((item) => item.id === events.default_event_id) ?? preferredRelease(events.items));
+    }
     if (healthResult.status === "fulfilled") setHealth(healthResult.value);
-    if (productResult.status === "rejected" && marketsResult.status === "rejected" && releaseResult.status === "rejected") setError(productResult.reason instanceof Error ? productResult.reason.message : "Unable to load WorldState");
+    const projectionResults = [productResult, marketsResult, macroResult, eventsResult].filter((result) => result.status !== "fulfilled" || result.value !== null);
+    if (projectionResults.length && projectionResults.every((result) => result.status === "rejected")) setError("WorldState 数据暂时无法加载，请重试。");
     setLoading(false);
   };
 
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => { void refresh(); }, [view]);
   useEffect(() => { window.history.replaceState(null, "", `#${view}${selectedRelease ? `?release=${encodeURIComponent(selectedRelease.id)}` : ""}`); }, [view, selectedRelease]);
   useEffect(() => {
     if (view !== "events" || !selectedRelease || selectedDetail?.id === selectedRelease.id) return;
-    void api.release(selectedRelease.id).then(setSelectedDetail).catch(() => setSelectedDetail(null));
+    void api.productEvent(selectedRelease.id).then(setSelectedDetail).catch(() => setSelectedDetail(null));
   }, [view, selectedRelease?.id]);
   useEffect(() => { const listener = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } }; window.addEventListener("keydown", listener); return () => window.removeEventListener("keydown", listener); }, []);
   useEffect(() => {
@@ -111,7 +132,7 @@ export function App() {
     const item = releases.find((release) => release.id === id) ?? data?.latest_research.find((release) => release.id === id) ?? null;
     if (item) setSelectedRelease(item);
     setView("events");
-    try { setSelectedDetail(await api.release(id)); } catch { setSelectedDetail(null); }
+    try { setSelectedDetail(await api.productEvent(id)); } catch { setSelectedDetail(null); }
   };
   const openMarket = (item: ProductMarketItem) => {
     const values = item.sparkline ?? [];

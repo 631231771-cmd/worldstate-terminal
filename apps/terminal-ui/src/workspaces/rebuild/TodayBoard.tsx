@@ -14,7 +14,7 @@ function MarketRow({ item, onOpen }: { item: ProductMarketItem; onOpen: () => vo
 }
 
 function GlobalCompact({ countries, onOpen }: { countries: ProductCountry[]; onOpen: (country: ProductCountry) => void }) {
-  return <div class="board-grid board-grid--markets">{countries.map((country) => <button type="button" class="metric-tile" key={country.key} onClick={() => onOpen(country)}><span class="metric-tile__label">{country.label}</span><strong class="metric-tile__value" style={{ fontSize: "16px" }}>{country.available_dimensions.length ? country.available_dimensions.slice(0, 2).map((key) => country.dimensions[key]?.label ?? key).join(" / ") : "No data"}</strong><span class="metric-tile__meta"><span>{country.status === "available" ? "Covered" : country.status}</span></span></button>)}</div>;
+  return <div class="board-grid board-grid--markets">{countries.map((country) => <button type="button" class="metric-tile" key={country.key} onClick={() => onOpen(country)}><span class="metric-tile__label">{country.label}</span><strong class="metric-tile__value metric-tile__value--compact">{country.available_dimensions.length ? country.available_dimensions.slice(0, 2).map((key) => country.dimensions[key]?.label ?? key).join(" / ") : "No data"}</strong><span class="metric-tile__meta"><span>{country.status === "available" ? "Covered" : country.status}</span></span></button>)}</div>;
 }
 
 export function TodayBoard({ data, learningMode, onOpenDimension, onOpenMarket, onOpenCountry, onOpenEvent }: { data: ProductTodayResponse; learningMode: boolean; onOpenDimension: (item: ProductDimension) => void; onOpenMarket: (item: ProductMarketItem) => void; onOpenCountry: (item: ProductCountry) => void; onOpenEvent: (id: string) => void }) {

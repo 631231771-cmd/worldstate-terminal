@@ -67,7 +67,7 @@ export interface ProductMarketItem {
   freshness: string;
   proxy: boolean;
   sparkline?: number[];
-  horizons?: Record<"1d" | "1w" | "1m" | "3m", number | null>;
+  horizons?: Record<"1d" | "1w" | "1m" | "3m", { value: number | null; unit: "%" | "bp"; direction: string }>;
   capabilities: Record<string, CapabilityDimension>;
   details: {
     provider: string | null;
@@ -152,5 +152,8 @@ export interface ProductEventsResponse {
   data_mode: string;
   methodology_version: string;
   items: ReleaseSummary[];
+  upcoming: ReleaseSummary[];
+  recent: ReleaseSummary[];
+  default_event_id: string | null;
   limitations: string[];
 }

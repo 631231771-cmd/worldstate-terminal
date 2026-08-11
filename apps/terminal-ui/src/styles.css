@@ -355,6 +355,7 @@ td { padding: 15px 12px; border-bottom: 1px solid var(--line-soft); }
 .metric-tile:hover, .market-row:hover { border-color: var(--amber); background: var(--surface-raised); }
 .metric-tile__label { display: block; color: var(--muted); font-size: 12px; }
 .metric-tile__value { display: block; margin-top: 10px; font-size: 22px; font-variant-numeric: tabular-nums; }
+.metric-tile__value--compact { font-size: 16px; }
 .metric-tile__meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 11px; }
 .product-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); gap: 12px; }
 .market-board { width: 100%; border-collapse: collapse; }

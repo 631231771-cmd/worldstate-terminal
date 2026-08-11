@@ -37,9 +37,10 @@ async function request<T>(
   path: string,
   init?: RequestInit,
   acceptedErrorStatuses: readonly number[] = [],
+  timeoutMs = 15_000,
 ): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 15_000);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     let response: Response;
     try {
@@ -96,13 +97,15 @@ export const api = {
     }>("/v2/today"),
   dailyBrief: () => request<DailyBriefResponse>("/v2/daily-brief"),
   productToday: (dataMode: "observed" | "fixture" | "all" = "observed") =>
-    request<ProductTodayResponse>(`/v2/product/today?data_mode=${dataMode}`),
+    request<ProductTodayResponse>(`/v2/product/today?data_mode=${dataMode}`, undefined, [], 45_000),
   productMarkets: (dataMode: "observed" | "fixture" | "all" = "observed") =>
-    request<ProductMarketsResponse>(`/v2/product/markets?data_mode=${dataMode}`),
+    request<ProductMarketsResponse>(`/v2/product/markets?data_mode=${dataMode}`, undefined, [], 45_000),
   productMacro: (dataMode: "observed" | "fixture" | "all" = "observed") =>
-    request<ProductMacroResponse>(`/v2/product/macro?data_mode=${dataMode}`),
+    request<ProductMacroResponse>(`/v2/product/macro?data_mode=${dataMode}`, undefined, [], 45_000),
   productEvents: (dataMode: "observed" | "fixture" | "all" = "observed", limit = 500) =>
-    request<ProductEventsResponse>(`/v2/product/events?data_mode=${dataMode}&limit=${limit}`),
+    request<ProductEventsResponse>(`/v2/product/events?data_mode=${dataMode}&limit=${limit}`, undefined, [], 45_000),
+  productEvent: (id: string, dataMode: "observed" | "fixture" | "all" = "observed") =>
+    request<ReleaseDetail>(`/v2/product/events/${encodeURIComponent(id)}?data_mode=${dataMode}`, undefined, [], 45_000),
   worldState: () => request<WorldStateResponse>("/v2/world-state"),
   globalMacro: () => request<Record<string, unknown>>("/v2/global-macro"),
   macroSystems: () => request<Record<string, unknown>>("/v2/macro-systems"),

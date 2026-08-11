@@ -1,3 +1,73 @@
 version: 1
-series: []
-
+series:
+  # Current public FRED graph CSV observations. These are not PIT vintages;
+  # they provide an auditable daily macro context until an official national
+  # statistics export is configured.
+  - canonical_key: CHN.INFLATION.CPI
+    provider: fred_alfred
+    native_id: CHNCPIALLMINMEI
+    entity: CHN
+    title: China Consumer Price Index
+    frequency: monthly
+    unit: index
+    transform: yoy
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 1.0
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [china, inflation]
+    source_url: https://fred.stlouisfed.org/series/CHNCPIALLMINMEI
+  - canonical_key: CHN.GROWTH.INDUSTRIAL_PRODUCTION
+    provider: fred_alfred
+    # FRED's current OECD export uses the country-prefixed identifier.
+    # The older CHNPROINDMISMEI alias returns a not-found response.
+    native_id: CHNPRINTO01IXPYM
+    entity: CHN
+    title: China Industrial Production
+    frequency: monthly
+    # This OECD export is already an index with the same period in the prior
+    # year equal to 100.  Do not apply a second year-over-year transform.
+    unit: index_yoy
+    transform: level
+    orientation: 1
+    state_dimensions: [growth]
+    weight: 1.0
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [china, growth]
+    source_url: https://fred.stlouisfed.org/series/CHNPRINTO01IXPYM
+  - canonical_key: JPN.INFLATION.CPI
+    provider: fred_alfred
+    native_id: JPNCPIALLMINMEI
+    entity: JPN
+    title: Japan Consumer Price Index
+    frequency: monthly
+    unit: index
+    transform: yoy
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 1.0
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [japan, inflation]
+    source_url: https://fred.stlouisfed.org/series/JPNCPIALLMINMEI
+  - canonical_key: JPN.GROWTH.INDUSTRIAL_PRODUCTION
+    provider: fred_alfred
+    native_id: JPNPROINDMISMEI
+    entity: JPN
+    title: Japan Industrial Production
+    frequency: monthly
+    unit: index
+    transform: yoy
+    orientation: 1
+    state_dimensions: [growth]
+    weight: 1.0
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [japan, growth]
+    source_url: https://fred.stlouisfed.org/series/JPNPROINDMISMEI

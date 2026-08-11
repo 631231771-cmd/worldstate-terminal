@@ -11,7 +11,7 @@ from worldstate.application.capability_service import build_capability_inventory
 from worldstate.application.daily_brief_service import build_daily_brief
 from worldstate.application.global_macro_service import build_global_macro
 from worldstate.application.market_research_service import build_market_dashboard
-from worldstate.application.release_queries import list_releases
+from worldstate.application.release_queries import get_release_detail, list_releases
 
 DataMode = Literal["observed", "fixture", "all"]
 DIMENSION_LABELS = {
@@ -109,6 +109,26 @@ def _market_item(item: dict[str, Any], capabilities: dict[str, dict[str, Any]]) 
     }
 
 
+def _market_horizon(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a dashboard change into one explicit product unit.
+
+    Rates are stored as level differences in percentage points and are exposed
+    as basis points. Price-like assets use the already calculated percentage
+    return. The UI must never infer this from an instrument key.
+    """
+    is_rate = item.get("change_unit") == "bp" or "yield" in str(item.get("instrument_key", ""))
+    if is_rate:
+        raw = item.get("change_value")
+        value = round(float(raw) * 100.0, 4) if raw is not None else None
+        unit = "bp"
+    else:
+        raw = item.get("change_percent")
+        value = round(float(raw), 4) if raw is not None else None
+        unit = "%"
+    direction = _direction(value)
+    return {"value": value, "unit": unit, "direction": direction}
+
+
 def _country_projection(country: dict[str, Any]) -> dict[str, Any]:
     dimensions = country.get("dimensions", {})
     available = [key for key, value in dimensions.items() if value.get("score") is not None]
@@ -151,9 +171,18 @@ def _change_projection(item: dict[str, Any]) -> dict[str, Any]:
     if isinstance(raw_why, str):
         for key, label in DIMENSION_LABELS.items():
             raw_why = raw_why.replace(key, label)
+        # The brief often prefixes the explanation with the same dimension
+        # label already rendered as the change headline.  Keep the sentence
+        # readable in the product projection instead of repeating it in the
+        # Today button.
+        for label in DIMENSION_LABELS.values():
+            prefix = f"{label} "
+            if raw_why.startswith(prefix):
+                raw_why = raw_why[len(prefix) :]
+                break
     return {
         "what": raw_what,
-        "why": raw_why,
+        "why": f" {raw_why}" if isinstance(raw_why, str) and raw_why else raw_why,
         "magnitude": item.get("magnitude"),
         "direction": _direction(item.get("magnitude")),
         "confidence": item.get("confidence", 0.0),
@@ -233,7 +262,7 @@ async def build_markets_projection(
             key = str(item.get("instrument_key"))
             if key not in by_key:
                 by_key[key] = _market_item(item, capability_map)
-            by_key[key].setdefault("horizons", {})[horizon] = item.get("change_value")
+            by_key[key].setdefault("horizons", {})[horizon] = _market_horizon(item)
     return {
         "as_of": now.isoformat(),
         "data_mode": data_mode,
@@ -276,11 +305,47 @@ async def build_events_projection(
 ) -> dict[str, Any]:
     """Event workflow projection with clean labels and status metadata."""
     items = await list_releases(engine, limit=limit, data_mode=data_mode)
+    now = datetime.now(UTC)
+
+    def scheduled(item: dict[str, Any]) -> datetime:
+        return datetime.fromisoformat(str(item["scheduled_at"]).replace("Z", "+00:00")).astimezone(
+            UTC
+        )
+
+    def released(item: dict[str, Any]) -> datetime:
+        value = item.get("released_at") or item.get("scheduled_at")
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
+
+    upcoming = sorted(
+        (item for item in items if item.get("status") == "scheduled" and scheduled(item) >= now),
+        key=scheduled,
+    )
+    recent = sorted(
+        (item for item in items if item.get("status") == "released"), key=released, reverse=True
+    )
+    completed = [
+        item
+        for item in items
+        if item.get("analysis_status") == "completed"
+        and item.get("reproducibility_status") == "complete"
+    ]
+    default_item = (
+        sorted(completed, key=released, reverse=True)[0]
+        if completed
+        else recent[0]
+        if recent
+        else upcoming[0]
+        if upcoming
+        else None
+    )
     return {
-        "as_of": datetime.now(UTC).isoformat(),
+        "as_of": now.isoformat(),
         "data_mode": data_mode,
         "methodology_version": "wst-events-v1",
         "items": items,
+        "upcoming": upcoming,
+        "recent": recent,
+        "default_event_id": default_item.get("id") if default_item else None,
         "limitations": [
             "Minute reaction analysis is available only where eligible observed bars exist.",
             "Consensus is eligible only when captured before the release timestamp.",
@@ -288,7 +353,21 @@ async def build_events_projection(
     }
 
 
+async def build_event_detail_projection(
+    engine: AsyncEngine,
+    release_id: str,
+    *,
+    data_mode: DataMode = "observed",
+) -> dict[str, Any] | None:
+    """Return the event workflow detail through the product API boundary."""
+    detail = await get_release_detail(engine, release_id)
+    if detail is None or (data_mode != "all" and detail.get("data_mode") != data_mode):
+        return None
+    return detail
+
+
 __all__ = [
+    "build_event_detail_projection",
     "build_events_projection",
     "build_macro_projection",
     "build_markets_projection",

@@ -1424,12 +1424,19 @@ async def sync_fred_foundation(
             provider_id = provider_row.id
             entity_id = entity.id
         for definition in catalog:
-            batch = await clients.fred.fetch_observation_batch(
-                definition.native_id,
-                start=start_date,
-                end=end_date,
-                as_of=as_of,
-            )
+            if public_current:
+                batch = await clients.fred.fetch_public_current_batch(
+                    definition.native_id,
+                    start=start_date,
+                    end=end_date,
+                )
+            else:
+                batch = await clients.fred.fetch_observation_batch(
+                    definition.native_id,
+                    start=start_date,
+                    end=end_date,
+                    as_of=as_of,
+                )
             requests += 1
             read += len(batch.observations)
             artifact = await persist_provider_artifact(
@@ -1590,9 +1597,7 @@ async def sync_fred_foundation(
                             observation=observation,
                             quality_id=quality_row.id,
                             provider_key=clients.fred.key,
-                            source_mode=(
-                                "current_public_csv" if public_current else "alfred_api"
-                            ),
+                            source_mode=("current_public_csv" if public_current else "alfred_api"),
                             retrieved_at=batch.retrieved_at,
                             native_id=definition.native_id,
                         )

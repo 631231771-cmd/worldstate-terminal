@@ -22,6 +22,11 @@ from worldstate.api.v2.schemas import (
     ContextAssistantInput,
     MarketCsvImportInput,
     OfficialMacroCsvInput,
+    ProductEventDetail,
+    ProductEventsResponse,
+    ProductMacroResponse,
+    ProductMarketsResponse,
+    ProductTodayResponse,
     ReleaseCreateInput,
     ThesisInput,
     ThesisUpdateInput,
@@ -50,6 +55,7 @@ from worldstate.application.market_research_service import (
     search_series,
 )
 from worldstate.application.product_projection_service import (
+    build_event_detail_projection,
     build_events_projection,
     build_macro_projection,
     build_markets_projection,
@@ -857,7 +863,7 @@ async def daily_brief(
     return await build_daily_brief(request.app.state.database_engine, data_mode=mode, as_of=as_of)
 
 
-@router.get("/product/today", tags=["product"])
+@router.get("/product/today", response_model=ProductTodayResponse, tags=["product"])
 async def product_today(
     request: Request,
     data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
@@ -872,7 +878,7 @@ async def product_today(
     )
 
 
-@router.get("/product/markets", tags=["product"])
+@router.get("/product/markets", response_model=ProductMarketsResponse, tags=["product"])
 async def product_markets(
     request: Request,
     data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
@@ -883,7 +889,7 @@ async def product_markets(
     )
 
 
-@router.get("/product/macro", tags=["product"])
+@router.get("/product/macro", response_model=ProductMacroResponse, tags=["product"])
 async def product_macro(
     request: Request,
     data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
@@ -894,7 +900,7 @@ async def product_macro(
     )
 
 
-@router.get("/product/events", tags=["product"])
+@router.get("/product/events", response_model=ProductEventsResponse, tags=["product"])
 async def product_events(
     request: Request,
     data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
@@ -905,6 +911,20 @@ async def product_events(
         data_mode=data_mode,
         limit=limit,
     )
+
+
+@router.get("/product/events/{release_id}", response_model=ProductEventDetail, tags=["product"])
+async def product_event_detail(
+    release_id: str,
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
+) -> dict[str, object]:
+    detail = await build_event_detail_projection(
+        request.app.state.database_engine,
+        release_id,
+        data_mode=data_mode,
+    )
+    return required(detail, "event not found")
 
 
 @router.get("/market-dashboard", tags=["market"])
