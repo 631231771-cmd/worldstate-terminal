@@ -197,10 +197,12 @@ def _reaction_matrix(windows: dict[str, Any] | None) -> list[dict[str, object]]:
             },
         )
         basis_points = item.get("change_basis_points")
+        is_proxy = bool(item.get("is_proxy", False))
+        use_basis_points = basis_points is not None and not is_proxy
         row_windows = cast(dict[str, object], row["windows"])
         row_windows[str(item["window_key"])] = {
-            "value": basis_points if basis_points is not None else item.get("return_percent"),
-            "unit": "bp" if basis_points is not None else "%",
+            "value": basis_points if use_basis_points else item.get("return_percent"),
+            "unit": "bp" if use_basis_points else "%",
             "direction": item.get("direction"),
             "coverage": item.get("coverage_ratio"),
             "reversal": item.get("direction_reversal", False),

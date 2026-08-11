@@ -279,6 +279,7 @@ async def import_market_csv(
                     "no_cross_contract_splice": True,
                     "verified": verified,
                     "fixture": is_fixture,
+                    "is_fixture": is_fixture,
                     "event_intraday_eligibility": eligibility["status"],
                     "event_intraday_eligibility_v1": eligibility,
                     "source_timezone": timezone_name,
