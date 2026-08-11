@@ -13,7 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from worldstate.application.data_foundation_service import assert_matching_data_mode
-from worldstate.db.models import ConsensusSnapshot, Indicator, MacroRelease
+from worldstate.application.event_intraday_service import resolve_release_t0
+from worldstate.db.models import ConsensusSnapshot, Indicator, MacroRelease, ReleaseStage
 
 SUPPORTED_INDICATOR_KEYS: dict[str, tuple[str, ...]] = {
     "US_CPI": ("headline_mom", "core_mom", "headline_yoy", "core_yoy"),
@@ -50,7 +51,16 @@ async def append_consensus(
         release = await session.get(MacroRelease, uuid.UUID(release_id))
         if release is None:
             raise LookupError("macro release not found")
-        if _aware(captured_at) >= _aware(release.released_at or release.scheduled_at):
+        stages = list(
+            (
+                await session.scalars(
+                    select(ReleaseStage)
+                    .where(ReleaseStage.macro_release_id == release.id)
+                    .order_by(ReleaseStage.sequence)
+                )
+            ).all()
+        )
+        if _aware(captured_at) >= resolve_release_t0(release, stages):
             raise ValueError("consensus snapshot must be captured before release T0")
         assert_matching_data_mode(release.data_mode, release.data_mode, "consensus_snapshot")
         indicator = await session.scalar(
@@ -133,7 +143,16 @@ async def preview_consensus_csv(
         release = await session.get(MacroRelease, release_uuid)
         if release is None:
             raise LookupError("macro release not found")
-        t0 = _aware(release.released_at or release.scheduled_at)
+        stages = list(
+            (
+                await session.scalars(
+                    select(ReleaseStage)
+                    .where(ReleaseStage.macro_release_id == release.id)
+                    .order_by(ReleaseStage.sequence)
+                )
+            ).all()
+        )
+        t0 = resolve_release_t0(release, stages)
         supported = await supported_indicators_for_release(engine, release_id)
     supported_keys = {str(item["key"]) for item in supported}
     reader = csv.DictReader(io.StringIO(csv_text))

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from worldstate.ai_researcher.claims import deterministic_claims, validate_claims
 from worldstate.application.data_foundation_service import redact_sensitive_text
+from worldstate.application.event_intraday_service import resolve_release_t0
 from worldstate.application.event_readiness import AnalysisReadiness, build_analysis_readiness
 from worldstate.application.market_selection_service import select_release_market_data
 from worldstate.config import repository_root
@@ -106,6 +107,19 @@ def _stable_uuid(value: str) -> uuid.UUID:
 
 def _aware(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+async def _release_t0(session: AsyncSession, release: MacroRelease) -> datetime:
+    stages = list(
+        (
+            await session.scalars(
+                select(ReleaseStage)
+                .where(ReleaseStage.macro_release_id == release.id)
+                .order_by(ReleaseStage.sequence)
+            )
+        ).all()
+    )
+    return resolve_release_t0(release, stages)
 
 
 def _as_datetime(value: str) -> datetime:
@@ -883,7 +897,7 @@ async def select_analysis_inputs(
 ]:
     """Select the exact point-in-time actual and consensus inputs used by analysis."""
 
-    cutoff = _aware(release.released_at or release.scheduled_at)
+    cutoff = await _release_t0(session, release)
     values = list(
         (
             await session.scalars(
@@ -1043,7 +1057,7 @@ async def _historical_surprises(
     session: AsyncSession, release: MacroRelease, indicators: dict[str, Indicator]
 ) -> dict[str, list[HistoricalSurpriseObservation]]:
     """Load only contemporaneous historical actual/consensus pairs before T0."""
-    cutoff = _aware(release.released_at or release.scheduled_at)
+    cutoff = await _release_t0(session, release)
     historical = (
         await session.scalars(
             select(MacroRelease)
@@ -1241,6 +1255,7 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
         }
         if not stages:
             raise ValueError("release has no stages")
+        release_t0 = resolve_release_t0(release, list(stages))
         market_selection = await select_release_market_data(session, release, list(stages))
         instruments_by_id = {row.id: row for row in instruments}
         selected_instrument_ids = {
@@ -1288,8 +1303,7 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
                 .where(
                     ConsensusSnapshot.macro_release_id == release.id,
                     ConsensusSnapshot.data_mode == release.data_mode,
-                    ConsensusSnapshot.captured_at
-                    <= _aware(release.released_at or release.scheduled_at),
+                    ConsensusSnapshot.captured_at < release_t0,
                 )
                 .order_by(ConsensusSnapshot.captured_at, ConsensusSnapshot.id)
             )
@@ -1306,7 +1320,7 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
             "release_type": release.release_type,
             "data_mode": release.data_mode,
             "scheduled_at": _aware(release.scheduled_at).isoformat(),
-            "released_at": _aware(release.released_at or release.scheduled_at).isoformat(),
+            "released_at": release_t0.isoformat(),
             "contamination_level": release.contamination_level,
             "clean_window": release.clean_window,
             "values": serialized_values,

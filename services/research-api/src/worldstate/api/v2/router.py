@@ -45,7 +45,10 @@ from worldstate.application.consensus_service import (
     preview_consensus_csv,
 )
 from worldstate.application.daily_brief_service import build_daily_brief
-from worldstate.application.event_intraday_service import preview_event_minute_csv
+from worldstate.application.event_intraday_service import (
+    preview_event_minute_csv,
+    resolve_release_t0,
+)
 from worldstate.application.event_readiness import build_analysis_readiness
 from worldstate.application.evidence_service import get_evidence_pack
 from worldstate.application.global_macro_service import build_global_macro
@@ -95,6 +98,7 @@ from worldstate.db.models import (
     Indicator,
     MacroRelease,
     MarketInstrument,
+    ReleaseStage,
     ResearchClaim,
 )
 from worldstate.research_engine.history import (
@@ -104,6 +108,10 @@ from worldstate.research_engine.history import (
 )
 
 router = APIRouter(prefix="/v2")
+
+
+def _aware(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 _LOCAL_ORIGINS = {
@@ -436,6 +444,16 @@ async def release_consensus(release_id: str, request: Request) -> object:
         release = await session.get(MacroRelease, release_uuid)
         if release is None:
             raise HTTPException(status_code=404, detail="macro release not found")
+        stages = list(
+            (
+                await session.scalars(
+                    select(ReleaseStage)
+                    .where(ReleaseStage.macro_release_id == release.id)
+                    .order_by(ReleaseStage.sequence)
+                )
+            ).all()
+        )
+        t0 = resolve_release_t0(release, stages)
         rows = (
             await session.execute(
                 select(ConsensusSnapshot, Indicator)
@@ -461,7 +479,7 @@ async def release_consensus(release_id: str, request: Request) -> object:
                     "quality_grade": snapshot.quality_grade,
                     "is_manual": snapshot.is_manual,
                     "verification_notes": snapshot.verification_notes,
-                    "available_before_t0": snapshot.captured_at < release.scheduled_at,
+                    "available_before_t0": _aware(snapshot.captured_at) < t0,
                     "metadata": snapshot.metadata_json,
                 }
                 for snapshot, indicator in rows
