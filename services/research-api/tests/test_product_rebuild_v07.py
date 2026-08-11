@@ -237,6 +237,33 @@ def test_macro_projection_keeps_canonical_dimension_keys(client: TestClient) -> 
             assert key in country["dimensions"]
 
 
+def test_macro_projection_exposes_real_comparison_and_country_drilldown(
+    client: TestClient,
+) -> None:
+    macro = client.get("/v2/product/macro", params={"data_mode": "observed"})
+    assert macro.status_code == 200
+    payload = macro.json()
+    assert {"comparison", "divergence", "context_cards"} <= set(payload)
+
+    detail = client.get(
+        "/v2/product/macro/CHN",
+        params={"data_mode": "observed", "dimension": "inflation"},
+    )
+    assert detail.status_code == 200
+    country = detail.json()
+    assert country["country"]["key"] == "CHN"
+    assert country["history_scope"] == "unavailable"
+    assert country["state_history"] == []
+    assert country["recent_releases"] == []
+    assert country["upcoming_releases"] == []
+    assert all(item["score"] is not None for item in country["comparisons"])
+
+
+def test_country_drilldown_rejects_unknown_country(client: TestClient) -> None:
+    response = client.get("/v2/product/macro/XXX", params={"data_mode": "observed"})
+    assert response.status_code == 404
+
+
 def test_markets_projection_returns_all_horizons_in_one_response(client: TestClient) -> None:
     response = client.get("/v2/product/markets", params={"data_mode": "observed"})
     assert response.status_code == 200

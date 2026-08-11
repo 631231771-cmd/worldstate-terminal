@@ -13,6 +13,7 @@ from worldstate.application.event_product_service import build_event_product_det
 from worldstate.application.global_macro_service import build_global_macro
 from worldstate.application.market_research_service import build_market_dashboard
 from worldstate.application.release_queries import list_releases
+from worldstate.application.state_history_service import list_world_state_snapshots
 
 DataMode = Literal["observed", "fixture", "all"]
 DIMENSION_LABELS = {
@@ -54,6 +55,23 @@ COUNTRY_LABELS = {
     "EA19": "\u6b27\u5143\u533a",
     "JPN": "\u65e5\u672c",
     "GBR": "\u82f1\u56fd",
+}
+
+COUNTRY_MARKETS = {
+    "USA": (
+        "ust2y_yield_context",
+        "ust10y_yield_context",
+        "ust10y_real_yield_context",
+        "dollar_broad_context",
+        "sp500_cash",
+        "nasdaq100_cash",
+        "vix_cash",
+        "hy_spread_context",
+    ),
+    "CHN": ("usdcny_context",),
+    "EA19": ("eurusd_context",),
+    "JPN": ("usdjpy_context",),
+    "GBR": (),
 }
 
 
@@ -356,7 +374,150 @@ async def build_macro_projection(
         "data_mode": data_mode,
         "methodology_version": "wst-macro-v1",
         "countries": [_country_projection(item) for item in payload.get("countries", [])],
+        "comparison": payload.get("comparison", []),
+        "divergence": payload.get("divergence", []),
+        "context_cards": payload.get("context_cards", []),
         "limitations": payload.get("limitations", []),
+    }
+
+
+async def build_country_projection(
+    engine: AsyncEngine,
+    country_key: str,
+    *,
+    data_mode: DataMode = "observed",
+    dimension: str | None = None,
+    as_of: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Return one honest country research projection.
+
+    Global country state is computed from the existing point-in-time signal
+    pipeline.  Daily state snapshots currently describe the US World State,
+    so they are never relabelled as history for another country.
+    """
+    now = (as_of or datetime.now(UTC)).astimezone(UTC)
+    payload = await build_global_macro(engine, data_mode=data_mode, as_of=now)
+    raw_country = next(
+        (item for item in payload.get("countries", []) if item.get("iso3") == country_key),
+        None,
+    )
+    if raw_country is None:
+        return None
+    country = _country_projection(raw_country)
+    selected_raw = country["dimensions"].get(dimension) if dimension else None
+    selected_dimension = (
+        {"key": dimension, **selected_raw} if isinstance(selected_raw, dict) else None
+    )
+
+    key_series: list[dict[str, Any]] = []
+    seen_series: set[str] = set()
+    for dimension_key, value in country["dimensions"].items():
+        for driver in value.get("drivers", []):
+            series_key = str(driver.get("series_key") or "")
+            if not series_key or series_key in seen_series:
+                continue
+            seen_series.add(series_key)
+            key_series.append(
+                {
+                    "key": series_key,
+                    "title": driver.get("title") or series_key,
+                    "dimension": dimension_key,
+                    "dimension_label": DIMENSION_LABELS.get(dimension_key, dimension_key),
+                    "latest_value": driver.get("latest_value"),
+                    "period_start": driver.get("period_start"),
+                    "score": driver.get("score"),
+                    "momentum": driver.get("momentum"),
+                    "quality": driver.get("quality"),
+                    "data_mode": driver.get("data_mode"),
+                    "source_url": driver.get("source_url"),
+                }
+            )
+
+    markets_payload = await build_markets_projection(engine, data_mode=data_mode, as_of=now)
+    related_keys = set(COUNTRY_MARKETS.get(country_key, ()))
+    related_markets = [
+        item for item in markets_payload.get("items", []) if item.get("key") in related_keys
+    ]
+
+    # MacroRelease currently covers US CPI/NFP/FOMC.  Do not present those
+    # releases as a calendar for China, Japan, the euro area, or the UK.
+    releases = await list_releases(engine, limit=500, data_mode=data_mode)
+    country_releases = releases if country_key == "USA" else []
+    recent_releases = sorted(
+        (item for item in country_releases if item.get("status") == "released"),
+        key=lambda item: str(item.get("released_at") or item.get("scheduled_at") or ""),
+        reverse=True,
+    )[:6]
+    upcoming_releases = sorted(
+        (
+            item
+            for item in country_releases
+            if item.get("status") == "scheduled"
+            and str(item.get("scheduled_at") or "") >= now.isoformat()
+        ),
+        key=lambda item: str(item.get("scheduled_at") or ""),
+    )[:6]
+
+    state_history: list[dict[str, Any]] = []
+    history_scope = "unavailable"
+    if country_key == "USA":
+        history_scope = "us_world_state"
+        snapshots = await list_world_state_snapshots(engine, data_mode=data_mode, limit=365)
+        for snapshot in reversed(snapshots):
+            dimensions = snapshot.get("dimensions") or {}
+            if dimension:
+                state = dimensions.get(dimension) or {}
+                if state.get("score") is None:
+                    continue
+                state_history.append(
+                    {
+                        "date": snapshot["snapshot_date"],
+                        "value": state["score"],
+                        "direction": state.get("direction"),
+                        "confidence": state.get("confidence"),
+                        "methodology_version": snapshot.get("methodology_version"),
+                    }
+                )
+
+    comparisons: list[dict[str, Any]] = []
+    if dimension:
+        for item in payload.get("countries", []):
+            state = item.get("dimensions", {}).get(dimension, {})
+            if state.get("score") is None:
+                continue
+            comparisons.append(
+                {
+                    "country_key": item.get("iso3"),
+                    "country_label": COUNTRY_LABELS.get(
+                        str(item.get("iso3")), str(item.get("name"))
+                    ),
+                    "score": state.get("score"),
+                    "direction": state.get("direction"),
+                    "coverage": state.get("coverage"),
+                }
+            )
+        comparisons.sort(key=lambda item: float(item["score"]), reverse=True)
+
+    limitations = list(country.get("details", {}).get("limitations", []))
+    if country_key != "USA":
+        limitations.append("该经济体尚未积累独立的每日状态快照；不会借用美国历史。")
+        limitations.append("当前正式事件日历仅覆盖美国 CPI、非农与 FOMC。")
+    elif dimension and not state_history:
+        limitations.append("该维度尚无可展示的真实每日状态快照。")
+    return {
+        "as_of": now.isoformat(),
+        "data_mode": data_mode,
+        "methodology_version": "wst-country-v1",
+        "country": country,
+        "selected_dimension": selected_dimension,
+        "key_series": key_series,
+        "markets": related_markets,
+        "recent_releases": recent_releases,
+        "upcoming_releases": upcoming_releases,
+        "state_history": state_history,
+        "history_scope": history_scope,
+        "comparisons": comparisons,
+        "limitations": limitations,
     }
 
 
@@ -424,6 +585,7 @@ async def build_event_detail_projection(
 
 
 __all__ = [
+    "build_country_projection",
     "build_event_detail_projection",
     "build_events_projection",
     "build_macro_projection",

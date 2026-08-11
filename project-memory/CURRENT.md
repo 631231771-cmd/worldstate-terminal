@@ -21,7 +21,7 @@ longer part of the active architecture. Their final state is preserved at tag
 - Database head in the worktree: `0010_operational_state_defaults`
 - API contract: `/v2`
 - Product version in the worktree: `0.7.0`
-- Product code checkpoint: `c04c1ef` (`feat: operationalize event research workflow`); the global-depth follow-up is being validated and PR #11 remains Draft.
+- Product code checkpoints: `c04c1ef` (event workflow), `16621c5` (global observed depth) and `a97385f` (interactive daily markets). Country/dimension drill-down and durable product deep links are the current uncommitted checkpoint; PR #11 remains Draft.
 - Runtime checkpoint: database migrated to `0010_operational_state_defaults`; the local runtime currently contains 147,710 observed macro rows across 70 populated series and 49,832 observed daily/context market bars across 19 instruments. Of those market rows, 5,802 are explicitly WorldState-derived 2s10s/3m10y curve observations. The runtime still has one observed world-state snapshot, zero observed consensus snapshots, zero observed minute bars and zero observed completed AnalysisRuns. Repeated current-public captures can produce more storage rows than unique period observations; product state selects one latest-known row per period at the requested `as_of`.
 - Runtime audit: `docs/macro/v0.7-live-coverage-audit-2026-08-10.md` records USA/EA/UK observed state coverage, Japan/China unavailable without an official export, 8 context instruments, one observed snapshot, zero observed consensus snapshots, and explicit market/data-quality boundaries.
 - PR #8: Draft, unmerged; PR #9: Draft, open; PR #10: Draft, open on
@@ -355,3 +355,22 @@ Do not call correlation unique causation. Do not hide proxy, fixture, manual,
 delayed, contaminated or missing data. Never mix fixture into observed coverage.
 AI only summarizes a validated EvidencePack. Never commit credentials, account
 data or proprietary raw payloads.
+
+## Country research and deep-link checkpoint (2026-08-11)
+
+- `/v2/product/macro/{country}` is an on-demand country projection built from
+  the existing PIT-aware global state pipeline. It returns the selected
+  dimension, observed driver series, related daily markets, same-dimension
+  country comparison, event context and explicit limitations.
+- World State history is never synthesized. Existing immutable daily snapshots
+  are exposed only for the US World State; China, Japan, the euro area and the
+  UK explicitly report that independent country snapshots are unavailable.
+- The Macro matrix retains missing cells, excludes unavailable countries from
+  comparisons, and presents relative divergence as context rather than causal
+  attribution.
+- Product URLs now restore concrete research context after refresh:
+  `#markets?asset=...`, `#macro?country=...&dimension=...`,
+  `#macro?series=...`, `#events?release=...` and `#research?thesis=...`.
+- Ctrl+K searches actual markets, Series, releases, countries and Theses. Live
+  browser smoke verified Gold, China CPI, the China/inflation country view and
+  a concrete FOMC release.

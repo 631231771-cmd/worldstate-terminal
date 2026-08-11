@@ -150,6 +150,37 @@ export interface ProductMacroResponse {
   data_mode: string;
   methodology_version: string;
   countries: ProductCountry[];
+  comparison: Array<{ dimension: string; countries: Array<{ iso3: string; name: string; score: number | null; direction: string }> }>;
+  divergence: Array<{ dimension: string; stronger: { iso3: string; name: string; score: number }; weaker: { iso3: string; name: string; score: number }; spread: number; interpretation: string }>;
+  context_cards: Array<{ key: string; title: string; status: string; components: string[] }>;
+  limitations: string[];
+}
+
+export interface ProductCountryDetail {
+  as_of: string;
+  data_mode: string;
+  methodology_version: string;
+  country: ProductCountry;
+  selected_dimension: ({ key: string } & ProductCountry["dimensions"][string]) | null;
+  key_series: Array<{
+    key: string;
+    title: string;
+    dimension: string;
+    dimension_label: string;
+    latest_value: number | null;
+    period_start: string | null;
+    score: number | null;
+    momentum: number | null;
+    quality: string | null;
+    data_mode: string;
+    source_url: string | null;
+  }>;
+  markets: ProductMarketItem[];
+  recent_releases: ReleaseSummary[];
+  upcoming_releases: ReleaseSummary[];
+  state_history: Array<{ date: string; value: number; direction: string | null; confidence: number | null; methodology_version: string | null }>;
+  history_scope: "us_world_state" | "unavailable" | string;
+  comparisons: Array<{ country_key: string; country_label: string; score: number; direction: string; coverage: number }>;
   limitations: string[];
 }
 

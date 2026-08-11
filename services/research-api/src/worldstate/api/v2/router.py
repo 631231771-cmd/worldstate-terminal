@@ -22,6 +22,7 @@ from worldstate.api.v2.schemas import (
     ContextAssistantInput,
     MarketCsvImportInput,
     OfficialMacroCsvInput,
+    ProductCountryResponse,
     ProductEventDetail,
     ProductEventsResponse,
     ProductMacroResponse,
@@ -60,6 +61,7 @@ from worldstate.application.market_research_service import (
     search_series,
 )
 from worldstate.application.product_projection_service import (
+    build_country_projection,
     build_event_detail_projection,
     build_events_projection,
     build_macro_projection,
@@ -956,6 +958,26 @@ async def product_macro(
         request.app.state.database_engine,
         data_mode=data_mode,
     )
+
+
+@router.get(
+    "/product/macro/{country_key}",
+    response_model=ProductCountryResponse,
+    tags=["product"],
+)
+async def product_country(
+    country_key: str,
+    request: Request,
+    dimension: str | None = Query(default=None),
+    data_mode: Literal["observed", "fixture", "all"] = Query("observed"),
+) -> dict[str, object]:
+    detail = await build_country_projection(
+        request.app.state.database_engine,
+        country_key.upper(),
+        data_mode=data_mode,
+        dimension=dimension,
+    )
+    return required(detail, "country not found")
 
 
 @router.get("/product/events", response_model=ProductEventsResponse, tags=["product"])

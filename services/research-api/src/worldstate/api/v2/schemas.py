@@ -230,6 +230,25 @@ class ProductMacroResponse(StrictModel):
     data_mode: str
     methodology_version: str
     countries: list[ProductCountry]
+    comparison: list[dict[str, object]] = Field(default_factory=list)
+    divergence: list[dict[str, object]] = Field(default_factory=list)
+    context_cards: list[dict[str, object]] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+
+
+class ProductCountryResponse(StrictModel):
+    as_of: AwareDatetime
+    data_mode: str
+    methodology_version: str
+    country: ProductCountry
+    selected_dimension: dict[str, object] | None = None
+    key_series: list[dict[str, object]] = Field(default_factory=list)
+    markets: list[ProductMarketItem] = Field(default_factory=list)
+    recent_releases: list[dict[str, object]] = Field(default_factory=list)
+    upcoming_releases: list[dict[str, object]] = Field(default_factory=list)
+    state_history: list[dict[str, object]] = Field(default_factory=list)
+    history_scope: str
+    comparisons: list[dict[str, object]] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
 
 

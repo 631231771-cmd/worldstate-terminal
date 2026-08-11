@@ -84,9 +84,44 @@
   gap: 8px;
 }
 
-.context-links span {
+.context-links span,
+.context-link {
   padding: 5px 9px;
   border: 1px solid var(--line-soft);
   color: var(--muted-strong);
+  font-size: 12px;
+}
+
+.context-link {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.context-link:hover {
+  color: var(--text);
+  border-color: var(--amber);
+}
+
+.research-list--compact .research-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 12px 8px;
+}
+
+.research-list--compact .research-row > div {
+  min-width: 0;
+}
+
+.research-list--compact .research-row strong,
+.research-list--compact .research-row span {
+  overflow-wrap: anywhere;
+}
+
+.research-list--compact .research-row > div > span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
   font-size: 12px;
 }
