@@ -393,6 +393,33 @@ data or proprietary raw payloads.
   onedir Research API for Windows. A clean-database migration and independent
   `/v2/health` smoke pass without system Python. The verified folder contains
   1,028 files / 75.2 MB and a 16.6 MB launcher.
-- CI now builds, smokes and uploads the Windows sidecar artifact. Tauri does
-  not yet bundle or select this folder, so the current desktop EXE is still not
-  described as a self-contained release.
+- CI now builds, smokes and uploads the Windows sidecar artifact. Release Tauri
+  resources select this sidecar when the generated artifact is present; the
+  current development EXE remains Python-backed.
+
+## v0.7 beta closure / event correctness (2026-08-11)
+
+- `41b105d` adds a shared `AnalysisReadiness` gate and explicit
+  `event-intraday-v1` manifest policy. Observed analysis cannot create a
+  completed run unless canonical Actual/Consensus pairs, pre-T0 consensus and
+  at least one eligible event-minute manifest are present. The API exposes
+  `/v2/releases/{release_id}/analysis-readiness` and returns structured 409
+  blockers when the gate is not satisfied.
+- Legacy minute manifests without eligibility metadata are rejected for
+  canonical event instruments. Fixture manifests are explicitly fixture
+  policy-labelled. Missing key minute windows are reported per-window and
+  incomplete short windows no longer receive a complete reaction value.
+- `6f1e875` makes consensus T0 checks stage-aware and timezone-normalized;
+  FOMC uses the statement stage as the primary T0. Treasury futures proxies
+  remain percentage-price reactions; only cash-yield reactions use bp.
+- `35034a0` and `fb442d0` produce a repo-independent PyInstaller sidecar smoke
+  (fresh migration plus `/v2/health` and all four product endpoints). Release
+  Tauri resources select the bundled sidecar when present; development builds
+  retain the Python source path. The executable is a generated build artifact,
+  not source-controlled.
+- Local verification: 203 backend tests, Ruff and strict mypy pass; Tauri
+  fmt/check/tests and the no-bundle desktop build pass. Runtime truth remains
+  unchanged: observed minute bars and observed consensus are zero, so there is
+  no observed real-event AnalysisRun yet. CPI/NFP/FOMC examples remain fixture
+  demonstrations until legal verified minute and pre-T0 consensus data are
+  imported.
