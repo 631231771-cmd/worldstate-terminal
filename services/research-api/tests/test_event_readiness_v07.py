@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from worldstate.application.event_intraday_service import (
     evaluate_event_intraday_eligibility,
@@ -95,4 +96,6 @@ def test_fomc_t0_is_not_lexical_and_uses_statement_stage() -> None:
     ]
     from worldstate.application.event_intraday_service import resolve_release_t0
 
-    assert resolve_release_t0(release, stages) == datetime(2030, 1, 1, 19, 1, tzinfo=UTC)
+    assert resolve_release_t0(cast(Any, release), cast(Any, stages)) == datetime(
+        2030, 1, 1, 19, 1, tzinfo=UTC
+    )
