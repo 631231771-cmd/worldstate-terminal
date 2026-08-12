@@ -77,6 +77,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "http://127.0.0.1:5173",
             "http://localhost:5173",
             "tauri://localhost",
+            # Tauri v2's Windows production WebView uses the HTTP custom
+            # protocol origin. Keep the legacy/dev origins above as well.
+            "http://tauri.localhost",
             "https://tauri.localhost",
         ],
         allow_methods=["GET", "POST", "OPTIONS"],

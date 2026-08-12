@@ -47,10 +47,22 @@ export async function request<T>(
   try {
     let response: Response;
     try {
+      const headers = new Headers(init?.headers);
+      // GET/HEAD requests do not need a JSON content type and should not
+      // trigger an avoidable CORS preflight. JSON mutation requests pass a
+      // string body; callers with another body type must provide their own
+      // content type.
+      if (
+        init?.body != null &&
+        typeof init.body === "string" &&
+        !headers.has("Content-Type")
+      ) {
+        headers.set("Content-Type", "application/json");
+      }
       response = await fetch(`${API_BASE}${path}`, {
         ...init,
         signal: controller.signal,
-        headers: { "Content-Type": "application/json", ...init?.headers },
+        headers,
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
