@@ -586,7 +586,20 @@ async def sync_bls_calendar(
                     payload=[entry.model_dump(mode="json") for entry in batch.entries],
                     provider_run_id=run.id,
                     source_artifact_id=artifact.id,
-                    metadata={"source_timezone": "America/New_York"},
+                    metadata={
+                        "source_timezone": "America/New_York",
+                        "calendar_provider": str(
+                            batch.artifacts[0].metadata.get("calendar_provider")
+                            or "bls_official_schedule"
+                        ),
+                        **(
+                            {
+                                "fallback_from": batch.artifacts[0].metadata["fallback_from"]
+                            }
+                            if batch.artifacts[0].metadata.get("fallback_from")
+                            else {}
+                        ),
+                    },
                 )
                 quality = await persist_quality_record(
                     engine,
@@ -599,8 +612,22 @@ async def sync_bls_calendar(
                     released_at = _aware(entry.scheduled_local)
                     if not start_date <= released_at.date() <= end_date:
                         continue
-                    period = _previous_month(released_at.date())
-                    release_key = f"{family.lower()}-{period.isoformat()}-observed"
+                    calendar_metadata = batch.artifacts[0].metadata
+                    calendar_provider = str(
+                        calendar_metadata.get("calendar_provider") or "bls_official_schedule"
+                    )
+                    period = entry.reference_period
+                    if period is None and calendar_provider != "bls_public_calendar":
+                        # Preserve the legacy HTML adapter behavior for older
+                        # fixtures while refusing to invent a period from a
+                        # public ICS event that did not state one.
+                        period = _previous_month(released_at.date()).strftime("%Y-%m")
+                    if period is None:
+                        warnings.append(
+                            f"{family} {released_at.date()}: calendar event has no reference period"
+                        )
+                        continue
+                    release_key = f"{family.lower()}-{period}-observed"
                     factory = _factory(engine)
                     async with factory() as session, session.begin():
                         release = await session.scalar(
@@ -616,7 +643,7 @@ async def sync_bls_calendar(
                                 release_type=family,
                                 title=entry.title,
                                 country="USA",
-                                period_label=period.strftime("%Y-%m"),
+                                period_label=period,
                                 scheduled_at=released_at,
                                 released_at=(
                                     released_at if released_at <= datetime.now(UTC) else None
@@ -636,7 +663,12 @@ async def sync_bls_calendar(
                                     "overlap and news contamination have not been reconciled"
                                 ],
                                 metadata_json={
-                                    "period_derivation": "calendar month before release month",
+                                    "period_derivation": (
+                                        "official event title/description"
+                                        if entry.reference_period
+                                        else "calendar month before release month"
+                                    ),
+                                    "calendar_provider": calendar_provider,
                                     "official_schedule": True,
                                 },
                             )
@@ -651,6 +683,16 @@ async def sync_bls_calendar(
                             release.data_version = f"bls-calendar-{artifact.content_hash[:16]}"
                             release.source_artifact_id = artifact.id
                             release.primary_quality_id = quality.id
+                            release.period_label = period
+                            release.metadata_json = {
+                                **release.metadata_json,
+                                "calendar_provider": calendar_provider,
+                                "period_derivation": (
+                                    "official event title/description"
+                                    if entry.reference_period
+                                    else "calendar month before release month"
+                                ),
+                            }
                         await session.flush()
                         await _upsert_release_stage(
                             session,
@@ -660,7 +702,10 @@ async def sync_bls_calendar(
                             sequence=1,
                             published_at=released_at,
                             source_artifact_id=artifact.id,
-                            metadata={"timestamp_source": "BLS official release calendar"},
+                            metadata={
+                                "timestamp_source": "BLS official release calendar",
+                                "calendar_provider": calendar_provider,
+                            },
                         )
                         scheduled_release_ids.append(release.id)
         for release_id in dict.fromkeys(scheduled_release_ids):

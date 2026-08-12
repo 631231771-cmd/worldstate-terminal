@@ -140,6 +140,7 @@ class BlsScheduleEntry(ProviderModel):
     source_time_text: str
     source_url: str
     artifact_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reference_period: str | None = None
 
 
 class BlsScheduleBatch(ProviderBatch):
@@ -198,6 +199,53 @@ _MONTHS = {
     "dec": 12,
 }
 
+_ICS_PERIOD = re.compile(
+    r"\bfor\s+(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|"
+    r"Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|"
+    r"Nov(?:ember)?|Dec(?:ember)?)\s+(?P<year>20\d{2})\b",
+    re.IGNORECASE,
+)
+
+
+def _unfold_ics_lines(payload: bytes | str) -> list[str]:
+    text = payload.decode("utf-8-sig") if isinstance(payload, bytes) else payload
+    physical = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    lines: list[str] = []
+    for line in physical:
+        if line.startswith((" ", "\t")) and lines:
+            lines[-1] += line[1:]
+        else:
+            lines.append(line)
+    return lines
+
+
+def _unescape_ics(value: str) -> str:
+    return (
+        value.replace("\\n", "\n")
+        .replace("\\N", "\n")
+        .replace("\\,", ",")
+        .replace("\\;", ";")
+        .replace("\\\\", "\\")
+    )
+
+
+def _parse_ics_datetime(value: str, parameters: dict[str, str]) -> datetime | None:
+    raw = value.strip()
+    try:
+        if raw.endswith("Z"):
+            return datetime.strptime(raw, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+        parsed = datetime.strptime(raw, "%Y%m%dT%H%M%S")
+    except ValueError:
+        try:
+            parsed = datetime.strptime(raw, "%Y%m%dT%H%M")
+        except ValueError:
+            return None
+    timezone_name = parameters.get("TZID", "America/New_York")
+    try:
+        return parsed.replace(tzinfo=ZoneInfo(timezone_name))
+    except Exception:
+        return parsed.replace(tzinfo=ZoneInfo("America/New_York"))
+
 
 class BlsOfficialProvider:
     """Normalize BLS payloads without pretending the current API is a vintage API."""
@@ -208,6 +256,7 @@ class BlsOfficialProvider:
         "US_CPI": "https://www.bls.gov/schedule/news_release/cpi.htm",
         "US_NFP": "https://www.bls.gov/schedule/news_release/empsit.htm",
     }
+    public_calendar_url = "https://www.bls.gov/schedule/news_release/bls.ics"
     terms = ProviderTerms(
         license_name="United States Government public data",
         terms_url="https://www.bls.gov/bls/linksite.htm",
@@ -249,7 +298,12 @@ class BlsOfficialProvider:
         return ProviderCapabilities(
             provider_key=self.key,
             domains=(ProviderDomain.MACRO_RELEASE, ProviderDomain.MACRO_SERIES),
-            operations=("fetch_cpi", "fetch_nfp", "healthcheck"),
+            operations=(
+                "fetch_cpi",
+                "fetch_nfp",
+                "fetch_public_calendar",
+                "healthcheck",
+            ),
             supports_point_in_time=False,
             supports_revisions=True,
             supports_batch=True,
@@ -265,6 +319,7 @@ class BlsOfficialProvider:
                     "series_per_query": 25,
                     "years_per_query": 10,
                     "requests_per_day": 25,
+                    "calendar": "public ICS feed does not require a registered API key",
                 },
                 "registered_limits": {
                     "series_per_query": 50,
@@ -687,6 +742,17 @@ class BlsOfficialProvider:
         *,
         year: int,
     ) -> BlsScheduleBatch:
+        # BLS publishes the current and forward release calendar as a public
+        # ICS feed.  It is intentionally independent of the registered Data
+        # API entitlement used by fetch_bundle/fetch_actuals.
+        public_error: ProviderError | ProviderSchemaError | None = None
+        if year >= datetime.now(UTC).year:
+            try:
+                return await self.fetch_public_calendar(family, year=year)
+            except (ProviderError, ProviderSchemaError) as exc:
+                # Keep the official schedule HTML as a secondary fallback;
+                # callers retain the warning/provenance from the final source.
+                public_error = exc
         base_url = self.schedule_urls[family]
         current_year = datetime.now(UTC).year
         source_url = (
@@ -696,7 +762,24 @@ class BlsOfficialProvider:
         )
         cached = self._historical_schedule_cache.get(year) if year < current_year else None
         if cached is None:
-            response = await self._transport.request("GET", source_url)
+            try:
+                response = await self._transport.request("GET", source_url)
+            except ProviderError as exc:
+                if public_error is not None:
+                    raise ProviderError(
+                        self.key,
+                        ProviderErrorCode.PUBLIC_CALENDAR_UNAVAILABLE,
+                        "BLS official public calendar and HTML fallback are unavailable",
+                        retryable=public_error.retryable or exc.retryable,
+                        status_code=exc.status_code,
+                        details={
+                            "public_calendar_error": public_error.error_code.value,
+                            "fallback_error": exc.error_code.value,
+                            "public_calendar_url": self.public_calendar_url,
+                            "fallback_url": source_url,
+                        },
+                    ) from exc
+                raise
             content = response.content
             retrieved_at = datetime.now(UTC)
             resolved_url = str(response.url)
@@ -714,6 +797,157 @@ class BlsOfficialProvider:
             year=year,
             retrieved_at=retrieved_at,
             source_url=resolved_url,
+            calendar_provider=(
+                "bls_official_schedule_html_fallback"
+                if public_error is not None
+                else "bls_official_schedule_html"
+            ),
+            fallback_from=(self.public_calendar_url if public_error is not None else None),
+        )
+
+    async def fetch_public_calendar(
+        self,
+        family: Literal["US_CPI", "US_NFP"],
+        *,
+        year: int,
+    ) -> BlsScheduleBatch:
+        response = await self._transport.request(
+            "GET",
+            self.public_calendar_url,
+            headers={
+                "Accept": "text/calendar,text/plain;q=0.9,*/*;q=0.1",
+                "User-Agent": "WorldStateTerminal/0.7 public-calendar",
+            },
+        )
+        return self.adapt_schedule_ics(
+            response.content,
+            family=family,
+            year=year,
+            retrieved_at=datetime.now(UTC),
+            source_url=str(response.url),
+        )
+
+    def adapt_schedule_ics(
+        self,
+        payload: bytes | str,
+        *,
+        family: Literal["US_CPI", "US_NFP"],
+        year: int,
+        retrieved_at: AwareDatetime,
+        source_url: str,
+    ) -> BlsScheduleBatch:
+        """Parse BLS's public calendar without requiring a BLS API key."""
+
+        raw = payload.encode() if isinstance(payload, str) else payload
+        artifact = SourceArtifact.capture(
+            provider_key=self.key,
+            source_url=source_url,
+            retrieved_at=retrieved_at,
+            content_type="text/calendar",
+            content=raw,
+            terms=self.terms,
+            metadata={
+                "release_family": family,
+                "schedule_year": year,
+                "calendar_provider": "bls_public_calendar",
+                "official": True,
+                "parser": "bls-public-calendar-ics-v1",
+            },
+        )
+        entries: list[BlsScheduleEntry] = []
+        event: dict[str, tuple[dict[str, str], str]] | None = None
+        for line in [*_unfold_ics_lines(raw), "END:VEVENT"]:
+            if line == "BEGIN:VEVENT":
+                event = {}
+                continue
+            if line == "END:VEVENT":
+                if event is None:
+                    continue
+                summary = _unescape_ics(event.get("SUMMARY", ({}, ""))[1])
+                description = _unescape_ics(event.get("DESCRIPTION", ({}, ""))[1])
+                combined = f"{summary} {description}".lower()
+                marker = (
+                    "consumer price index"
+                    if family == "US_CPI"
+                    else "employment situation"
+                )
+                if marker not in combined:
+                    event = None
+                    continue
+                start_data = event.get("DTSTART")
+                if start_data is None:
+                    event = None
+                    continue
+                scheduled = _parse_ics_datetime(start_data[1], start_data[0])
+                if scheduled is None or scheduled.year != year:
+                    event = None
+                    continue
+                period_match = _ICS_PERIOD.search(f"{summary} {description}")
+                period = None
+                if period_match:
+                    month = _MONTHS[period_match.group("month")[:3].lower()]
+                    period = f"{period_match.group('year')}-{month:02d}"
+                title = (
+                    "Consumer Price Index"
+                    if family == "US_CPI"
+                    else "Employment Situation"
+                )
+                entries.append(
+                    BlsScheduleEntry(
+                        release_family=family,
+                        title=title,
+                        release_date=scheduled.date(),
+                        scheduled_local=scheduled,
+                        source_timezone="America/New_York",
+                        source_time_text=scheduled.strftime("%I:%M %p"),
+                        source_url=source_url,
+                        artifact_hash=artifact.content_hash,
+                        reference_period=period,
+                    )
+                )
+                event = None
+                continue
+            if event is None or ":" not in line:
+                continue
+            name, value = line.split(":", 1)
+            parts = name.split(";")
+            params = {
+                item.split("=", 1)[0].upper(): item.split("=", 1)[1]
+                for item in parts[1:]
+                if "=" in item
+            }
+            event[parts[0].upper()] = (params, value)
+        if not entries:
+            raise ProviderSchemaError(
+                self.key,
+                "BLS public calendar ICS yielded no requested release events",
+                structure="VEVENT with DTSTART and CPI/NFP summary",
+                details={"release_family": family, "schedule_year": year},
+            )
+        quality = DataQuality(
+            source_name="U.S. Bureau of Labor Statistics public release calendar",
+            source_url=source_url,
+            source_type="official_ics",
+            acquired_at=retrieved_at,
+            is_verified=True,
+            quality_grade=QualityGrade.A,
+            metadata={
+                "source_timezone": "America/New_York",
+                "calendar_provider": "bls_public_calendar",
+                "official": True,
+                "parser": "bls-public-calendar-ics-v1",
+            },
+        )
+        return BlsScheduleBatch(
+            provider_key=self.key,
+            retrieved_at=retrieved_at,
+            artifacts=(artifact,),
+            quality=quality,
+            idempotency_key=hashlib.sha256(
+                f"bls-public-calendar:{family}:{year}:{artifact.content_hash}".encode()
+            ).hexdigest(),
+            release_family=family,
+            entries=tuple(sorted(entries, key=lambda item: item.scheduled_local)),
         )
 
     def adapt_schedule_html(
@@ -724,6 +958,8 @@ class BlsOfficialProvider:
         year: int,
         retrieved_at: AwareDatetime,
         source_url: str,
+        calendar_provider: str = "bls_official_schedule_html",
+        fallback_from: str | None = None,
     ) -> BlsScheduleBatch:
         raw = payload.encode() if isinstance(payload, str) else payload
         try:
@@ -743,7 +979,13 @@ class BlsOfficialProvider:
             content_type="text/html",
             content=raw,
             terms=self.terms,
-            metadata={"release_family": family, "schedule_year": year},
+            metadata={
+                "release_family": family,
+                "schedule_year": year,
+                "calendar_provider": calendar_provider,
+                "official": True,
+                **({"fallback_from": fallback_from} if fallback_from else {}),
+            },
         )
         entries: list[BlsScheduleEntry] = []
         historical_full_calendar = f"/schedule/{year}/" in source_url
@@ -789,6 +1031,11 @@ class BlsOfficialProvider:
                     source_time_text=time_match.group(0),
                     source_url=source_url,
                     artifact_hash=artifact.content_hash,
+                    reference_period=(
+                        f"{match.group('year')}-{_MONTHS[match.group('month')[:3].lower()]:02d}"
+                        if (match := _ICS_PERIOD.search(row_text))
+                        else None
+                    ),
                 )
             )
         if not entries:
@@ -805,7 +1052,13 @@ class BlsOfficialProvider:
             acquired_at=retrieved_at,
             is_verified=True,
             quality_grade=QualityGrade.A,
-            metadata={"source_timezone": "America/New_York", "parser": "bls-schedule-v1"},
+            metadata={
+                "source_timezone": "America/New_York",
+                "calendar_provider": calendar_provider,
+                "official": True,
+                "parser": "bls-schedule-v1",
+                **({"fallback_from": fallback_from} if fallback_from else {}),
+            },
         )
         return BlsScheduleBatch(
             provider_key=self.key,

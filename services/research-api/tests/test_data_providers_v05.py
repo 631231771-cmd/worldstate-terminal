@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -269,6 +270,107 @@ async def test_bls_historical_schedule_uses_year_calendar_and_filters_family() -
     assert [(item.release_date, item.title) for item in nfp.entries] == [
         (date(2015, 2, 6), "Employment Situation")
     ]
+
+
+def test_bls_public_calendar_ics_maps_family_period_and_dst() -> None:
+    payload = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART;TZID=America/New_York:20260812T083000
+SUMMARY:Consumer Price Index for July 2026
+DESCRIPTION:Consumer Price Index for July 2026
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;TZID=America/New_York:20260807T083000
+SUMMARY:Employment Situation for July 2026
+END:VEVENT
+END:VCALENDAR
+"""
+    provider = BlsOfficialProvider()
+    cpi = provider.adapt_schedule_ics(
+        payload,
+        family="US_CPI",
+        year=2026,
+        retrieved_at=datetime(2026, 8, 1, tzinfo=UTC),
+        source_url=provider.public_calendar_url,
+    )
+    assert len(cpi.entries) == 1
+    entry = cpi.entries[0]
+    assert entry.reference_period == "2026-07"
+    assert entry.scheduled_local == datetime(
+        2026, 8, 12, 8, 30, tzinfo=ZoneInfo("America/New_York")
+    )
+    assert entry.scheduled_local.astimezone(UTC) == datetime(2026, 8, 12, 12, 30, tzinfo=UTC)
+    assert cpi.artifacts[0].metadata["calendar_provider"] == "bls_public_calendar"
+
+
+@pytest.mark.asyncio
+async def test_bls_current_schedule_prefers_public_ics_without_api_key() -> None:
+    requested: list[str] = []
+    payload = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART;TZID=America/New_York:20260812T083000
+SUMMARY:Consumer Price Index for July 2026
+END:VEVENT
+END:VCALENDAR
+"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(200, content=payload.encode(), request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        schedule = await BlsOfficialProvider(client=client).fetch_schedule("US_CPI", year=2026)
+    assert requested == ["https://www.bls.gov/schedule/news_release/bls.ics"]
+    assert schedule.entries[0].reference_period == "2026-07"
+
+
+@pytest.mark.asyncio
+async def test_bls_public_calendar_html_fallback_is_explicit() -> None:
+    requested: list[str] = []
+    html = b"""
+    <html><body><table><tr><td>August 12, 2026</td><td>8:30 AM</td>
+    <td>Consumer Price Index for July 2026</td></tr></table></body></html>
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        if request.url.path.endswith("bls.ics"):
+            return httpx.Response(403, request=request)
+        return httpx.Response(200, content=html, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        schedule = await BlsOfficialProvider(client=client).fetch_schedule(
+            "US_CPI", year=2026
+        )
+    assert requested == [
+        "https://www.bls.gov/schedule/news_release/bls.ics",
+        "https://www.bls.gov/schedule/news_release/cpi.htm",
+    ]
+    assert schedule.entries[0].reference_period == "2026-07"
+    assert schedule.artifacts[0].metadata["calendar_provider"] == (
+        "bls_official_schedule_html_fallback"
+    )
+    assert schedule.artifacts[0].metadata["fallback_from"] == (
+        "https://www.bls.gov/schedule/news_release/bls.ics"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bls_public_calendar_failure_is_not_reported_as_api_entitlement() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, request=request)
+
+    with pytest.raises(ProviderError) as caught:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            await BlsOfficialProvider(client=client).fetch_schedule(
+                "US_CPI", year=2026
+            )
+    assert caught.value.error_code == ProviderErrorCode.PUBLIC_CALENDAR_UNAVAILABLE
+    assert caught.value.details["public_calendar_error"] == (
+        ProviderErrorCode.ENTITLEMENT.value
+    )
 
 
 def test_fomc_calendar_statement_sep_and_structure_change() -> None:

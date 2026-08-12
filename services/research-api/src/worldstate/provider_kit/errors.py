@@ -24,6 +24,7 @@ class ProviderErrorCode(StrEnum):
     BUDGET_EXCEEDED = "provider_budget_exceeded"
     COST_ESTIMATE_UNAVAILABLE = "provider_cost_estimate_unavailable"
     PAID_DOWNLOAD_DISABLED = "provider_paid_download_disabled"
+    PUBLIC_CALENDAR_UNAVAILABLE = "provider_public_calendar_unavailable"
     INVALID_REQUEST = "provider_request_invalid"
 
 

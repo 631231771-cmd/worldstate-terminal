@@ -1,6 +1,6 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-08-11
+Updated: 2026-08-12
 
 ## Product truth
 
@@ -64,6 +64,23 @@ The bundled CPI/NFP/FOMC slices are traceable fixture demonstrations. They are
 not live or licensed historical datasets.
 
 ## v0.5 Data Foundation implemented; v0.5.1 truthfulness stabilization in progress
+
+### 2026-08-12 public BLS calendar activation checkpoint
+
+- The BLS adapter now prefers the official public `bls.ics` calendar (no BLS
+  API key required) and falls back to the official release HTML.  Calendar
+  artifacts record the provider, official status, retrieval hash, and any
+  fallback source; current-year event titles supply the reference period rather
+  than deriving it from the publication month.
+- The parser and sync path are covered by 31 targeted tests, with Ruff and
+  strict mypy passing.  A real runtime sync was attempted for the 2026-08-12
+  CPI window.  This network returned HTTP 403 for both official BLS calendar
+  endpoints, so the run is honestly `blocked` and no observed CPI release was
+  created.  This is an external access restriction, not a missing BLS API key.
+- No manual release, consensus snapshot, analysis run, or market download was
+  created.  The official schedule page independently confirms CPI for July
+  2026 at 08:30 America/New_York (12:30 UTC), but it was not persisted as an
+  observed release because manual import is intentionally prohibited.
 
 - Typed BLS, Federal Reserve, FRED/ALFRED, Trading Economics and Databento adapters.
 - `observed` / `fixture` isolation across core records and analysis queries.
