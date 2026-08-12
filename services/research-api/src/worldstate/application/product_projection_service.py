@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from worldstate.application.capability_service import build_capability_inventory
 from worldstate.application.daily_brief_service import build_daily_brief
 from worldstate.application.event_product_service import build_event_product_detail
 from worldstate.application.global_macro_service import build_global_macro
@@ -73,6 +72,7 @@ PRODUCT_TERM_LABELS = {
     "Federal Debt Held by the Public as Percent of GDP": "美国公众持有联邦债务/GDP",
     "Japan M3 Growth": "日本 M3 增速",
     "Japan Industrial Production": "日本工业生产",
+    "Japan Call Money / Interbank Rate": "日本短期政策利率",
     "Nominal Broad U.S. Dollar Index": "广义美元指数",
     "CBOE Volatility Index": "VIX",
 }
@@ -109,10 +109,6 @@ COUNTRY_MARKETS = {
 }
 
 
-def _capability_map(inventory: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {str(item["canonical_key"]): item for item in inventory.get("items", [])}
-
-
 def _direction(value: Any) -> str:
     if value is None:
         return "unavailable"
@@ -122,13 +118,19 @@ def _direction(value: Any) -> str:
 
 def _event_item(item: dict[str, Any]) -> dict[str, Any]:
     projected = dict(item)
-    release_type = str(projected.get("release_type") or "").upper()
-    if release_type in EVENT_TITLE_LABELS:
-        projected["title"] = EVENT_TITLE_LABELS[release_type]
+    release_type = str(projected.get("release_type") or projected.get("type") or "").upper()
+    product_type = release_type.removeprefix("US_")
+    if product_type in EVENT_TITLE_LABELS:
+        projected["title"] = EVENT_TITLE_LABELS[product_type]
     return projected
 
 
-def _market_item(item: dict[str, Any], capabilities: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _market_item(
+    item: dict[str, Any],
+    capabilities: dict[str, dict[str, Any]],
+    *,
+    include_chart_points: bool = True,
+) -> dict[str, Any]:
     key = str(item.get("instrument_key"))
     capability = capabilities.get(key, {})
     is_rate = item.get("change_unit") == "bp" or (
@@ -166,7 +168,11 @@ def _market_item(item: dict[str, Any], capabilities: dict[str, dict[str, Any]]) 
         "proxy": bool(item.get("is_proxy")),
         "derived": bool(item.get("is_derived")),
         "sparkline": item.get("sparkline", []),
-        "chart_points": item.get("chart_points", []),
+        # Overview projections need only the compact sparkline.  The Markets
+        # projection keeps enough valid sessions for the 1Y detail chart.
+        "chart_points": (
+            list(item.get("chart_points", []))[-260:] if include_chart_points else []
+        ),
         "capabilities": capability.get("capabilities", {}),
         "details": {
             "provider": item.get("provider"),
@@ -182,6 +188,51 @@ def _market_item(item: dict[str, Any], capabilities: dict[str, dict[str, Any]]) 
             "active_segment_rows": item.get("active_segment_rows"),
         },
     }
+
+
+def _market_capability_map(
+    dashboard: dict[str, Any], *, now: datetime
+) -> dict[str, dict[str, Any]]:
+    """Build the market capabilities already proven by the dashboard query.
+
+    Today previously recomputed the full dataset inventory merely to decorate
+    market rows.  On a real local database that added several seconds and did
+    not change the visible overview.  This compact map stays conservative and
+    derives only the capabilities demonstrated by each returned market row.
+    """
+    result: dict[str, dict[str, Any]] = {}
+    for item in dashboard.get("items", []):
+        key = str(item.get("instrument_key"))
+        timestamp_text = item.get("timestamp")
+        latest_at = (
+            datetime.fromisoformat(str(timestamp_text).replace("Z", "+00:00")).astimezone(UTC)
+            if timestamp_text
+            else None
+        )
+        stale = latest_at is not None and (now - latest_at).days > 7
+        granularity = int(item.get("granularity_seconds") or 0)
+        is_daily = granularity >= 86400
+        is_intraday = 0 < granularity <= 60
+        result[key] = {
+            "capabilities": {
+                "CURRENT_STATE": {"available": True, "status": "AVAILABLE", "reason": None},
+                "DAILY_MARKET": {
+                    "available": is_daily,
+                    "status": "AVAILABLE" if is_daily else "MISSING",
+                    "reason": None if is_daily else "No daily bar is stored.",
+                },
+                "EVENT_INTRADAY": {
+                    "available": is_intraday,
+                    "status": "AVAILABLE" if is_intraday else "MISSING",
+                    "reason": None if is_intraday else "Daily context is not event intraday data.",
+                },
+            },
+            "freshness": {
+                "status": "STALE" if stale else "AVAILABLE",
+                "reason": "Latest bar is more than seven days old." if stale else None,
+            },
+        }
+    return result
 
 
 def _market_horizon(item: dict[str, Any]) -> dict[str, Any]:
@@ -304,10 +355,10 @@ async def build_today_projection(
     engine: AsyncEngine, *, data_mode: DataMode = "observed", as_of: datetime | None = None
 ) -> dict[str, Any]:
     now = (as_of or datetime.now(UTC)).astimezone(UTC)
-    brief, markets, global_macro, inventory = await _load_projection_sources(
+    brief, markets, global_macro = await _load_today_sources(
         engine, data_mode=data_mode, as_of=now
     )
-    capability_map = _capability_map(inventory)
+    capability_map = _market_capability_map(markets, now=now)
     dimensions = brief.get("world_state", {}).get("dimensions", {})
     macro_snapshot = [
         {
@@ -334,14 +385,27 @@ async def build_today_projection(
         "data_mode": data_mode,
         "methodology_version": "wst-product-v1",
         "macro_snapshot": macro_snapshot,
-        "markets": [_market_item(item, capability_map) for item in markets.get("items", [])],
+        "markets": [
+            _market_item(item, capability_map, include_chart_points=False)
+            for item in markets.get("items", [])
+        ],
         "what_changed": changes,
         "upcoming": upcoming,
         "latest_research": [_event_item(item) for item in brief.get("macro_events", [])[:5]],
         "global": [_country_projection(country) for country in global_macro.get("countries", [])],
         "watch_next": brief.get("watch_next", [])[:6],
-        "capability_summary": inventory.get("summary", {}),
-        "limitations": brief.get("limitations", []) + inventory.get("limitations", []),
+        "capability_summary": {
+            "CURRENT_STATE": len(capability_map),
+            "DAILY_MARKET": sum(
+                bool(item["capabilities"]["DAILY_MARKET"]["available"])
+                for item in capability_map.values()
+            ),
+            "EVENT_INTRADAY": sum(
+                bool(item["capabilities"]["EVENT_INTRADAY"]["available"])
+                for item in capability_map.values()
+            ),
+        },
+        "limitations": brief.get("limitations", []),
     }
 
 
@@ -357,37 +421,7 @@ async def build_markets_projection(
     dashboard = await build_market_dashboard(
         engine, data_mode=data_mode, horizon="1d", as_of=now
     )
-    capability_map: dict[str, dict[str, Any]] = {}
-    for item in dashboard.get("items", []):
-        key = str(item.get("instrument_key"))
-        timestamp_text = item.get("timestamp")
-        latest_at = (
-            datetime.fromisoformat(str(timestamp_text).replace("Z", "+00:00")).astimezone(UTC)
-            if timestamp_text
-            else None
-        )
-        stale = latest_at is not None and (now - latest_at).days > 7
-        is_daily = int(item.get("granularity_seconds") or 0) >= 86400
-        is_intraday = int(item.get("granularity_seconds") or 0) <= 60
-        capability_map[key] = {
-            "capabilities": {
-                "CURRENT_STATE": {"available": True, "status": "AVAILABLE", "reason": None},
-                "DAILY_MARKET": {
-                    "available": is_daily,
-                    "status": "AVAILABLE" if is_daily else "MISSING",
-                    "reason": None if is_daily else "No daily bar is stored.",
-                },
-                "EVENT_INTRADAY": {
-                    "available": is_intraday,
-                    "status": "AVAILABLE" if is_intraday else "MISSING",
-                    "reason": None if is_intraday else "Daily context is not event intraday data.",
-                },
-            },
-            "freshness": {
-                "status": "STALE" if stale else "AVAILABLE",
-                "reason": "Latest bar is more than seven days old." if stale else None,
-            },
-        }
+    capability_map = _market_capability_map(dashboard, now=now)
     by_key: dict[str, dict[str, Any]] = {}
     for item in dashboard.get("items", []):
         key = str(item.get("instrument_key"))
@@ -411,16 +445,15 @@ async def build_markets_projection(
     }
 
 
-async def _load_projection_sources(
+async def _load_today_sources(
     engine: AsyncEngine, *, data_mode: DataMode, as_of: datetime
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     import asyncio
 
     return await asyncio.gather(
         build_daily_brief(engine, data_mode=data_mode, as_of=as_of),
         build_market_dashboard(engine, data_mode=data_mode, horizon="1d", as_of=as_of),
         build_global_macro(engine, data_mode=data_mode, as_of=as_of),
-        build_capability_inventory(engine, data_mode=data_mode, as_of=as_of),
     )
 
 
@@ -582,6 +615,38 @@ async def build_country_projection(
     }
 
 
+def _choose_default_event(
+    *,
+    upcoming: list[dict[str, Any]],
+    recent: list[dict[str, Any]],
+    completed: list[dict[str, Any]],
+    now: datetime,
+) -> dict[str, Any] | None:
+    """Choose the event that best matches the user's immediate workflow."""
+
+    def event_time(item: dict[str, Any], field: str) -> datetime:
+        value = item.get(field) or item.get("scheduled_at")
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
+
+    urgent_upcoming = next(
+        (
+            item
+            for item in upcoming
+            if event_time(item, "scheduled_at") <= now + timedelta(hours=36)
+        ),
+        None,
+    )
+    if urgent_upcoming:
+        return urgent_upcoming
+    if completed:
+        return sorted(
+            completed, key=lambda item: event_time(item, "released_at"), reverse=True
+        )[0]
+    if recent:
+        return recent[0]
+    return upcoming[0] if upcoming else None
+
+
 async def build_events_projection(
     engine: AsyncEngine, *, data_mode: DataMode = "observed", limit: int = 500
 ) -> dict[str, Any]:
@@ -614,14 +679,11 @@ async def build_events_projection(
         if item.get("analysis_status") == "completed"
         and item.get("reproducibility_status") == "complete"
     ]
-    default_item = (
-        sorted(completed, key=released, reverse=True)[0]
-        if completed
-        else recent[0]
-        if recent
-        else upcoming[0]
-        if upcoming
-        else None
+    default_item = _choose_default_event(
+        upcoming=upcoming,
+        recent=recent,
+        completed=completed,
+        now=now,
     )
     return {
         "as_of": now.isoformat(),

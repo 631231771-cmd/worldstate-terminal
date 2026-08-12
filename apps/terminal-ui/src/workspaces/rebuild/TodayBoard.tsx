@@ -5,10 +5,10 @@ import { ConceptStrip } from "../../components/ConceptHelp";
 const directionLabel: Record<string, string> = { up: "上行", down: "下行", flat: "持平", mixed: "分化", strong: "偏强", weak: "偏弱", unavailable: "缺失" };
 const countryStatusLabel: Record<string, string> = { available: "可用", partial: "部分覆盖", stale: "数据较旧", missing: "缺失" };
 const eventStatusLabel: Record<string, string> = { scheduled: "待公布", released: "已公布", partial: "部分数据", blocked: "受限" };
-function tone(direction: string): "neutral" | "good" | "warn" | "info" { return direction === "up" || direction === "mixed" ? "info" : direction === "down" || direction === "weak" ? "warn" : "neutral"; }
 
 function DimensionTile({ item, onOpen }: { item: ProductDimension; onOpen: () => void }) {
-  return <button type="button" class="metric-tile" onClick={onOpen}><span class="metric-tile__label">{item.label}</span><strong class="metric-tile__value">{item.score == null ? "—" : item.score.toFixed(2)}</strong><span class="metric-tile__meta"><Badge tone={tone(item.direction)}>{directionLabel[item.direction] ?? item.direction}</Badge></span></button>;
+  const state = directionLabel[item.direction] ?? item.direction;
+  return <button type="button" class="metric-tile metric-tile--state" onClick={onOpen}><span class="metric-tile__label">{item.label}</span><strong class="metric-tile__value">{state}</strong><span class="metric-tile__meta">指数 {item.score == null ? "—" : item.score.toFixed(2)} · 置信 {Math.round(item.confidence * 100)}%</span></button>;
 }
 
 function MarketRow({ item, onOpen }: { item: ProductMarketItem; onOpen: () => void }) {

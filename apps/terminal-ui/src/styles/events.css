@@ -2,7 +2,7 @@
   align-items: start;
   display: grid;
   gap: 14px;
-  grid-template-columns: minmax(250px, 0.29fr) minmax(620px, 1fr);
+  grid-template-columns: minmax(320px, 0.36fr) minmax(620px, 1fr);
 }
 
 .events-layout--research > .panel {
@@ -18,8 +18,59 @@
   max-height: calc(100vh - 330px);
   min-height: 240px;
   overflow: auto;
+  overflow-x: hidden;
   scrollbar-color: var(--line) transparent;
   scrollbar-width: thin;
+}
+
+.event-calendar__item {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 4px 12px;
+  grid-template-areas: "date body" "date status";
+  grid-template-columns: 62px minmax(0, 1fr);
+  padding: 13px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.event-calendar__item:hover {
+  background: var(--surface-raised);
+}
+
+.event-calendar__item .event-list__date {
+  align-self: start;
+  grid-area: date;
+  padding-top: 2px;
+  white-space: nowrap;
+}
+
+.event-calendar__item > span:nth-child(2) {
+  display: grid;
+  gap: 2px;
+  grid-area: body;
+  min-width: 0;
+}
+
+.event-calendar__item strong,
+.event-calendar__item small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-calendar__item small {
+  color: var(--muted);
+}
+
+.event-calendar__item > .badge {
+  grid-area: status;
+  justify-self: start;
 }
 
 .event-workflow {
@@ -69,6 +120,46 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+
+.event-readiness {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.event-readiness > div {
+  background: var(--surface-2);
+  border-left: 2px solid var(--line);
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+}
+
+.event-readiness > .ready {
+  border-left-color: var(--teal);
+}
+
+.event-readiness > .missing {
+  border-left-color: var(--amber);
+}
+
+.event-readiness span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.workflow-blocker-list {
+  color: var(--muted-strong);
+  display: grid;
+  gap: 5px;
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.workflow-blocker-list li::marker {
+  color: var(--amber);
 }
 
 .event-indicator-table,

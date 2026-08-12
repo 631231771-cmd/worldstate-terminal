@@ -1,6 +1,6 @@
 import { useMemo, useState } from "preact/hooks";
 import type { ProductMarketItem } from "../../types/product";
-import { Badge, DetailsDisclosure, Panel, Sparkline, StateMessage } from "../../components/Primitives";
+import { Badge, Panel, Sparkline, StateMessage } from "../../components/Primitives";
 
 const TABS = ["All", "Rates", "FX", "Equities", "Commodities", "Risk"] as const;
 type Horizon = "1d" | "1w" | "1m" | "3m";
@@ -46,7 +46,6 @@ export function MarketsBoard({ items, onOpen }: { items: ProductMarketItem[]; on
   return <div class="workspace workspace--product">
     <section class="page-heading page-heading--compact"><div><div class="eyebrow">MARKETS / DAILY CONTEXT</div><h1>市场</h1><p>最近有效交易观测的 1日、1周、1月和3月变化；利率与利差使用 bp，其余资产使用百分比。</p></div><div class="page-heading__aside"><Badge tone="good">{items.length} 项资产</Badge></div></section>
     <div class="tabs-bar">{TABS.map((item) => <button type="button" class={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{TAB_LABELS[item]}</button>)}</div>
-    <Panel title="跨资产市场板" eyebrow={TAB_LABELS[tab]}><div class="table-wrap"><table class="market-board market-board--wide"><thead><tr><th>资产</th><th>最新</th><th>1日</th><th>1周</th><th>1月</th><th>3月</th><th>趋势</th><th></th></tr></thead><tbody>{filtered.map((item) => <MarketRow item={item} key={item.key} onOpen={onOpen} />)}</tbody></table></div>{!filtered.length ? <div class="empty-action"><div><h3>该分组暂无 observed 数据</h3><p>系统不会用 Fixture 填满这个页面。</p></div></div> : null}</Panel>
-    <Panel title="阅读说明" eyebrow="RESEARCH NOTE"><ul class="boundary-list"><li>价格上涨或下跌只表示方向，不代表好坏。</li><li>来源、PIT 和质量信息默认收起，可在数据详情中查看。</li><li>日线上下文不能替代事件发布后的分钟反应。</li></ul><DetailsDisclosure label="能力边界"><p class="method-note">只有存在合格的 observed 分钟行情时，系统才会启用事件反应研究。</p></DetailsDisclosure></Panel>
+    <Panel title="跨资产市场板" eyebrow={TAB_LABELS[tab]}><div class="table-wrap"><table class="market-board market-board--wide"><thead><tr><th>资产</th><th>最新</th><th>1日</th><th>1周</th><th>1月</th><th>3月</th><th>趋势</th><th></th></tr></thead><tbody>{filtered.map((item) => <MarketRow item={item} key={item.key} onOpen={onOpen} />)}</tbody></table></div>{!filtered.length ? <div class="empty-action"><div><h3>该分组暂无 observed 数据</h3><p>系统不会用 Fixture 填满这个页面。</p></div></div> : null}<p class="market-board__footnote">点击资产可查看图表与数据详情。这里是日线环境，不代替事件发布后的分钟反应。</p></Panel>
   </div>;
 }

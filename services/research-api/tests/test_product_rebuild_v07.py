@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from worldstate.application.analysis_orchestrator import initialize_research_catalog
 from worldstate.application.market_research_service import _continuity_segments
 from worldstate.application.official_sync_service import _sync_derived_market_context
-from worldstate.application.product_projection_service import _change_projection, _market_horizon
+from worldstate.application.product_projection_service import (
+    _change_projection,
+    _choose_default_event,
+    _event_item,
+    _market_horizon,
+)
 from worldstate.db.base import Base
 from worldstate.db.models import DataQualityRecord, MarketBar, MarketInstrument
 from worldstate.db.session import create_engine
@@ -215,6 +220,7 @@ def test_today_projection_uses_product_labels_and_valid_session_changes(client: 
         assert "formatted_value" in item
         assert item["change_unit"] in {"%", "bp"}
         assert item["details"]["canonical_key"] == item["key"]
+        assert item["chart_points"] == []
     if payload["markets"]:
         assert all("window_semantics" not in item for item in payload["markets"])
 
@@ -270,6 +276,55 @@ def test_markets_projection_returns_all_horizons_in_one_response(client: TestCli
     assert response.status_code == 200
     for item in response.json()["items"]:
         assert set(item.get("horizons", {})) <= {"1d", "1w", "1m", "3m"}
+        assert len(item.get("chart_points", [])) <= 260
+
+
+def test_event_default_prioritizes_release_within_next_36_hours() -> None:
+    now = datetime(2026, 8, 12, 11, 0, tzinfo=UTC)
+    urgent = {
+        "id": "cpi-today",
+        "scheduled_at": (now + timedelta(hours=2)).isoformat(),
+        "status": "scheduled",
+    }
+    completed = {
+        "id": "completed-fomc",
+        "scheduled_at": (now - timedelta(days=14)).isoformat(),
+        "released_at": (now - timedelta(days=14)).isoformat(),
+        "status": "released",
+    }
+
+    selected = _choose_default_event(
+        upcoming=[urgent], recent=[completed], completed=[completed], now=now
+    )
+
+    assert selected == urgent
+
+
+def test_event_default_keeps_completed_research_when_upcoming_is_not_urgent() -> None:
+    now = datetime(2026, 8, 12, 11, 0, tzinfo=UTC)
+    future = {
+        "id": "future-cpi",
+        "scheduled_at": (now + timedelta(days=4)).isoformat(),
+        "status": "scheduled",
+    }
+    completed = {
+        "id": "completed-fomc",
+        "scheduled_at": (now - timedelta(days=14)).isoformat(),
+        "released_at": (now - timedelta(days=14)).isoformat(),
+        "status": "released",
+    }
+
+    selected = _choose_default_event(
+        upcoming=[future], recent=[completed], completed=[completed], now=now
+    )
+
+    assert selected == completed
+
+
+def test_event_detail_type_uses_product_title() -> None:
+    projected = _event_item({"type": "US_CPI", "title": "Consumer Price Index"})
+
+    assert projected["title"] == "美国 CPI"
 
 
 def test_market_horizon_contract_normalizes_price_percent_without_double_scaling() -> None:

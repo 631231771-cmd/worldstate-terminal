@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { api, ApiError } from "../api/client";
 import { Badge, DetailsDisclosure, Drawer, Panel, StateMessage } from "../components/Primitives";
 import { ConceptStrip } from "../components/ConceptHelp";
@@ -114,9 +114,11 @@ export function App() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [searchEntities, setSearchEntities] = useState<SearchResult[]>([]);
+  const mainRef = useRef<HTMLElement | null>(null);
 
   const refresh = async () => {
-    setLoading(true); setError(null);
+    const hasCachedProjection = view === "today" ? Boolean(data) : view === "markets" ? Boolean(marketsData) : view === "macro" ? Boolean(macroData) : view === "events" ? Boolean(eventsData) : true;
+    setLoading(!hasCachedProjection); setError(null);
     const projection = view === "today" ? api.productToday() : view === "markets" ? api.productMarkets() : view === "macro" ? api.productMacro() : view === "events" ? api.productEvents() : Promise.resolve(null);
     const [projectionResult, healthResult] = await Promise.allSettled([projection, api.health()]);
     if (healthResult.status === "fulfilled") setHealth(healthResult.value);
@@ -139,6 +141,7 @@ export function App() {
   };
 
   useEffect(() => { void refresh(); }, [view]);
+  useEffect(() => { mainRef.current?.scrollTo({ top: 0, behavior: "auto" }); }, [view]);
   useEffect(() => {
     const params = new URLSearchParams();
     if (view === "markets" && selectedMarketKey) params.set("asset", selectedMarketKey);
@@ -215,7 +218,7 @@ export function App() {
 
   return <div class={collapsed ? "terminal-shell terminal-shell--collapsed" : "terminal-shell"}>
     <aside class="sidebar"><div class="brand"><div class="brand__mark">W<span>S</span></div><div><strong>WorldState</strong><span>Macro Research Terminal</span></div></div><button type="button" class="shell-toggle" onClick={toggleCollapsed} aria-label="收起侧栏">{collapsed ? ">" : "<"}</button><nav aria-label="主导航">{NAV.map((item, index) => <button type="button" key={item.key} class={view === item.key ? "nav-item nav-item--active" : "nav-item"} onClick={() => setView(item.key)}><span class="nav-item__index">{String(index + 1).padStart(2, "0")}</span><span><strong>{item.label}</strong><small>{item.note}</small></span></button>)}</nav><div class="sidebar__advanced"><button type="button" class={view === "data-control" ? "nav-item nav-item--active" : "nav-item"} onClick={() => setView("data-control")}><span class="nav-item__index">A1</span><span><strong>Data Sources</strong><small>同步与导入</small></span></button><button type="button" class={view === "data-methods" ? "nav-item nav-item--active" : "nav-item"} onClick={() => setView("data-methods")}><span class="nav-item__index">A2</span><span><strong>Methods</strong><small>高级详情</small></span></button></div></aside>
-    <main class="main"><header class="topbar"><div><span class="topbar__kicker">WORLDSTATE / MACRO TERMINAL</span><strong>{pageTitle}</strong></div><div class="topbar__status"><button type="button" class="shell-command" onClick={() => setCommandOpen(true)}><span>搜索市场、国家、事件与研究</span><kbd>Ctrl K</kbd></button><button type="button" class={learningMode ? "mode-toggle mode-toggle--active" : "mode-toggle"} onClick={toggleLearning}>{learningMode ? "学习模式：开" : "学习模式"}</button><button type="button" class={advancedMode ? "mode-toggle mode-toggle--active" : "mode-toggle"} onClick={toggleAdvanced}>{advancedMode ? "高级" : "标准"}</button><Badge tone={health?.database.status === "ok" ? "good" : "warn"}>{health?.database.status === "ok" ? "就绪" : "连接中"}</Badge></div></header>
+    <main class="main" ref={mainRef}><header class="topbar"><div><span class="topbar__kicker">WORLDSTATE / MACRO TERMINAL</span><strong>{pageTitle}</strong></div><div class="topbar__status"><button type="button" class="shell-command" onClick={() => setCommandOpen(true)}><span>搜索市场、国家、事件与研究</span><kbd>Ctrl K</kbd></button><button type="button" class={learningMode ? "mode-toggle mode-toggle--active" : "mode-toggle"} onClick={toggleLearning}>{learningMode ? "学习模式：开" : "学习模式"}</button><button type="button" class={advancedMode ? "mode-toggle mode-toggle--active" : "mode-toggle"} onClick={toggleAdvanced}>{advancedMode ? "高级" : "标准"}</button><Badge tone={health?.database.status === "ok" ? "good" : "warn"}>{health?.database.status === "ok" ? "就绪" : "连接中"}</Badge></div></header>
       {loading ? <StateMessage title="正在准备 WorldState" detail="加载宏观状态、市场和数据能力。" /> : error ? <StateMessage title="WorldState 无法加载" detail={error} action={<button type="button" class="button-primary" onClick={() => void refresh()}>重试</button>} /> : <WorkspaceBoundary key={view}>{view === "today" && data ? <TodayBoard data={data} learningMode={learningMode} onOpenDimension={openDimension} onOpenMarket={openMarket} onOpenCountry={(item) => openCountry(item)} onOpenEvent={(id) => void openEvent(id)} /> : null}{view === "markets" && marketsData ? <MarketsBoard items={marketsData.items} onOpen={openMarket} /> : null}{view === "macro" && macroData ? <MacroBoard data={macroData} selectedCountryKey={selectedCountryKey} learningMode={learningMode} onOpenCountry={openCountry} /> : null}{view === "events" ? <EventsBoard releases={releases} selected={selectedRelease} detail={selectedDetail} learningMode={learningMode} onSelect={(item) => void openEvent(item.id)} onOpenLab={() => setView("events")} onOpenDataSources={() => setView("data-control")} /> : null}{view === "research" ? <ResearchWorkspace selectedId={selectedThesis} onSelect={setSelectedThesis} /> : null}{view === "data-control" ? <DataControlWorkspace /> : null}{view === "data-methods" ? <DataMethodsWorkspace /> : null}</WorkspaceBoundary>}
     </main>
     {drawer ? <Drawer title={drawer.title} onClose={closeDrawer}>{drawer.body}</Drawer> : null}
