@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import { Badge, DetailsDisclosure, Drawer, Panel, StateMessage } from "../components/Primitives";
 import { ConceptStrip } from "../components/ConceptHelp";
 import { TimeSeriesChart, type ChartHorizon } from "../components/TimeSeriesChart";
@@ -120,8 +120,12 @@ export function App() {
     const projection = view === "today" ? api.productToday() : view === "markets" ? api.productMarkets() : view === "macro" ? api.productMacro() : view === "events" ? api.productEvents() : Promise.resolve(null);
     const [projectionResult, healthResult] = await Promise.allSettled([projection, api.health()]);
     if (healthResult.status === "fulfilled") setHealth(healthResult.value);
-    if (projectionResult.status === "rejected") setError("WorldState 数据暂时无法加载，请重试。");
-    else if (projectionResult.value) {
+    if (projectionResult.status === "rejected") {
+      const reason = projectionResult.reason;
+      const detail = reason instanceof ApiError ? reason.technicalDetail : reason instanceof Error ? reason.message : String(reason);
+      const message = reason instanceof ApiError ? reason.message : "WorldState 数据暂时无法加载，请重试。";
+      setError(`${message}（${detail}）`);
+    } else if (projectionResult.value) {
       if (view === "today") setData(projectionResult.value as ProductTodayResponse);
       if (view === "markets") setMarketsData(projectionResult.value as ProductMarketsResponse);
       if (view === "macro") setMacroData(projectionResult.value as ProductMacroResponse);

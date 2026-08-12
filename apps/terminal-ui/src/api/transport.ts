@@ -1,5 +1,28 @@
 const configuredBase = import.meta.env.VITE_RESEARCH_API_URL as string | undefined;
-export const API_BASE = configuredBase?.replace(/\/$/, "") ?? "";
+
+/** Keep web builds on the Vite proxy while giving packaged Tauri a real API origin. */
+export function isDesktopRuntime(locationLike: Pick<Location, "protocol" | "hostname"> = window.location): boolean {
+  const runtime = globalThis as typeof globalThis & {
+    isTauri?: boolean;
+    __TAURI_INTERNALS__?: unknown;
+  };
+  return Boolean(
+    runtime.isTauri ||
+      runtime.__TAURI_INTERNALS__ ||
+      locationLike.protocol === "tauri:" ||
+      locationLike.hostname === "tauri.localhost",
+  );
+}
+
+export function resolveApiBase(
+  configured: string | undefined = configuredBase,
+  locationLike: Pick<Location, "protocol" | "hostname"> = window.location,
+): string {
+  if (configured?.trim()) return configured.trim().replace(/\/$/, "");
+  return isDesktopRuntime(locationLike) ? "http://127.0.0.1:8000" : "";
+}
+
+export const API_BASE = resolveApiBase();
 
 export class ApiError extends Error {
   readonly status: number | null;

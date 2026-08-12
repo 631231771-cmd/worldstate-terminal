@@ -5,7 +5,8 @@ use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
@@ -36,7 +37,14 @@ struct ResearchApiState {
 struct HealthResponse {
     product: Option<String>,
     api_version: Option<String>,
+    status: Option<String>,
+    database: Option<DatabaseHealth>,
     ai_provider: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DatabaseHealth {
+    status: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -47,6 +55,7 @@ struct BackendStatus {
     port: u16,
     child_pid: Option<u32>,
     ai_provider: String,
+    database_status: String,
     database_path: Option<String>,
     log_path: Option<String>,
     source: String,
@@ -55,12 +64,25 @@ struct BackendStatus {
 fn health_matches(health: &HealthResponse) -> bool {
     health.product.as_deref() == Some(EXPECTED_PRODUCT)
         && health.api_version.as_deref() == Some("v2")
+        && health.status.as_deref() == Some("ok")
+        && health
+            .database
+            .as_ref()
+            .and_then(|database| database.status.as_deref())
+            == Some("ok")
 }
 
 async fn fetch_health() -> Option<HealthResponse> {
-    let Ok(response) = reqwest::get(API_URL).await else {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(750))
+        .build()
+        .ok()?;
+    let Ok(response) = client.get(API_URL).send().await else {
         return None;
     };
+    if !response.status().is_success() {
+        return None;
+    }
     let Ok(health) = response.json::<HealthResponse>().await else {
         return None;
     };
@@ -121,10 +143,15 @@ fn resolve_service_root(app: &AppHandle) -> PathBuf {
     if cfg!(debug_assertions) {
         return development_root().join("services/research-api");
     }
-    app.path()
+    let resource_root = app
+        .path()
         .resource_dir()
-        .map(|path| path.join("services/research-api"))
-        .unwrap_or_else(|_| development_root().join("services/research-api"))
+        .ok()
+        .map(|path| path.join("services/research-api"));
+    match resource_root {
+        Some(path) if path.join("pyproject.toml").exists() => path,
+        _ => development_root().join("services/research-api"),
+    }
 }
 
 fn resolve_bundled_sidecar(app: &AppHandle) -> Option<PathBuf> {
@@ -159,6 +186,39 @@ fn existing_port_action(port_open: bool, product_verified: bool) -> Result<bool,
     Err("Port 8000 is occupied by a service that is not a verified WorldState Research API. Stop that service or select a different port before starting the desktop app.".into())
 }
 
+fn wait_for_readiness<F>(child: &mut Child, timeout: Duration, mut probe: F) -> Result<(), String>
+where
+    F: FnMut() -> bool,
+{
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| format!("Could not inspect Research API process: {error}"))?
+        {
+            return Err(format!(
+                "Research API exited before readiness check (status {status}). Open the desktop log for details."
+            ));
+        }
+        if probe() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(
+                "Research API startup timed out waiting for verified /v2/health. Open the desktop log for details."
+                    .into(),
+            );
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn wait_for_verified_health(child: &mut Child, timeout: Duration) -> Result<(), String> {
+    wait_for_readiness(child, timeout, || {
+        tauri::async_runtime::block_on(verified_health())
+    })
+}
+
 fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), String> {
     let api_address: SocketAddr = "127.0.0.1:8000"
         .parse()
@@ -170,6 +230,18 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
             .source
             .lock()
             .map_err(|_| "Backend state lock failed")? = "existing".into();
+        let runtime_root = development_root().join(".runtime");
+        let runtime_db = runtime_root.join("worldstate.db");
+        if runtime_db.exists() {
+            *state
+                .database_path
+                .lock()
+                .map_err(|_| "Database state lock failed")? = Some(runtime_db);
+            let runtime_log = runtime_root.join("logs/research-api.out.log");
+            if runtime_log.exists() {
+                *state.log_path.lock().map_err(|_| "Log state lock failed")? = Some(runtime_log);
+            }
+        }
         return Ok(());
     }
     let service_root = resolve_service_root(app);
@@ -180,10 +252,16 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
             service_root.display()
         ));
     }
-    let data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| error.to_string())?;
+    let development_data_dir = development_root().join(".runtime");
+    let data_dir = if service_root.join("pyproject.toml").exists()
+        && development_data_dir.join("worldstate.db").exists()
+    {
+        development_data_dir
+    } else {
+        app.path()
+            .app_local_data_dir()
+            .map_err(|error| error.to_string())?
+    };
     let log_dir = app
         .path()
         .app_log_dir()
@@ -287,9 +365,14 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
     for (name, secret) in &secret_environment {
         api_command.env(name, secret);
     }
-    let child = api_command
+    let mut child = api_command
         .spawn()
         .map_err(|error| format!("Could not start Research API: {error}"))?;
+    if let Err(error) = wait_for_verified_health(&mut child, Duration::from_secs(15)) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("{error} Log: {}", log_path.display()));
+    }
 
     *state
         .child
@@ -331,7 +414,13 @@ async fn backend_status(
         port: 8000,
         child_pid,
         ai_provider: health
-            .and_then(|value| value.ai_provider)
+            .as_ref()
+            .and_then(|value| value.ai_provider.clone())
+            .unwrap_or_else(|| "unavailable".into()),
+        database_status: health
+            .as_ref()
+            .and_then(|value| value.database.as_ref())
+            .and_then(|database| database.status.clone())
             .unwrap_or_else(|| "unavailable".into()),
         database_path: state
             .database_path
@@ -360,15 +449,37 @@ mod tests {
         let valid = HealthResponse {
             product: Some(EXPECTED_PRODUCT.into()),
             api_version: Some("v2".into()),
+            status: Some("ok".into()),
+            database: Some(DatabaseHealth {
+                status: Some("ok".into()),
+            }),
             ai_provider: Some("none".into()),
         };
         let foreign = HealthResponse {
             product: Some("another-service".into()),
             api_version: Some("v2".into()),
+            status: Some("ok".into()),
+            database: Some(DatabaseHealth {
+                status: Some("ok".into()),
+            }),
             ai_provider: None,
         };
         assert!(health_matches(&valid));
         assert!(!health_matches(&foreign));
+    }
+
+    #[test]
+    fn health_identity_rejects_unavailable_database() {
+        let unhealthy = HealthResponse {
+            product: Some(EXPECTED_PRODUCT.into()),
+            api_version: Some("v2".into()),
+            status: Some("ok".into()),
+            database: Some(DatabaseHealth {
+                status: Some("error".into()),
+            }),
+            ai_provider: None,
+        };
+        assert!(!health_matches(&unhealthy));
     }
 
     #[test]
@@ -408,6 +519,49 @@ mod tests {
         assert!(existing_port_action(true, false)
             .unwrap_err()
             .contains("not a verified WorldState"));
+    }
+
+    #[test]
+    fn readiness_succeeds_after_verified_probe() {
+        let mut child = if cfg!(windows) {
+            Command::new("cmd")
+                .args(["/C", "ping -n 3 127.0.0.1 >NUL"])
+                .spawn()
+                .unwrap()
+        } else {
+            Command::new("sleep").arg("1").spawn().unwrap()
+        };
+        assert!(wait_for_readiness(&mut child, Duration::from_secs(1), || true).is_ok());
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn readiness_times_out_when_health_never_verifies() {
+        let mut child = if cfg!(windows) {
+            Command::new("cmd")
+                .args(["/C", "ping -n 3 127.0.0.1 >NUL"])
+                .spawn()
+                .unwrap()
+        } else {
+            Command::new("sleep").arg("1").spawn().unwrap()
+        };
+        let result = wait_for_readiness(&mut child, Duration::from_millis(20), || false);
+        assert!(result.unwrap_err().contains("startup timed out"));
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn readiness_reports_child_exit_before_timeout() {
+        let mut child = if cfg!(windows) {
+            Command::new("cmd").args(["/C", "exit 7"]).spawn().unwrap()
+        } else {
+            Command::new("sh").args(["-c", "exit 7"]).spawn().unwrap()
+        };
+        let result = wait_for_readiness(&mut child, Duration::from_secs(1), || false);
+        assert!(result.unwrap_err().contains("exited before readiness"));
+        let _ = child.wait();
     }
 }
 

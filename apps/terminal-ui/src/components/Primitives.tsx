@@ -9,7 +9,7 @@ export function Badge({ children, tone = "neutral" }: { children: ComponentChild
   return <span class={`badge badge--${tone}`}>{children}</span>;
 }
 
-export function StateMessage({ title, detail, action }: { title: string; detail: string; action?: ComponentChildren }) {
+export function StateMessage({ title, detail, action }: { title: string; detail: ComponentChildren; action?: ComponentChildren }) {
   return <div class="state-message"><div class="state-message__mark">WS</div><div><h2>{title}</h2><p>{detail}</p>{action}</div></div>;
 }
 
