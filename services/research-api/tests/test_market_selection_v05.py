@@ -78,7 +78,16 @@ def _manifest(
         provider_run_id=None,
         sync_job_run_id=None,
         source_artifact_id=None,
-        metadata_json={"no_cross_contract_splice": True},
+        metadata_json={
+            "no_cross_contract_splice": True,
+            "event_intraday_eligibility": "eligible",
+            "is_fixture": False,
+            "event_intraday_eligibility_v1": {
+                "policy_version": "event-intraday-v1",
+                "data_mode": "observed",
+                "status": "eligible",
+            },
+        },
     )
 
 

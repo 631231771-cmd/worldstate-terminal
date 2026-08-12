@@ -21,6 +21,7 @@ from worldstate.db.models import (
     MarketDataManifest,
     ReleaseStage,
     ReleaseValue,
+    SourceArtifact,
 )
 from worldstate.macro_core.catalog import RELEASE_INDICATORS
 
@@ -37,11 +38,145 @@ class AnalysisReadiness:
     market_inputs: dict[str, Any]
     blockers: tuple[str, ...]
     t0: str | None = None
+    consensus_eligibility: tuple[dict[str, Any], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["blockers"] = list(self.blockers)
+        payload["consensus_eligibility"] = list(self.consensus_eligibility)
         return payload
+
+
+@dataclass(frozen=True, slots=True)
+class ConsensusEligibility:
+    """Research eligibility, independent from the generic quality letter."""
+
+    eligible: bool
+    reasons: tuple[str, ...]
+    limitations: tuple[str, ...]
+    source_semantics: str
+    capture_transport: str | None
+    provenance_complete: bool
+    policy_version: str = "consensus-eligibility-v1"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "eligible": self.eligible,
+            "reasons": list(self.reasons),
+            "limitations": list(self.limitations),
+            "source_semantics": self.source_semantics,
+            "capture_transport": self.capture_transport,
+            "provenance_complete": self.provenance_complete,
+            "policy_version": self.policy_version,
+        }
+
+
+def evaluate_release_linked_minute_manifests(
+    manifests: list[MarketDataManifest],
+    *,
+    data_mode: str,
+) -> tuple[list[MarketDataManifest], list[dict[str, Any]]]:
+    """Validate every release-linked one-minute manifest, without asset filtering."""
+
+    eligible: list[MarketDataManifest] = []
+    rejected: list[dict[str, Any]] = []
+    for manifest in manifests:
+        check = evaluate_stored_event_intraday_manifest(
+            manifest.metadata_json,
+            data_mode=data_mode,
+            row_count=manifest.row_count,
+            interval_seconds=manifest.interval_seconds,
+            is_fixture=data_mode == "fixture",
+        )
+        if check["eligible"]:
+            eligible.append(manifest)
+        else:
+            rejected.append(
+                {"manifest_id": str(manifest.id), "reasons": check["reasons"]}
+            )
+    return eligible, rejected
+
+
+def evaluate_consensus_eligibility(
+    snapshot: ConsensusSnapshot,
+    artifact: SourceArtifact | None,
+    *,
+    t0: datetime,
+    release_data_mode: str,
+    indicator_belongs_to_release: bool = True,
+) -> ConsensusEligibility:
+    """Evaluate a consensus row without changing its stored value or timestamp."""
+
+    reasons: list[str] = []
+    limitations: list[str] = []
+    captured_at = _aware(snapshot.captured_at)
+    artifact_metadata = artifact.metadata_json if artifact is not None else {}
+    provider_metadata = snapshot.metadata_json.get("provider_metadata", {})
+    if not isinstance(provider_metadata, dict):
+        provider_metadata = {}
+    transport = (
+        str(artifact_metadata.get("acquisition_transport"))
+        if artifact_metadata.get("acquisition_transport")
+        else None
+    )
+    manual_semantics_verified = bool(
+        snapshot.is_manual
+        and bool(snapshot.source_url or (artifact is not None and artifact.source_url))
+        and bool(snapshot.verification_notes)
+    )
+    semantics_verified = (
+        provider_metadata.get("consensus_field") == "Forecast"
+        and provider_metadata.get("te_forecast_field") == "TEForecast"
+        and snapshot.metadata_json.get("te_forecast_used_as_consensus") is False
+    ) or manual_semantics_verified
+    source_semantics = (
+        "Forecast=survey_consensus; TEForecast=proprietary_forecast"
+        if not manual_semantics_verified and semantics_verified
+        else "manual_verified_consensus"
+        if manual_semantics_verified
+        else "unverified"
+    )
+    provenance_complete = bool(
+        snapshot.source_artifact_id
+        and artifact is not None
+        and artifact.content_hash
+        and (snapshot.source_url or artifact.source_url)
+    ) or manual_semantics_verified
+    if captured_at >= _aware(t0):
+        reasons.append("consensus_captured_at_must_be_before_t0")
+    if snapshot.data_mode != release_data_mode:
+        reasons.append("consensus_data_mode_mismatch")
+    if not indicator_belongs_to_release:
+        reasons.append("indicator_not_declared_for_release")
+    if snapshot.data_mode == "fixture" or (artifact is not None and artifact.is_fixture):
+        reasons.append("fixture_consensus_not_allowed")
+    if not provenance_complete:
+        reasons.append("consensus_provenance_incomplete")
+    if not semantics_verified:
+        reasons.append("consensus_source_semantics_unverified")
+    if artifact is not None and captured_at > _aware(artifact.retrieved_at):
+        reasons.append("consensus_capture_is_after_artifact_retrieval")
+    if snapshot.quality_grade.upper() == "D":
+        if (
+            transport == "browser_capture"
+            and semantics_verified
+            and provenance_complete
+        ):
+            limitations.append("quality_grade_D_requires_careful_interpretation")
+        else:
+            reasons.append("quality_grade_D_has_no_explicit_research_policy")
+    elif snapshot.quality_grade.upper() not in {"A", "B", "C"}:
+        reasons.append("quality_grade_not_research_approved")
+    if transport == "browser_capture":
+        limitations.append("browser_capture_is_not_provider_api_access")
+    return ConsensusEligibility(
+        eligible=not reasons,
+        reasons=tuple(reasons),
+        limitations=tuple(limitations),
+        source_semantics=source_semantics,
+        capture_transport=transport,
+        provenance_complete=provenance_complete,
+    )
 
 
 async def build_analysis_readiness(
@@ -113,16 +248,57 @@ async def build_analysis_readiness(
                 )
             ).all()
         )
-        actual_by_indicator: dict[uuid.UUID, ReleaseValue] = {}
-        for value_row in values:
-            if value_row.value_kind == "actual" and _aware(value_row.captured_at) <= t0:
-                actual_by_indicator[value_row.indicator_id] = value_row
+        # Use the same canonical release-value selector as the analysis engine.
+        # Actuals are release facts and may be captured after T0; consensus is
+        # the only input constrained to pre-T0.
+        from worldstate.application.analysis_orchestrator import (
+            _artifact_lookup,
+            select_analysis_inputs_from_rows,
+        )
+
+        artifacts = await _artifact_lookup(
+            session,
+            {row.source_artifact_id for row in values if row.source_artifact_id is not None}
+            | {
+                row.source_artifact_id
+                for row in consensus
+                if row.source_artifact_id is not None
+            },
+        )
+        selected_values, _selected_consensus = select_analysis_inputs_from_rows(
+            release,
+            values=values,
+            consensus=[],
+            artifacts=artifacts,
+        )
+        actual_by_indicator = {
+            indicator_id: row
+            for (indicator_id, value_kind), row in selected_values.items()
+            if value_kind == "actual"
+        }
         consensus_by_indicator: dict[uuid.UUID, ConsensusSnapshot] = {}
+        consensus_eligibility: list[dict[str, Any]] = []
         for consensus_row in consensus:
-            if (
-                _aware(consensus_row.captured_at) < t0
-                and consensus_row.quality_grade in {"A", "B", "C"}
-            ):
+            eligibility = evaluate_consensus_eligibility(
+                consensus_row,
+                (
+                    artifacts.get(consensus_row.source_artifact_id)
+                    if consensus_row.source_artifact_id is not None
+                    else None
+                ),
+                t0=t0,
+                release_data_mode=mode,
+                indicator_belongs_to_release=consensus_row.indicator_id
+                in {row.id for row in indicator_rows},
+            )
+            consensus_eligibility.append(
+                {
+                    "indicator_id": str(consensus_row.indicator_id),
+                    "captured_at": _aware(consensus_row.captured_at).isoformat(),
+                    **eligibility.as_dict(),
+                }
+            )
+            if eligibility.eligible:
                 consensus_by_indicator[consensus_row.indicator_id] = consensus_row
 
         required = [key for key in keys if key in by_key]
@@ -146,28 +322,15 @@ async def build_analysis_readiness(
                         MarketDataManifest.macro_release_id == release.id,
                         MarketDataManifest.data_mode == mode,
                         MarketDataManifest.interval_seconds == 60,
-                        MarketDataManifest.row_count > 0,
                     )
                     .order_by(MarketDataManifest.created_at.desc())
                 )
             ).all()
         )
-        eligible_manifests = []
-        rejected_manifests = []
-        for manifest in manifests:
-            check = evaluate_stored_event_intraday_manifest(
-                manifest.metadata_json,
-                data_mode=mode,
-                row_count=manifest.row_count,
-                interval_seconds=manifest.interval_seconds,
-                is_fixture=mode == "fixture",
-            )
-            if check["eligible"]:
-                eligible_manifests.append(manifest)
-            else:
-                rejected_manifests.append(
-                    {"manifest_id": str(manifest.id), "reasons": check["reasons"]}
-                )
+        eligible_manifests, rejected_manifests = evaluate_release_linked_minute_manifests(
+            manifests,
+            data_mode=mode,
+        )
 
         blockers: list[str] = []
         if release.data_mode != mode:
@@ -180,6 +343,8 @@ async def build_analysis_readiness(
             blockers.append("no_matched_indicator_actual_consensus")
         if not eligible_manifests:
             blockers.append("missing_eligible_event_minute_manifest")
+        if rejected_manifests:
+            blockers.append("ineligible_release_linked_event_minute_manifest")
 
         return AnalysisReadiness(
             ready=not blockers,
@@ -205,7 +370,14 @@ async def build_analysis_readiness(
             },
             blockers=tuple(blockers),
             t0=t0.isoformat(),
+            consensus_eligibility=tuple(consensus_eligibility),
         )
 
 
-__all__ = ["AnalysisReadiness", "build_analysis_readiness"]
+__all__ = [
+    "AnalysisReadiness",
+    "ConsensusEligibility",
+    "build_analysis_readiness",
+    "evaluate_consensus_eligibility",
+    "evaluate_release_linked_minute_manifests",
+]

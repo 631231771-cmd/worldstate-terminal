@@ -93,6 +93,15 @@ not live or licensed historical datasets.
   `WorldStateTerminal/0.7 (+https://github.com/631231771-cmd/worldstate-terminal)`.
   A single low-frequency verification of both endpoints at 03:57 UTC still
   returned HTTP 403; no retry loop was used.
+- PRE-T0 correctness preflight is complete.  Actual readiness now uses the
+  canonical analysis value selector and accepts a true initial actual captured
+  after T0 while excluding unreconstructable current-version historical rows.
+  Consensus rows are evaluated by `consensus-eligibility-v1`; the four CPI
+  browser-captured rows are eligible with explicit D-quality/browser
+  limitations.  Every release-linked one-minute manifest is checked without
+  asset-list bypass.  Runtime CPI readiness remains correctly not ready:
+  actual values and minute manifests are still absent.  No values, consensus
+  timestamps, AnalysisRun, or Databento data were changed.
 
 - Typed BLS, Federal Reserve, FRED/ALFRED, Trading Economics and Databento adapters.
 - `observed` / `fixture` isolation across core records and analysis queries.

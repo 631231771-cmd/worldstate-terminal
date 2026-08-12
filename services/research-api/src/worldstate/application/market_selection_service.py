@@ -12,14 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from worldstate.application.data_foundation_service import json_safe
 from worldstate.application.event_intraday_service import (
-    EVENT_ASSETS,
     evaluate_stored_event_intraday_manifest,
 )
 from worldstate.db.models import (
     MacroRelease,
     MarketBar,
     MarketDataManifest,
-    MarketInstrument,
     ReleaseStage,
 )
 
@@ -241,21 +239,11 @@ async def select_release_market_data(
             )
         ).all()
     )
-    event_instrument_ids = {
-        row.id
-        for row in (
-            await session.scalars(
-                select(MarketInstrument).where(
-                    MarketInstrument.canonical_key.in_({item["key"] for item in EVENT_ASSETS})
-                )
-            )
-        ).all()
-    }
     grouped: dict[tuple[uuid.UUID, int, str, str, str, str], list[MarketDataManifest]] = (
         defaultdict(list)
     )
     for manifest in manifests:
-        if manifest.interval_seconds == 60 and manifest.instrument_id in event_instrument_ids:
+        if manifest.interval_seconds == 60:
             validation = evaluate_stored_event_intraday_manifest(
                 manifest.metadata_json,
                 data_mode=release.data_mode,
