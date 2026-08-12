@@ -205,6 +205,21 @@ _ICS_PERIOD = re.compile(
     r"Nov(?:ember)?|Dec(?:ember)?)\s+(?P<year>20\d{2})\b",
     re.IGNORECASE,
 )
+_PLAIN_PERIOD = re.compile(
+    r"\b(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|"
+    r"Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|"
+    r"Nov(?:ember)?|Dec(?:ember)?)\s+(?P<year>20\d{2})\b",
+    re.IGNORECASE,
+)
+_BLS_MONTH_CELL = re.compile(
+    r"<td\b[^>]*\bid=[\"']d(?P<month>\d{2})(?P<day>\d{2})[\"'][^>]*>"
+    r"(?P<body>.*?)</td>",
+    re.IGNORECASE | re.DOTALL,
+)
+_BLS_EVENT_PARAGRAPH = re.compile(
+    r"<p>\s*<strong>(?P<title>.*?)</strong>(?P<body>.*?)</p>",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def _unfold_ics_lines(payload: bytes | str) -> list[str]:
@@ -227,6 +242,18 @@ def _unescape_ics(value: str) -> str:
         .replace("\\;", ";")
         .replace("\\\\", "\\")
     )
+
+
+def _reference_period(text: str) -> str | None:
+    match = _ICS_PERIOD.search(text) or _PLAIN_PERIOD.search(text)
+    if match is None:
+        return None
+    month = _MONTHS[match.group("month")[:3].lower()]
+    return f"{match.group('year')}-{month:02d}"
+
+
+def _plain_html(text: str) -> str:
+    return html_module.unescape(re.sub(r"<[^>]+>", " ", text))
 
 
 def _parse_ics_datetime(value: str, parameters: dict[str, str]) -> datetime | None:
@@ -257,6 +284,7 @@ class BlsOfficialProvider:
         "US_NFP": "https://www.bls.gov/schedule/news_release/empsit.htm",
     }
     public_calendar_url = "https://www.bls.gov/schedule/news_release/bls.ics"
+    user_agent = "WorldStateTerminal/0.7 (+https://github.com/631231771-cmd/worldstate-terminal)"
     terms = ProviderTerms(
         license_name="United States Government public data",
         terms_url="https://www.bls.gov/bls/linksite.htm",
@@ -470,7 +498,12 @@ class BlsOfficialProvider:
         }
         if self._api_key:
             request_body["registrationkey"] = self._api_key
-        response = await self._transport.request("POST", self.endpoint, json_body=request_body)
+        response = await self._transport.request(
+            "POST",
+            self.endpoint,
+            json_body=request_body,
+            headers={"User-Agent": self.user_agent, "Accept": "application/json"},
+        )
         retrieved_at = datetime.now(UTC)
         return self.adapt_payload(
             response.content,
@@ -763,7 +796,14 @@ class BlsOfficialProvider:
         cached = self._historical_schedule_cache.get(year) if year < current_year else None
         if cached is None:
             try:
-                response = await self._transport.request("GET", source_url)
+                response = await self._transport.request(
+                    "GET",
+                    source_url,
+                    headers={
+                        "User-Agent": self.user_agent,
+                        "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
+                    },
+                )
             except ProviderError as exc:
                 if public_error is not None:
                     raise ProviderError(
@@ -816,7 +856,7 @@ class BlsOfficialProvider:
             self.public_calendar_url,
             headers={
                 "Accept": "text/calendar,text/plain;q=0.9,*/*;q=0.1",
-                "User-Agent": "WorldStateTerminal/0.7 public-calendar",
+                "User-Agent": self.user_agent,
             },
         )
         return self.adapt_schedule_ics(
@@ -882,11 +922,7 @@ class BlsOfficialProvider:
                 if scheduled is None or scheduled.year != year:
                     event = None
                     continue
-                period_match = _ICS_PERIOD.search(f"{summary} {description}")
-                period = None
-                if period_match:
-                    month = _MONTHS[period_match.group("month")[:3].lower()]
-                    period = f"{period_match.group('year')}-{month:02d}"
+                period = _reference_period(f"{summary} {description}")
                 title = (
                     "Consumer Price Index"
                     if family == "US_CPI"
@@ -992,52 +1028,99 @@ class BlsOfficialProvider:
         family_marker = (
             "consumer price index" if family == "US_CPI" else "employment situation"
         )
-        for row in parser.rows:
-            row_text = " ".join(row)
-            if historical_full_calendar and family_marker not in row_text.lower():
-                continue
-            date_match = _SCHEDULE_DATE.search(row_text)
-            time_match = _SCHEDULE_TIME.search(row_text)
-            if date_match is None or time_match is None:
-                continue
-            row_year = int(date_match.group("year") or year)
-            if row_year != year:
-                continue
-            month = _MONTHS[date_match.group("month")[:3].lower()]
-            day = int(date_match.group("day"))
-            hour = int(time_match.group("hour"))
-            if time_match.group("ampm").upper() == "P" and hour != 12:
-                hour += 12
-            if time_match.group("ampm").upper() == "A" and hour == 12:
-                hour = 0
-            try:
-                release_date = date(row_year, month, day)
-            except ValueError:
-                continue
-            local = datetime(
-                row_year,
-                month,
-                day,
-                hour,
-                int(time_match.group("minute")),
-                tzinfo=ZoneInfo("America/New_York"),
-            )
-            entries.append(
-                BlsScheduleEntry(
-                    release_family=family,
-                    title="Consumer Price Index" if family == "US_CPI" else "Employment Situation",
-                    release_date=release_date,
-                    scheduled_local=local,
-                    source_time_text=time_match.group(0),
-                    source_url=source_url,
-                    artifact_hash=artifact.content_hash,
-                    reference_period=(
-                        f"{match.group('year')}-{_MONTHS[match.group('month')[:3].lower()]:02d}"
-                        if (match := _ICS_PERIOD.search(row_text))
-                        else None
-                    ),
+        if historical_full_calendar:
+            # Month-view pages encode the actual calendar day in the cell id
+            # (for example d0812).  Do not infer that day from the period text.
+            for cell in _BLS_MONTH_CELL.finditer(rendered):
+                month = int(cell.group("month"))
+                day = int(cell.group("day"))
+                for event in _BLS_EVENT_PARAGRAPH.finditer(cell.group("body")):
+                    event_text = _plain_html(
+                        f"{event.group('title')} {event.group('body')}"
+                    )
+                    if family_marker not in event_text.lower():
+                        continue
+                    time_match = _SCHEDULE_TIME.search(event_text)
+                    if time_match is None:
+                        continue
+                    hour = int(time_match.group("hour"))
+                    if time_match.group("ampm").upper() == "P" and hour != 12:
+                        hour += 12
+                    if time_match.group("ampm").upper() == "A" and hour == 12:
+                        hour = 0
+                    try:
+                        release_date = date(year, month, day)
+                    except ValueError:
+                        continue
+                    entries.append(
+                        BlsScheduleEntry(
+                            release_family=family,
+                            title=(
+                                "Consumer Price Index"
+                                if family == "US_CPI"
+                                else "Employment Situation"
+                            ),
+                            release_date=release_date,
+                            scheduled_local=datetime(
+                                year,
+                                month,
+                                day,
+                                hour,
+                                int(time_match.group("minute")),
+                                tzinfo=ZoneInfo("America/New_York"),
+                            ),
+                            source_time_text=time_match.group(0),
+                            source_url=source_url,
+                            artifact_hash=artifact.content_hash,
+                            reference_period=_reference_period(event_text),
+                        )
+                    )
+        if not entries:
+            for row in parser.rows:
+                row_text = " ".join(row)
+                date_match = _SCHEDULE_DATE.search(row_text)
+                time_match = _SCHEDULE_TIME.search(row_text)
+                if date_match is None or time_match is None:
+                    continue
+                row_year = int(date_match.group("year") or year)
+                if row_year != year or (
+                    historical_full_calendar and family_marker not in row_text.lower()
+                ):
+                    continue
+                month = _MONTHS[date_match.group("month")[:3].lower()]
+                day = int(date_match.group("day"))
+                hour = int(time_match.group("hour"))
+                if time_match.group("ampm").upper() == "P" and hour != 12:
+                    hour += 12
+                if time_match.group("ampm").upper() == "A" and hour == 12:
+                    hour = 0
+                try:
+                    release_date = date(row_year, month, day)
+                except ValueError:
+                    continue
+                entries.append(
+                    BlsScheduleEntry(
+                        release_family=family,
+                        title=(
+                            "Consumer Price Index"
+                            if family == "US_CPI"
+                            else "Employment Situation"
+                        ),
+                        release_date=release_date,
+                        scheduled_local=datetime(
+                            row_year,
+                            month,
+                            day,
+                            hour,
+                            int(time_match.group("minute")),
+                            tzinfo=ZoneInfo("America/New_York"),
+                        ),
+                        source_time_text=time_match.group(0),
+                        source_url=source_url,
+                        artifact_hash=artifact.content_hash,
+                        reference_period=_reference_period(row_text),
+                    )
                 )
-            )
         if not entries:
             raise ProviderSchemaError(
                 self.key,
@@ -1072,6 +1155,62 @@ class BlsOfficialProvider:
             entries=tuple(sorted(entries, key=lambda item: item.scheduled_local)),
         )
 
+    def adapt_browser_schedule_html(
+        self,
+        payload: bytes | str,
+        *,
+        family: Literal["US_CPI", "US_NFP"],
+        year: int,
+        retrieved_at: AwareDatetime,
+        source_url: str,
+    ) -> BlsScheduleBatch:
+        """Adapt an official BLS page captured by the controlled browser.
+
+        This is intentionally separate from HTTP sync so provenance never
+        claims that the Research API fetched a page it did not fetch.
+        """
+
+        if not source_url.startswith("https://www.bls.gov/schedule/"):
+            raise ProviderError(
+                self.key,
+                ProviderErrorCode.INVALID_REQUEST,
+                "browser calendar capture must use an official BLS schedule URL",
+            )
+        batch = self.adapt_schedule_html(
+            payload,
+            family=family,
+            year=year,
+            retrieved_at=retrieved_at,
+            source_url=source_url,
+            calendar_provider="bls_public_calendar",
+        )
+        artifact = batch.artifacts[0].model_copy(
+            update={
+                "provider_key": "bls_public_calendar",
+                "metadata": {
+                    **batch.artifacts[0].metadata,
+                    "provider": "bls_public_calendar",
+                    "calendar_provider": "bls_public_calendar",
+                    "acquisition_transport": "browser_capture",
+                    "official_source": True,
+                    "manual_user_entry": False,
+                }
+            }
+        )
+        quality = batch.quality.model_copy(
+            update={
+                "source_type": "official_browser_capture",
+                "metadata": {
+                    **batch.quality.metadata,
+                    "calendar_provider": "bls_public_calendar",
+                    "acquisition_transport": "browser_capture",
+                    "official_source": True,
+                    "manual_user_entry": False,
+                },
+            }
+        )
+        return batch.model_copy(update={"artifacts": (artifact,), "quality": quality})
+
     async def healthcheck(self) -> ProviderHealth:
         checked_at = datetime.now(UTC)
         try:
@@ -1083,6 +1222,7 @@ class BlsOfficialProvider:
                     "startyear": str(checked_at.year - 1),
                     "endyear": str(checked_at.year),
                 },
+                headers={"User-Agent": self.user_agent, "Accept": "application/json"},
             )
             payload = response.json()
             if not isinstance(payload, dict) or payload.get("status") != "REQUEST_SUCCEEDED":

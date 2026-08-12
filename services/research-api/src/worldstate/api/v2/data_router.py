@@ -38,6 +38,7 @@ from worldstate.application.event_intraday_service import (
 )
 from worldstate.application.freshness_service import build_data_freshness
 from worldstate.application.licensed_sync_service import (
+    capture_trading_economics_browser_consensus,
     snapshot_trading_economics_consensus,
     sync_databento_release_market,
 )
@@ -73,7 +74,11 @@ from worldstate.db.models import (
     SyncJobRun,
 )
 from worldstate.macro_core.errors import MacroEngineError
-from worldstate.provider_kit import DatabentoDownloadRequest
+from worldstate.provider_kit import (
+    BlsOfficialProvider,
+    DatabentoDownloadRequest,
+    TradingEconomicsBrowserPage,
+)
 
 data_router = APIRouter(prefix="/data", tags=["data"])
 data_write_router = APIRouter(prefix="/data", tags=["data"])
@@ -94,6 +99,70 @@ class DataRangeInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_range(self) -> DataRangeInput:
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must not be before start_date")
+        return self
+
+
+class BlsCalendarBrowserCaptureInput(BaseModel):
+    """Payload produced by the controlled browser for an official BLS page."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    family: Literal["US_CPI", "US_NFP"]
+    year: int = Field(ge=2000, le=2100)
+    source_url: str = Field(min_length=1, max_length=500)
+    captured_at: AwareDatetime
+    html: str = Field(min_length=100, max_length=5_000_000)
+
+    @model_validator(mode="after")
+    def validate_official_source(self) -> BlsCalendarBrowserCaptureInput:
+        if not self.source_url.startswith("https://www.bls.gov/schedule/"):
+            raise ValueError("source_url must be an official BLS schedule URL")
+        return self
+
+
+class TradingEconomicsBrowserPageInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_url: str = Field(min_length=1, max_length=500)
+    captured_at: AwareDatetime
+    html: str = Field(min_length=100, max_length=5_000_000)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> TradingEconomicsBrowserPageInput:
+        if not self.source_url.startswith("https://tradingeconomics.com/"):
+            raise ValueError("source_url must be a Trading Economics page")
+        return self
+
+
+class TradingEconomicsBrowserRowInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    calendar_id: str = Field(min_length=1, max_length=128)
+    event: str = Field(min_length=1, max_length=255)
+    country: str = "United States"
+    reference: str | None = None
+    release_at: AwareDatetime
+    actual: str | None = None
+    previous: str | None = None
+    revised: str | None = None
+    forecast: str | None = None
+    teforecast: str | None = None
+    unit: str | None = None
+    ticker: str | None = None
+
+
+class TradingEconomicsBrowserCaptureInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_date: date
+    end_date: date
+    pages: list[TradingEconomicsBrowserPageInput] = Field(min_length=1, max_length=8)
+    rows: list[TradingEconomicsBrowserRowInput] = Field(min_length=1, max_length=32)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> TradingEconomicsBrowserCaptureInput:
         if self.end_date < self.start_date:
             raise ValueError("end_date must not be before start_date")
         return self
@@ -1474,6 +1543,91 @@ async def sync_calendar_endpoint(
     )
     _set_multi_status(response, result)
     return result
+
+
+@data_write_router.post("/capture/bls-calendar")
+async def capture_bls_calendar_endpoint(
+    payload: BlsCalendarBrowserCaptureInput,
+    request: Request,
+    response: Response,
+) -> dict[str, Any]:
+    """Persist a BLS release calendar page captured by the controlled browser."""
+
+    provider = BlsOfficialProvider()
+    batch = provider.adapt_browser_schedule_html(
+        payload.html,
+        family=payload.family,
+        year=payload.year,
+        retrieved_at=payload.captured_at,
+        source_url=payload.source_url,
+    )
+    result = await sync_bls_calendar(
+        request.app.state.database_engine,
+        request.app.state.settings,
+        start_date=date(payload.year, 1, 1),
+        end_date=date(payload.year, 12, 31),
+        families=(payload.family,),
+        captured_batches={(payload.family, payload.year): batch},
+    )
+    response.headers["X-WorldState-Acquisition-Transport"] = "browser_capture"
+    return {
+        **result,
+        "acquisition_transport": "browser_capture",
+        "official_source": True,
+        "manual_user_entry": False,
+        "source_url": payload.source_url,
+        "captured_at": payload.captured_at,
+        "artifact_hash": batch.artifacts[0].content_hash,
+    }
+
+
+@data_write_router.post("/capture/trading-economics-consensus")
+async def capture_trading_economics_consensus_endpoint(
+    payload: TradingEconomicsBrowserCaptureInput,
+    request: Request,
+) -> dict[str, Any]:
+    """Persist consensus read from visible TE pages, not the TE API."""
+
+    rows = [
+        {
+            "CalendarId": row.calendar_id,
+            "Ticker": row.ticker,
+            "Event": row.event,
+            "Country": row.country,
+            "Reference": row.reference,
+            "Date": row.release_at.isoformat(),
+            "Actual": row.actual,
+            "Previous": row.previous,
+            "Revised": row.revised,
+            "Forecast": row.forecast,
+            "TEForecast": row.teforecast,
+            "Unit": row.unit,
+        }
+        for row in payload.rows
+    ]
+    pages = tuple(
+        TradingEconomicsBrowserPage(
+            source_url=page.source_url,
+            captured_at=page.captured_at,
+            html=page.html,
+        )
+        for page in payload.pages
+    )
+    result = await capture_trading_economics_browser_consensus(
+        request.app.state.database_engine,
+        request.app.state.settings,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        rows=rows,
+        pages=pages,
+    )
+    return {
+        **result,
+        "acquisition_transport": "browser_capture",
+        "manual_user_entry": False,
+        "consensus_semantics": "Forecast=survey_consensus; TEForecast=proprietary_forecast",
+        "source_urls": [page.source_url for page in pages],
+    }
 
 
 @data_write_router.post("/sync/bls-current-state")

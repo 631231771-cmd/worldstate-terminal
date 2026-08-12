@@ -81,6 +81,18 @@ not live or licensed historical datasets.
   created.  The official schedule page independently confirms CPI for July
   2026 at 08:30 America/New_York (12:30 UTC), but it was not persisted as an
   observed release because manual import is intentionally prohibited.
+- After the HTTP path remained blocked, a controlled browser captured the
+  official BLS August schedule page.  The capture created one observed
+  `us_cpi-2026-07-observed` release at `2026-08-12T12:30Z`, with a durable
+  artifact hash and `browser_capture` provenance; replaying it is idempotent.
+  Four pre-T0 Trading Economics browser rows (headline/core MoM/YoY) were
+  saved as observed consensus.  `Forecast` is stored as survey consensus and
+  `TEForecast` remains a separate proprietary field; this path does not claim
+  TE API access or entitlement.
+- All automated BLS requests now use the stable contactable identity
+  `WorldStateTerminal/0.7 (+https://github.com/631231771-cmd/worldstate-terminal)`.
+  A single low-frequency verification of both endpoints at 03:57 UTC still
+  returned HTTP 403; no retry loop was used.
 
 - Typed BLS, Federal Reserve, FRED/ALFRED, Trading Economics and Databento adapters.
 - `observed` / `fixture` isolation across core records and analysis queries.

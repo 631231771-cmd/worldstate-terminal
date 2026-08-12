@@ -24,6 +24,7 @@ from worldstate.provider_kit import (
     ProviderError,
     ProviderErrorCode,
     ProviderSchemaError,
+    TradingEconomicsBrowserPage,
     TradingEconomicsConsensusProvider,
 )
 
@@ -307,6 +308,7 @@ END:VCALENDAR
 @pytest.mark.asyncio
 async def test_bls_current_schedule_prefers_public_ics_without_api_key() -> None:
     requested: list[str] = []
+    user_agents: list[str | None] = []
     payload = """BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
@@ -318,11 +320,13 @@ END:VCALENDAR
 
     def handler(request: httpx.Request) -> httpx.Response:
         requested.append(str(request.url))
+        user_agents.append(request.headers.get("user-agent"))
         return httpx.Response(200, content=payload.encode(), request=request)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         schedule = await BlsOfficialProvider(client=client).fetch_schedule("US_CPI", year=2026)
     assert requested == ["https://www.bls.gov/schedule/news_release/bls.ics"]
+    assert user_agents == [BlsOfficialProvider.user_agent]
     assert schedule.entries[0].reference_period == "2026-07"
 
 
@@ -371,6 +375,59 @@ async def test_bls_public_calendar_failure_is_not_reported_as_api_entitlement() 
     assert caught.value.details["public_calendar_error"] == (
         ProviderErrorCode.ENTITLEMENT.value
     )
+
+
+def test_bls_browser_month_view_uses_calendar_cell_day_and_provenance() -> None:
+    provider = BlsOfficialProvider()
+    batch = provider.adapt_browser_schedule_html(
+        """
+        <table class="release-calendar"><tr>
+          <td id="d0812"><p class="day">12</p>
+            <p><strong>Consumer Price Index<br></strong>July 2026<br>08:30 AM</p>
+          </td>
+        </tr></table>
+        """,
+        family="US_CPI",
+        year=2026,
+        retrieved_at=datetime(2026, 8, 12, 3, 44, tzinfo=UTC),
+        source_url="https://www.bls.gov/schedule/2026/08_sched.htm",
+    )
+    assert batch.entries[0].scheduled_local.astimezone(UTC) == datetime(
+        2026, 8, 12, 12, 30, tzinfo=UTC
+    )
+    assert batch.entries[0].reference_period == "2026-07"
+    assert batch.artifacts[0].provider_key == "bls_public_calendar"
+    assert batch.artifacts[0].metadata["acquisition_transport"] == "browser_capture"
+
+
+def test_trading_economics_browser_capture_keeps_forecast_distinct() -> None:
+    provider = TradingEconomicsConsensusProvider(None)
+    batch = provider.adapt_browser_calendar(
+        [
+            {
+                "CalendarId": "browser-cpi-yoy",
+                "Event": "Inflation Rate YoY",
+                "Country": "United States",
+                "Reference": "Jul",
+                "Date": "2026-08-12T12:30:00Z",
+                "Previous": "3.5%",
+                "Forecast": "3.4%",
+                "TEForecast": "3.4%",
+                "Unit": "percent",
+            }
+        ],
+        pages=(
+            TradingEconomicsBrowserPage(
+                source_url="https://tradingeconomics.com/united-states/inflation-cpi",
+                captured_at=datetime(2026, 8, 12, 3, 53, tzinfo=UTC),
+                html="<html><body>Forecast TEForecast " + ("x" * 100) + "</body></html>",
+            ),
+        ),
+    )
+    snapshot = batch.snapshots[0]
+    assert snapshot.survey_consensus == Decimal("3.4")
+    assert snapshot.te_forecast == Decimal("3.4")
+    assert batch.artifacts[0].metadata["acquisition_transport"] == "browser_capture"
 
 
 def test_fomc_calendar_statement_sep_and_structure_change() -> None:

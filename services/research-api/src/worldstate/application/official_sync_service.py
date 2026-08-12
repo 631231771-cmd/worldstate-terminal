@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -43,6 +44,7 @@ from worldstate.db.models import (
     SourceArtifact as StoredSourceArtifact,
 )
 from worldstate.provider_kit import (
+    BlsScheduleBatch,
     FomcDocument,
     FomcMaterialType,
     ProviderError,
@@ -533,6 +535,7 @@ async def sync_bls_calendar(
     start_date: date,
     end_date: date,
     families: tuple[BlsFamily, ...] = _BLS_FAMILIES,
+    captured_batches: Mapping[tuple[BlsFamily, int], BlsScheduleBatch] | None = None,
 ) -> dict[str, object]:
     families = tuple(dict.fromkeys(families))
     if not families:
@@ -562,7 +565,11 @@ async def sync_bls_calendar(
             for year in range(start_date.year, end_date.year + 1):
                 requests += 1
                 try:
-                    batch = await clients.bls.fetch_schedule(family, year=year)
+                    batch = (
+                        captured_batches[(family, year)]
+                        if captured_batches is not None and (family, year) in captured_batches
+                        else await clients.bls.fetch_schedule(family, year=year)
+                    )
                 except ProviderError as exc:
                     blocked_requests += 1
                     warnings.append(f"{family} {year}: {exc.code}")

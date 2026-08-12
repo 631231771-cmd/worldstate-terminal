@@ -64,6 +64,7 @@ from worldstate.provider_kit.providers import (
 from worldstate.provider_kit.trading_economics import (
     ConsensusCalendarBatch,
     ConsensusSnapshotRecord,
+    TradingEconomicsBrowserPage,
     TradingEconomicsConsensusProvider,
     TradingEconomicsEntitlement,
     TradingEconomicsQuota,
@@ -117,6 +118,7 @@ __all__ = [
     "PublicObservationBatch",
     "PublicSeriesSpec",
     "SourceArtifact",
+    "TradingEconomicsBrowserPage",
     "TradingEconomicsConsensusProvider",
     "TradingEconomicsEntitlement",
     "TradingEconomicsQuota",
