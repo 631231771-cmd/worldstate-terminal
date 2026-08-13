@@ -85,6 +85,16 @@ function numberLabel(value: number | null | undefined, unit?: string): string {
   return `${value.toLocaleString(undefined, { maximumFractionDigits: 3 })}${unit === "%" ? "%" : unit ? ` ${unit}` : ""}`;
 }
 
+function surpriseDirectionLabel(value: string | null | undefined): string {
+  return {
+    hot: "偏热",
+    cold: "偏冷",
+    in_line: "符合预期",
+    mixed: "分化",
+    neutral: "中性",
+  }[value ?? ""] ?? value ?? "—";
+}
+
 function statusLabel(value: string): string {
   return {
     scheduled: "即将发布",
@@ -170,7 +180,7 @@ export function EventsBoard({
     return visible.sort((left, right) => {
       const delta = new Date(left.scheduled_at).getTime() - new Date(right.scheduled_at).getTime();
       return eventTab === "upcoming" ? delta : -delta;
-    }).slice(0, 100);
+    }).slice(0, eventTab === "all" ? 100 : 12);
   }, [eventTab, releases]);
 
   const availableAssets = useMemo(() => {
@@ -322,7 +332,7 @@ export function EventsBoard({
 
             <WorkflowSection title="实际值与修订" eyebrow="ACTUAL / REVISION"><div class="event-indicator-table"><div class="event-indicator-table__head"><span>指标</span><span>Actual</span><span>Previous</span><span>Revision</span></div>{detail.actual.indicators.map((item) => <div class="event-indicator-table__row"><strong>{indicatorLabel(item)}<small>{item.unit}</small></strong><span>{numberLabel(item.actual, item.unit)}</span><span>{numberLabel(item.previous, item.unit)}</span><span>{numberLabel(item.revision, item.unit)}</span></div>)}</div></WorkflowSection>
 
-            <WorkflowSection title="数据惊喜" eyebrow="SURPRISE">{detail.surprise.available ? <><div class="event-summary-strip"><div><span>综合分类</span><strong>{detail.surprise.classification ?? "未分类"}</strong></div><div><span>综合分数</span><strong>{numberLabel(detail.surprise.score)}</strong></div><div><span>方向</span><strong>{detail.surprise.direction ?? "—"}</strong></div></div><div class="event-indicator-table event-indicator-table--compact">{detail.surprise.indicators.map((item) => <div class="event-indicator-table__row"><strong>{indicatorLabel(item)}</strong><span>原始 {numberLabel(item.raw_surprise)}</span><span>Z {numberLabel(item.surprise_z)}</span><span>{item.sample_count != null ? `样本 ${item.sample_count}` : "样本不足"}</span></div>)}</div></> : <div class="empty-action"><div><h3>暂不能计算 Surprise</h3><p>需要 Actual 和严格早于 T0 的 Consensus。</p></div><button type="button" class="button-primary" onClick={openConsensus}>添加预期</button></div>}</WorkflowSection>
+            <WorkflowSection title="数据惊喜" eyebrow="SURPRISE">{detail.surprise.available ? <><div class="event-summary-strip"><div><span>综合分类</span><strong>{detail.surprise.classification ?? "未分类"}</strong></div><div><span>综合分数</span><strong>{numberLabel(detail.surprise.score)}</strong></div><div><span>方向</span><strong>{surpriseDirectionLabel(detail.surprise.direction)}</strong></div></div><div class="event-indicator-table event-indicator-table--compact">{detail.surprise.indicators.map((item) => <div class="event-indicator-table__row"><strong>{indicatorLabel(item)}</strong><span>原始 {numberLabel(item.raw_surprise)}</span><span>{item.surprise_z == null ? `阈值尺度 ${numberLabel(item.threshold_scaled_surprise)}` : `Z ${numberLabel(item.surprise_z)}`}</span><span title={item.z_score_unavailable_reason ?? undefined}>{item.surprise_z == null ? `Z 样本不足（${item.sample_count ?? 0}）` : `Z 样本 ${item.sample_count ?? "—"}`}</span></div>)}</div></> : <div class="empty-action"><div><h3>暂不能计算 Surprise</h3><p>需要 Actual 和严格早于 T0 的 Consensus。</p></div><button type="button" class="button-primary" onClick={openConsensus}>添加预期</button></div>}</WorkflowSection>
 
             <WorkflowSection title="市场反应" eyebrow="MARKET REACTION">{detail.market_reaction.available ? <div class="reaction-table"><div class="reaction-table__head"><span>资产</span>{Object.values(WINDOW_LABELS).map((label) => <span>{label}</span>)}</div>{detail.market_reaction.matrix.map((row) => <div class="reaction-table__row"><strong>{row.instrument_label}{row.is_proxy ? <small>代理</small> : null}</strong>{Object.keys(WINDOW_LABELS).map((key) => { const point = row.windows[key]; return <span class={point?.reversal ? "reaction-cell reaction-cell--reversal" : "reaction-cell"}>{point?.value == null ? "—" : `${point.value > 0 ? "+" : ""}${point.value.toFixed(2)} ${point.unit}`}</span>; })}</div>)}</div> : <div class="empty-action empty-action--compact"><div><h3>暂无合格分钟行情</h3><p>当前日线数据只能说明当日市场环境，不能判断发布后 1m–1h 的短时反应。</p></div><div class="workflow-actions"><button type="button" class="button-primary" onClick={openMinuteWizard}>导入分钟数据</button><button type="button" class="button-secondary" onClick={onOpenMarkets}>查看日线市场</button></div></div>}{detail.market_reaction.partial_assets.length ? <div class="workflow-note"><Badge tone="warn">部分覆盖</Badge><span>{detail.market_reaction.partial_assets.map((item) => item.label).join("、")} 已存储但未通过 Eligibility。</span></div> : null}</WorkflowSection>
 

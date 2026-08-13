@@ -11,6 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from worldstate.application.analysis_orchestrator import initialize_research_catalog
+from worldstate.application.event_product_service import (
+    _consensus_inputs_available,
+    _surprise_indicator,
+)
 from worldstate.application.market_research_service import _continuity_segments
 from worldstate.application.official_sync_service import _sync_derived_market_context
 from worldstate.application.product_projection_service import (
@@ -123,6 +127,39 @@ def test_market_continuity_does_not_join_provider_segments() -> None:
     assert len(segments) == 2
     assert segments[0]["provider"] == "new"
     assert segments[0]["active"] is True
+
+
+def test_consensus_can_be_ready_before_actual_arrives() -> None:
+    assert _consensus_inputs_available(
+        {
+            "ready": False,
+            "required_indicators": ["headline_mom", "core_mom"],
+            "missing_actual": ["headline_mom", "core_mom"],
+            "missing_consensus": [],
+        }
+    )
+
+
+def test_product_surprise_reads_canonical_analysis_fields() -> None:
+    result = _surprise_indicator(
+        "headline_yoy",
+        {"label": "Headline CPI YoY", "unit": "%"},
+        {
+            "surprise": {
+                "raw_surprise": -0.1,
+                "relative_surprise": -0.0294,
+                "threshold_scaled_surprise": -2.0,
+                "surprise_z": None,
+                "direction": "cold",
+                "history_sample_count": 0,
+                "z_score_unavailable_reason": "minimum_20_historical_samples_required",
+            }
+        },
+    )
+    assert result["available"] is True
+    assert result["raw_surprise"] == -0.1
+    assert result["threshold_scaled_surprise"] == -2.0
+    assert result["sample_count"] == 0
 
 
 def test_derived_curve_bars_persist_formula_and_inputs(tmp_path: Path) -> None:

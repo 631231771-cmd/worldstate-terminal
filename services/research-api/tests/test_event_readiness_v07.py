@@ -6,7 +6,10 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, cast
 
-from worldstate.application.analysis_orchestrator import _select_release_values
+from worldstate.application.analysis_orchestrator import (
+    _select_release_values,
+    select_analysis_inputs_from_rows,
+)
 from worldstate.application.event_intraday_service import (
     evaluate_event_intraday_eligibility,
     evaluate_stored_event_intraday_manifest,
@@ -134,6 +137,7 @@ def test_d_quality_browser_consensus_requires_explicit_policy_but_can_be_eligibl
     )
     artifact = SimpleNamespace(
         id=artifact_id,
+        provider_key="trading_economics_browser",
         content_hash="a" * 64,
         source_url=snapshot.source_url,
         retrieved_at=datetime(2026, 8, 12, 3, 53, 1, tzinfo=UTC),
@@ -148,6 +152,20 @@ def test_d_quality_browser_consensus_requires_explicit_policy_but_can_be_eligibl
     )
     assert result.eligible is True
     assert "quality_grade_D_requires_careful_interpretation" in result.limitations
+
+    release = SimpleNamespace(
+        id=snapshot.macro_release_id,
+        data_mode="observed",
+        released_at=datetime(2026, 8, 12, 12, 30, tzinfo=UTC),
+        scheduled_at=datetime(2026, 8, 12, 12, 30, tzinfo=UTC),
+    )
+    _values, selected = select_analysis_inputs_from_rows(
+        cast(Any, release),
+        values=[],
+        consensus=[snapshot],
+        artifacts={artifact_id: cast(Any, artifact)},
+    )
+    assert selected[snapshot.indicator_id].id == snapshot.id
 
 
 def test_consensus_post_t0_teforecast_and_missing_provenance_are_rejected() -> None:

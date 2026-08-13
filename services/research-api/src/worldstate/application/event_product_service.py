@@ -25,6 +25,12 @@ from worldstate.db.models import MacroRelease, MarketDataManifest, MarketInstrum
 REACTION_WINDOWS = ("post_1m", "post_5m", "post_15m", "post_30m", "post_60m")
 
 
+def _consensus_inputs_available(surprise_inputs: dict[str, object]) -> bool:
+    required = list(cast(list[object], surprise_inputs.get("required_indicators", [])))
+    missing = list(cast(list[object], surprise_inputs.get("missing_consensus", [])))
+    return bool(required) and not missing
+
+
 def _actual_indicator(
     key: str, supported: dict[str, object], value: dict[str, object]
 ) -> dict[str, object]:
@@ -80,21 +86,23 @@ def _surprise_indicator(
     key: str, supported: dict[str, object], value: dict[str, object]
 ) -> dict[str, object]:
     surprise = value.get("surprise")
+    surprise_map = cast(dict[str, object], surprise) if isinstance(surprise, dict) else {}
     return {
         "key": key,
         "label": supported["label"],
         "unit": supported["unit"],
-        "available": surprise is not None,
-        "raw_surprise": surprise.get("raw") if isinstance(surprise, dict) else None,
-        "relative_surprise": surprise.get("relative") if isinstance(surprise, dict) else None,
-        "surprise_z": surprise.get("surprise_z") if isinstance(surprise, dict) else None,
-        "threshold_scaled_surprise": (
-            surprise.get("threshold_scaled_surprise") if isinstance(surprise, dict) else None
+        "available": bool(surprise_map) and surprise_map.get("raw_surprise") is not None,
+        "raw_surprise": surprise_map.get("raw_surprise", surprise_map.get("raw")),
+        "relative_surprise": surprise_map.get(
+            "relative_surprise", surprise_map.get("relative")
         ),
-        "direction": surprise.get("direction") if isinstance(surprise, dict) else None,
-        "sample_count": surprise.get("historical_sample_count")
-        if isinstance(surprise, dict)
-        else None,
+        "surprise_z": surprise_map.get("surprise_z"),
+        "threshold_scaled_surprise": surprise_map.get("threshold_scaled_surprise"),
+        "direction": surprise_map.get("direction"),
+        "sample_count": surprise_map.get(
+            "history_sample_count", surprise_map.get("historical_sample_count")
+        ),
+        "z_score_unavailable_reason": surprise_map.get("z_score_unavailable_reason"),
     }
 
 
@@ -256,7 +264,7 @@ async def build_event_product_detail(
     analysis = raw.get("latest_analysis")
     readiness = await build_analysis_readiness(engine, release_id, data_mode=data_mode)
     actual_available = bool(readiness.release_inputs.get("ready"))
-    consensus_available = bool(readiness.surprise_inputs.get("ready"))
+    consensus_available = _consensus_inputs_available(readiness.surprise_inputs)
     market_available = bool(market_capability["available"])
     return {
         "event": {

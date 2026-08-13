@@ -461,3 +461,34 @@ data or proprietary raw payloads.
   no observed real-event AnalysisRun yet. CPI/NFP/FOMC examples remain fixture
   demonstrations until legal verified minute and pre-T0 consensus data are
   imported.
+
+## First observed CPI chain checkpoint (2026-08-13)
+
+- Release `145dd1f1-55de-43df-8b87-66c9ef848c7c` is the observed US CPI
+  release for 2026-07 at `2026-08-12T12:30:00Z`. The official BLS current-data
+  sync now marks a matched calendar release and its release stage as released.
+- Four pre-T0 Trading Economics survey-consensus snapshots are present and
+  eligible: headline MoM 0.1, headline YoY 3.4, core MoM 0.2 and core YoY 2.5.
+  They remain quality D browser captures with explicit source-semantics and
+  provenance limitations; they are not provider-API captures.
+- Four observed BLS Actual values are present: headline MoM 0.1, headline YoY
+  3.3, core MoM 0.2 and core YoY 2.5. The public BLS API disabled server-side
+  calculations, so deterministic percentage derivations from official level
+  observations retain that limitation in metadata.
+- Consensus eligibility now has one canonical policy shared by readiness,
+  analysis input selection and coverage. Approved quality A/B/C rows retain
+  legacy eligibility with explicit provenance/semantics limitations; quality D
+  requires the stronger browser-capture provenance and semantics checks.
+- Product Event detail now exposes the four Actual/Consensus pairs and their
+  individual raw and threshold-scaled surprises even before an AnalysisRun.
+  True surprise Z-scores remain null because no qualifying 20-sample PIT error
+  history exists.
+- `AnalysisReadiness` is intentionally still blocked only by
+  `missing_eligible_event_minute_manifest`; no observed AnalysisRun has been
+  created. Databento historical GLBX.MDP3 and OHLCV-1m were verified in the
+  signed-in catalog, but `DATABENTO_API_KEY` is not configured locally and no
+  data was purchased or downloaded.
+- Current verification: 221 backend tests pass, Ruff and strict mypy pass, and
+  the Terminal UI production build passes. Browser smoke confirmed the Events
+  page shows the CPI release as released, four expectations, four Actuals,
+  bounded Surprise output and the actionable missing-minute-data state.

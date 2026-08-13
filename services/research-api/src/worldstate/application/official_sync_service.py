@@ -963,6 +963,12 @@ async def sync_bls_actuals(
                         "previous": observation.previous_value,
                         "revised_previous": observation.revised_previous_value,
                     }
+                    if observation.value is not None:
+                        target_release.released_at = _aware(target_release.scheduled_at)
+                        target_release.status = "released"
+                        if stage is not None:
+                            stage.released_at = _aware(stage.scheduled_at)
+                            stage.status = "released"
                     capture_delay = _aware(observation.retrieved_at) - _aware(
                         target_release.scheduled_at
                     )

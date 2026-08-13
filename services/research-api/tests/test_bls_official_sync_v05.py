@@ -79,6 +79,7 @@ async def _add_observed_release(
     release_type: str,
     period_label: str,
     scheduled_at: datetime,
+    released: bool = True,
 ) -> uuid.UUID:
     release_id = uuid.uuid4()
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -92,9 +93,9 @@ async def _add_observed_release(
                 country="USA",
                 period_label=period_label,
                 scheduled_at=scheduled_at,
-                released_at=scheduled_at,
+                released_at=scheduled_at if released else None,
                 source_timezone="America/New_York",
-                status="released",
+                status="released" if released else "scheduled",
                 data_version="calendar-test",
                 data_mode="observed",
                 contamination_level="unknown",
@@ -117,6 +118,7 @@ async def test_bls_actual_range_uses_release_date_and_selected_family(
         release_type="US_CPI",
         period_label="2024-02",
         scheduled_at=datetime(2024, 3, 12, 12, 30, tzinfo=UTC),
+        released=False,
     )
     march_release_id = await _add_observed_release(
         bls_engine,
@@ -179,6 +181,10 @@ async def test_bls_actual_range_uses_release_date_and_selected_family(
                 .where(ReleaseValue.value_kind == "actual")
             )
         ).all()
+        released_row = await session.get(MacroRelease, february_release_id)
+    assert released_row is not None
+    assert released_row.status == "released"
+    assert released_row.released_at == released_row.scheduled_at
     by_release = {
         release_id: {
             indicator_key: value.value

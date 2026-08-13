@@ -255,6 +255,7 @@ export interface ProductEventDetail {
       threshold_scaled_surprise: number | null;
       direction: string | null;
       sample_count: number | null;
+      z_score_unavailable_reason?: string | null;
     }>;
   };
   market_reaction: {

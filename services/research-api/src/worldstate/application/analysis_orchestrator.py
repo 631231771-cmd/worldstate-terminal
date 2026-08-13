@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from worldstate.ai_researcher.claims import deterministic_claims, validate_claims
+from worldstate.application.consensus_policy import evaluate_consensus_eligibility
 from worldstate.application.data_foundation_service import redact_sensitive_text
 from worldstate.application.event_intraday_service import resolve_release_t0
 from worldstate.application.event_readiness import AnalysisReadiness, build_analysis_readiness
@@ -918,7 +919,6 @@ async def select_analysis_inputs(
                     ConsensusSnapshot.macro_release_id == release.id,
                     ConsensusSnapshot.data_mode == release.data_mode,
                     ConsensusSnapshot.captured_at < cutoff,
-                    ConsensusSnapshot.quality_grade.in_(("A", "B", "C")),
                 )
                 .order_by(ConsensusSnapshot.captured_at)
             )
@@ -934,6 +934,7 @@ async def select_analysis_inputs(
         values=values,
         consensus=consensus,
         artifacts=artifacts,
+        t0=cutoff,
     )
     return selected_values, selected_consensus, artifacts
 
@@ -944,6 +945,7 @@ def select_analysis_inputs_from_rows(
     values: list[ReleaseValue],
     consensus: list[ConsensusSnapshot],
     artifacts: dict[uuid.UUID, SourceArtifact],
+    t0: datetime | None = None,
 ) -> tuple[
     dict[tuple[uuid.UUID, str], ReleaseValue],
     dict[uuid.UUID, ConsensusSnapshot],
@@ -954,20 +956,28 @@ def select_analysis_inputs_from_rows(
     confused with the row being eligible for point-in-time analysis.
     """
 
-    cutoff = _aware(release.released_at or release.scheduled_at)
+    cutoff = _aware(t0 or release.released_at or release.scheduled_at)
     eligible_values = [
         row
         for row in values
         if row.macro_release_id == release.id and row.data_mode == release.data_mode
     ]
-    eligible_consensus = [
-        row
-        for row in consensus
-        if row.macro_release_id == release.id
-        and row.data_mode == release.data_mode
-        and _aware(row.captured_at) < cutoff
-        and row.quality_grade in {"A", "B", "C"}
-    ]
+    eligible_consensus: list[ConsensusSnapshot] = []
+    for row in consensus:
+        if row.macro_release_id != release.id or row.data_mode != release.data_mode:
+            continue
+        if release.data_mode == "fixture":
+            if _aware(row.captured_at) < cutoff and row.quality_grade in {"A", "B", "C"}:
+                eligible_consensus.append(row)
+            continue
+        artifact = artifacts.get(row.source_artifact_id) if row.source_artifact_id else None
+        if evaluate_consensus_eligibility(
+            row,
+            artifact,
+            t0=cutoff,
+            release_data_mode=release.data_mode,
+        ).eligible:
+            eligible_consensus.append(row)
     return (
         _select_release_values(eligible_values, artifacts),
         _select_consensus_snapshots(eligible_consensus, artifacts),
@@ -2653,7 +2663,30 @@ async def get_release_detail(
             historical_surprises=history,
             released_at=_aware(release.released_at or release.scheduled_at),
         )
-        surprises = dict(run.parameters_json.get("indicator_surprises", {})) if run else {}
+        surprises = (
+            dict(run.parameters_json.get("indicator_surprises", {}))
+            if run
+            else {
+                item.key: {
+                    "raw_surprise": _float(item.raw_surprise),
+                    "oriented_surprise": item.oriented_surprise,
+                    "relative_surprise": item.relative_surprise,
+                    "threshold_scaled_surprise": item.threshold_scaled_surprise,
+                    "surprise_z": item.surprise_z,
+                    "direction": item.direction,
+                    "revision": _float(item.revision),
+                    "history_sample_count": item.history_sample_count,
+                    "history_mean": item.history_mean,
+                    "history_std": item.history_std,
+                    "history_cutoff_at": (
+                        item.history_cutoff_at.isoformat() if item.history_cutoff_at else None
+                    ),
+                    "surprise_method": item.surprise_method,
+                    "z_score_unavailable_reason": item.z_score_unavailable_reason,
+                }
+                for item in bundle.indicators
+            }
+        )
         for key, item in values.items():
             item["surprise"] = surprises.get(key)
         stages = (

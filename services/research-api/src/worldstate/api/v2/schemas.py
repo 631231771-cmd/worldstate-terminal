@@ -351,6 +351,7 @@ class ProductSurpriseIndicator(StrictModel):
     threshold_scaled_surprise: float | None = None
     direction: str | None = None
     sample_count: int | None = None
+    z_score_unavailable_reason: str | None = None
 
 
 class ProductSurprise(StrictModel):
