@@ -92,6 +92,11 @@ export const api = {
     request<ExplanationsResponse>(`/v2/releases/${id}/explanations`),
   claims: (runId: string) =>
     request<{ run_id: string; items: ResearchClaim[] }>(`/v2/analysis-runs/${runId}/claims`),
+  analyzeRelease: (releaseId: string, idempotencyKey: string) =>
+    request<{ release_id: string; analysis_run_id: string; status: string }>(
+      `/v2/releases/${encodeURIComponent(releaseId)}/analysis-runs`,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey } }, [], 60_000,
+    ),
   instruments: () => request<Instrument[]>("/v2/instruments"),
   dataQuality: () => request<Record<string, unknown>>("/v2/data-quality"),
   providerRuns: () => request<Array<Record<string, unknown>>>("/v2/provider-runs"),

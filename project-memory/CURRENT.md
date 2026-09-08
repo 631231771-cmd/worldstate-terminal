@@ -1,6 +1,23 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-08-12
+Updated: 2026-09-08
+
+## Active product restructuring checkpoint (read first)
+
+The user wants a complete usable workflow, not a cosmetic dashboard revision. Work is ongoing; do not mark the full product goal complete yet.
+
+- Baseline was `f30ae84f4a834fce9f1b386f73cfadd413af4016`, branch remains `feature/v0.7-terminal-rebuild`.
+- Implemented four primary entries: 雷达 / 事件台 / 市场脉络 / 研究记忆. Radar couples selected markets with explicitly conditional pathways and cross-asset checks; Data/Methods are in tools. Old TodayBoard is removed, underlying APIs retained.
+- Added versioned observed-only display cache, independent reads, background refresh, offline preservation, hash/back navigation and event-response race guards. Do not reuse display cache as research input.
+- CPI now shows expected/actual/surprise/revision side by side; existing import dialogs retained. Added pre-release observation guides and validated-claim/history reading in the event workflow.
+- Local checks: backend 221 passed, Ruff/mypy passed; UI build, 10 policy tests and browser E2E passed; Rust fmt/check and eight tests passed. Production-like desktop build succeeded and actual Windows Radar/CPI/Markets/Macro were inspected. A final rebuild is needed after the last reading/market layout edits, followed by Data Sources/Research desktop checks and checkpoint/push.
+- Build resource list no longer recursively includes the entire backend work directory (which failed on `.pytest_cache` access); source/migrations/config and frozen sidecar are explicit.
+- Real runtime remains `.runtime/worldstate.db`. Market data is still dated August, no new minute imports or CPI AnalysisRun. Do not claim live market intelligence. No Consensus or Release changes, no Databento download in this restructuring.
+- Detail: `docs/product/intelligence-workflow.md`. E2E runs a disposable browser with synthetic intercepted API responses; this does not prove live provider access.
+
+September 8 continuation: the event interpretation tab now submits the existing analysis endpoint when readiness allows it, with a stable idempotency key and visible failure/retry. Browser regression verifies the submission, a simulated 503, retry identity and reading the completed validated claims. No live analysis was submitted. UI build, 10 policy tests and all browser smoke scenarios passed again. The tests intercept every API request in an isolated context, including the new write test; they never write to the runtime database.
+
+Remaining: finish final desktop rebuild/verification and checkpoint push; review daily data activation within existing providers without expanding scope; retain the explicit minute-data blocker. PRs remain unmerged.
 
 ## Product truth
 

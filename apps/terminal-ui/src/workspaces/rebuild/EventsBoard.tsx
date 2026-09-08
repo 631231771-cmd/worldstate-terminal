@@ -1,5 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { api } from "../../api/client";
 import { Badge, DetailsDisclosure, Modal, Panel, StateMessage } from "../../components/Primitives";
 import { ConceptStrip } from "../../components/ConceptHelp";
@@ -7,6 +7,8 @@ import type { ReleaseSummary } from "../../types";
 import type { ConsensusCsvPreview, EventMinutePreview, ProductEventDetail } from "../../types/product";
 import { fromLocalDateTimeInput, localTimeZoneLabel, toLocalDateTimeInput } from "../../utils/time";
 import { EventLabWorkspace } from "../event-lab/EventLabWorkspace";
+
+import { PreReleaseGuide, ReleaseReading } from "../intelligence/ReleaseReading";
 
 type EventTab = "upcoming" | "recent" | "all";
 type Dialog = "consensus" | "consensus-csv" | "minutes" | null;
@@ -143,6 +145,11 @@ export function EventsBoard({
   onOpenMarkets ??= () =>
     window.dispatchEvent(new CustomEvent("worldstate:navigate", { detail: "markets" }));
   const [labOpen, setLabOpen] = useState(false);
+  const [readingTab, setReadingTab] = useState("difference");
+  const [eventSearch, setEventSearch] = useState("");
+  const analysisKey = useRef(crypto.randomUUID());
+  const [analysisBusy,setAnalysisBusy] = useState(false);
+  const [analysisError,setAnalysisError] = useState<string|null>(null);
   const [eventTab, setEventTab] = useState<EventTab>("recent");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [busy, setBusy] = useState(false);
@@ -176,12 +183,12 @@ export function EventsBoard({
   const visibleReleases = useMemo(() => {
     const visible = eventTab === "all"
       ? [...releases]
-      : releases.filter((item) => eventTab === "recent" ? item.status === "released" : item.status === "scheduled");
-    return visible.sort((left, right) => {
+      : releases.filter((item) => eventTab === "recent" ? item.status === "released" : item.status === "scheduled" && Date.parse(item.scheduled_at) >= Date.now());
+    return visible.filter(item => `${item.title} ${item.release_type} ${item.period_label}`.toLowerCase().includes(eventSearch.toLowerCase())).sort((left, right) => {
       const delta = new Date(left.scheduled_at).getTime() - new Date(right.scheduled_at).getTime();
       return eventTab === "upcoming" ? delta : -delta;
     }).slice(0, eventTab === "all" ? 100 : 12);
-  }, [eventTab, releases]);
+  }, [eventTab, releases, eventSearch]);
 
   const availableAssets = useMemo(() => {
     if (!detail) return [];
@@ -191,6 +198,14 @@ export function EventsBoard({
 
   function refreshDetail() {
     if (selected) onSelect(selected);
+  }
+
+  async function runAnalysis() {
+    if (!detail?.actions.can_run_analysis || analysisBusy) return;
+    setAnalysisBusy(true);setAnalysisError(null);
+    try { await api.analyzeRelease(detail.id,analysisKey.current);refreshDetail(); }
+    catch(error) {setAnalysisError(error instanceof Error?error.message:"分析未完成，请重试。原始输入没有被修改。");}
+    finally {setAnalysisBusy(false);}
   }
 
   function openConsensus() {
@@ -317,34 +332,51 @@ export function EventsBoard({
 
   return (
     <div class="workspace workspace--product">
-      <section class="page-heading page-heading--compact"><div><div class="eyebrow">EVENT RESEARCH</div><h1>宏观事件研究</h1><p>从预期、实际值和修订开始，沿着 Surprise、市场反应、历史背景与证据逐层阅读。</p><ConceptStrip concepts={["consensus", "surprise", "revision", "reversal"]} active={learningMode} /></div><div class="page-heading__aside"><Badge tone="info">{releases.length} 个事件</Badge></div></section>
+
       <div class="events-layout events-layout--research">
-        <Panel title="事件" eyebrow="CALENDAR">
-          <div class="tabs-bar" role="tablist">{(["upcoming", "recent", "all"] as EventTab[]).map((tab) => <button type="button" class={eventTab === tab ? "active" : ""} onClick={() => setEventTab(tab)} role="tab" aria-selected={eventTab === tab}>{tab === "recent" ? "近期发布" : tab === "upcoming" ? "当前 / 即将" : "全部"}</button>)}</div>
-          <div class="event-list">{visibleReleases.map((item) => <button type="button" class={selected?.id === item.id ? "event-calendar__item event-list__row--active" : "event-calendar__item"} key={item.id} onClick={() => { setLabOpen(false); onSelect(item); }}><span class="event-list__date">{dateLabel(item.scheduled_at)}</span><span><strong>{eventType(item.release_type)}</strong><small>{timeLabel(item.scheduled_at)} · {item.period_label}</small></span><Badge tone={eventTone(item)}>{statusLabel(item.status)}</Badge></button>)}</div>
-        </Panel>
-
-        <Panel title={detail ? `${eventType(detail.event.type)} · ${detail.event.period_label}` : "选择事件"} eyebrow="RESEARCH WORKFLOW">
-          {!detail ? <div class="empty-action"><div><h3>选择一个事件开始研究</h3><p>系统优先显示最近已发布的事件。</p></div></div> : <div class="event-workflow">
-            <WorkflowSection title="事件概览" eyebrow="OVERVIEW"><div class="event-detail__headline"><div><strong>{detail.event.title}</strong><span>{new Date(detail.event.scheduled_at).toLocaleString()} · {countryLabel(detail.event.country)}</span></div><Badge tone={reactionTone(detail.event.status === "released" ? "available" : "partial")}>{statusLabel(detail.event.status)}</Badge></div><div class="event-readiness"><div class={detail.actual.available ? "ready" : "missing"}><span>实际值</span><strong>{detail.actual.available ? "已获取" : "待获取"}</strong></div><div class={detail.expectations.available ? "ready" : "missing"}><span>事前预期</span><strong>{detail.expectations.eligible_count ? `${detail.expectations.eligible_count} 项可用` : "待补充"}</strong></div><div class={detail.market_reaction.available ? "ready" : "missing"}><span>分钟行情</span><strong>{detail.market_reaction.available ? "可分析" : "待导入"}</strong></div></div>{detail.actions.analysis_blockers.length ? <ul class="workflow-blocker-list">{detail.actions.analysis_blockers.map((item) => <li key={item}>{blockerLabel(item, detail)}</li>)}</ul> : <Badge tone="good">研究输入已齐备</Badge>}</WorkflowSection>
-
-            <WorkflowSection title="市场预期" eyebrow="EXPECTATIONS"><div class="event-indicator-table"><div class="event-indicator-table__head"><span>指标</span><span>Consensus</span><span>记录时间</span><span>来源</span></div>{detail.expectations.indicators.map((item) => <div class="event-indicator-table__row"><strong>{indicatorLabel(item)}<small>{item.unit}</small></strong><span>{numberLabel(item.consensus, item.unit)}</span><span>{item.captured_at ? new Date(item.captured_at).toLocaleString() : "—"}</span><span>{item.source ?? "—"}</span></div>)}</div><div class="workflow-actions"><button type="button" class="button-primary" onClick={openConsensus}>添加预期</button><button type="button" class="button-secondary" onClick={openConsensusCsv}>批量导入 CSV</button></div></WorkflowSection>
-
-            <WorkflowSection title="实际值与修订" eyebrow="ACTUAL / REVISION"><div class="event-indicator-table"><div class="event-indicator-table__head"><span>指标</span><span>Actual</span><span>Previous</span><span>Revision</span></div>{detail.actual.indicators.map((item) => <div class="event-indicator-table__row"><strong>{indicatorLabel(item)}<small>{item.unit}</small></strong><span>{numberLabel(item.actual, item.unit)}</span><span>{numberLabel(item.previous, item.unit)}</span><span>{numberLabel(item.revision, item.unit)}</span></div>)}</div></WorkflowSection>
-
-            <WorkflowSection title="数据惊喜" eyebrow="SURPRISE">{detail.surprise.available ? <><div class="event-summary-strip"><div><span>综合分类</span><strong>{detail.surprise.classification ?? "未分类"}</strong></div><div><span>综合分数</span><strong>{numberLabel(detail.surprise.score)}</strong></div><div><span>方向</span><strong>{surpriseDirectionLabel(detail.surprise.direction)}</strong></div></div><div class="event-indicator-table event-indicator-table--compact">{detail.surprise.indicators.map((item) => <div class="event-indicator-table__row"><strong>{indicatorLabel(item)}</strong><span>原始 {numberLabel(item.raw_surprise)}</span><span>{item.surprise_z == null ? `阈值尺度 ${numberLabel(item.threshold_scaled_surprise)}` : `Z ${numberLabel(item.surprise_z)}`}</span><span title={item.z_score_unavailable_reason ?? undefined}>{item.surprise_z == null ? `Z 样本不足（${item.sample_count ?? 0}）` : `Z 样本 ${item.sample_count ?? "—"}`}</span></div>)}</div></> : <div class="empty-action"><div><h3>暂不能计算 Surprise</h3><p>需要 Actual 和严格早于 T0 的 Consensus。</p></div><button type="button" class="button-primary" onClick={openConsensus}>添加预期</button></div>}</WorkflowSection>
-
-            <WorkflowSection title="市场反应" eyebrow="MARKET REACTION">{detail.market_reaction.available ? <div class="reaction-table"><div class="reaction-table__head"><span>资产</span>{Object.values(WINDOW_LABELS).map((label) => <span>{label}</span>)}</div>{detail.market_reaction.matrix.map((row) => <div class="reaction-table__row"><strong>{row.instrument_label}{row.is_proxy ? <small>代理</small> : null}</strong>{Object.keys(WINDOW_LABELS).map((key) => { const point = row.windows[key]; return <span class={point?.reversal ? "reaction-cell reaction-cell--reversal" : "reaction-cell"}>{point?.value == null ? "—" : `${point.value > 0 ? "+" : ""}${point.value.toFixed(2)} ${point.unit}`}</span>; })}</div>)}</div> : <div class="empty-action empty-action--compact"><div><h3>暂无合格分钟行情</h3><p>当前日线数据只能说明当日市场环境，不能判断发布后 1m–1h 的短时反应。</p></div><div class="workflow-actions"><button type="button" class="button-primary" onClick={openMinuteWizard}>导入分钟数据</button><button type="button" class="button-secondary" onClick={onOpenMarkets}>查看日线市场</button></div></div>}{detail.market_reaction.partial_assets.length ? <div class="workflow-note"><Badge tone="warn">部分覆盖</Badge><span>{detail.market_reaction.partial_assets.map((item) => item.label).join("、")} 已存储但未通过 Eligibility。</span></div> : null}</WorkflowSection>
-
-            <WorkflowSection title="跨资产" eyebrow="CROSS ASSET"><div class="asset-status-grid">{availableAssets.map((item) => <div><strong>{item.label}</strong><Badge tone={reactionTone(item.eligible ? "eligible" : item.status ?? "missing")}>{item.eligible ? "可用于分析" : statusLabel(item.status ?? "missing")}</Badge>{item.is_proxy ? <small>代理：{item.proxy_for}</small> : null}</div>)}</div></WorkflowSection>
-
-            <WorkflowSection title="历史背景" eyebrow="HISTORICAL CONTEXT"><div class="workflow-note"><span>{detail.analysis.run_id ? "历史匹配来自当前 AnalysisRun，并遵守样本下限。" : "尚无 AnalysisRun；不会为填充页面伪造历史百分位。"}</span></div></WorkflowSection>
-
-            <WorkflowSection title="解释" eyebrow="INTERPRETATION"><div class="event-summary-strip"><div><span>分析状态</span><strong>{detail.analysis.status === "completed" ? "已完成" : "尚未运行"}</strong></div><div><span>置信度</span><strong>{detail.analysis.confidence == null ? "—" : `${Math.round(detail.analysis.confidence * 100)}%`}</strong></div><div><span>可复现</span><strong>{detail.analysis.reproducibility === "complete" ? "完整" : "—"}</strong></div></div>{detail.analysis.data_gaps.length ? <ul class="boundary-list">{detail.analysis.data_gaps.map((gap) => <li>{gap}</li>)}</ul> : null}{detail.analysis.run_id ? <button type="button" class="button-primary" onClick={() => { setLabOpen(true); onOpenLab(); }}>打开完整复盘</button> : null}</WorkflowSection>
-
-            <WorkflowSection title="证据与数据边界" eyebrow="EVIDENCE"><div class="workflow-note"><strong>{detail.source ? String(detail.source.title ?? "事件来源") : "来源尚未记录"}</strong><span>{detail.data_quality.length} 条质量记录 · 污染等级 {String(detail.contamination.level ?? "未知")}</span></div><DetailsDisclosure label="高级数据详情"><pre class="json-view">{JSON.stringify({ source: detail.source, provenance: detail.data_provenance, quality: detail.data_quality, contamination: detail.contamination }, null, 2)}</pre></DetailsDisclosure></WorkflowSection>
-          </div>}
-        </Panel>
+        <aside class="event-rail"><div class="section-heading"><h2>事件时间线</h2><small>本机时区</small></div>
+          <input aria-label="查找事件" placeholder="CPI、非农、月份…" value={eventSearch} onInput={e=>setEventSearch(e.currentTarget.value)}/>
+          <div class="tabs-bar" role="tablist">{(["upcoming","recent","all"] as EventTab[]).map(tab=><button type="button" key={tab} class={eventTab===tab?"active":""} onClick={()=>setEventTab(tab)} role="tab" aria-selected={eventTab===tab}>{tab==="recent"?"已发布":tab==="upcoming"?"待发布":"全部"}</button>)}</div>
+          <div class="event-list">{visibleReleases.map(item=><button type="button" class={selected?.id===item.id?"event-calendar__item event-list__row--active":"event-calendar__item"} key={item.id} onClick={()=>{setLabOpen(false);onSelect(item);}}><span class="event-list__date">{dateLabel(item.scheduled_at)}</span><span><strong>{eventType(item.release_type)}</strong><small>{timeLabel(item.scheduled_at)} · {item.period_label}</small></span></button>)}</div>
+          {!visibleReleases.length?<div class="inline-empty"><p>本地没有匹配事件。</p><button type="button" onClick={onOpenDataSources}>检查日历来源 →</button></div>:null}
+        </aside>
+        <section class="event-reading">
+          {!detail?<div class="inline-empty"><h2>{selected?"正在读取这个事件":"选择事件开始研究"}</h2><p>右侧保留完整的预期 → 数据 → 市场反应链。</p></div>:<>
+            <header class="event-reading-head"><div><span class="section-label">{countryLabel(detail.event.country)} · {detail.event.period_label}</span><h1>{detail.event.title}</h1><time>{new Date(detail.event.scheduled_at).toLocaleString()} · {localTimeZoneLabel()}</time></div><Badge tone={detail.event.status==="released"?"info":"neutral"}>{statusLabel(detail.event.status)}</Badge></header>
+            <div class="event-takeaway"><span>数据告诉我们</span><strong>{detail.surprise.available?detail.surprise.classification??surpriseDirectionLabel(detail.surprise.direction):detail.actual.available?"实际值已到，事前预期尚未齐备":"等待正式发布"}</strong><p>{detail.surprise.available?"先看哪些指标偏离预期，再核对市场是否按同一条路径反应。":detail.event.status==="scheduled"?"发布前先记录市场预期；发布后的实际值不会被提前填入。":"打开来源核对已有数据，缺少的输入不会被估算填满。"}</p></div>
+            <div class="event-progress"><span class={detail.expectations.eligible_count?"done":""}>① 事前预期 {detail.expectations.eligible_count?detail.expectations.eligible_count+" 项":"未齐"}</span><span class={detail.actual.available?"done":""}>② 实际值 {detail.actual.available?"已获取":"待发布 / 获取"}</span><span class={detail.market_reaction.available?"done":""}>③ 市场反应 {detail.market_reaction.available?"可查看":"待补齐"}</span><span class={detail.analysis.run_id?"done":""}>④ 复盘 {detail.analysis.run_id?"已有记录":"尚未形成"}</span></div>
+            <div class="tabs-bar event-reading-tabs">{[["difference","预期差"],["reaction","跨资产反应"],["interpretation","解释与历史"],["sources","来源与详情"]].map(([key,label])=><button type="button" key={key} class={readingTab===key?"active":""} onClick={()=>setReadingTab(key!)}>{label}</button>)}</div>
+            {readingTab==="difference"?<>
+              <ConceptStrip concepts={["consensus","surprise","revision"]} active={learningMode}/>
+              {detail.event.status==="scheduled"?<PreReleaseGuide type={detail.event.type}/>:null}
+              <div class="table-wrap"><table class="event-comparison"><thead><tr><th>指标</th><th>事前预期</th><th>实际</th><th>偏离预期</th><th>前值 / 修正</th></tr></thead><tbody>{detail.supported_indicators.map(indicator=>{
+                const expectation=detail.expectations.indicators.find(i=>i.key===indicator.key);
+                const actual=detail.actual.indicators.find(i=>i.key===indicator.key);
+                const surprise=detail.surprise.indicators.find(i=>i.key===indicator.key);
+                return <tr key={indicator.key}><th>{indicatorLabel(indicator)}<small>{indicator.unit}</small></th><td>{numberLabel(expectation?.consensus,indicator.unit)}{expectation?.consensus!=null&&expectation.eligibility!=="pre_t0"?<small>仅供参考 / 未通过校验</small>:null}</td><td class="actual-value">{numberLabel(actual?.actual,indicator.unit)}</td><td>{surprise?.raw_surprise==null?"—":<><span>{numberLabel(surprise.raw_surprise,indicator.unit==="%"?"百分点":indicator.unit)}</span><small>{surpriseDirectionLabel(surprise.direction)}</small></>}</td><td>{numberLabel(actual?.previous,indicator.unit)}{actual?.revised_previous!=null?<small>修正为 {numberLabel(actual.revised_previous,indicator.unit)}</small>:null}</td></tr>;
+              })}</tbody></table></div>
+              <div class="workflow-actions"><button type="button" class="button-secondary" onClick={openConsensus}>添加预期记录</button><button type="button" class="button-secondary" onClick={openConsensusCsv}>导入预期 CSV</button><button type="button" class="button-primary" onClick={()=>setReadingTab("reaction")}>继续看市场反应 →</button></div>
+              <DetailsDisclosure label="惊喜尺度与样本限制"><p>偏离预期不是行情预测。Z-score 仅在历史样本满足方法要求时提供；阈值尺度不是 Z-score。</p>{detail.surprise.indicators.map(i=><div class="research-row" key={i.key}><strong>{indicatorLabel(i)}</strong><span>{i.surprise_z==null?`Z 不可用 · 样本 ${i.sample_count??0} · 阈值尺度 ${numberLabel(i.threshold_scaled_surprise)}`:`Z ${numberLabel(i.surprise_z)} · 样本 ${i.sample_count}`}</span></div>)}</DetailsDisclosure>
+            </>:null}
+            {readingTab==="reaction"?<>
+              <div class="section-heading"><h2>谁先动，谁在确认？</h2><span>事件发布后的窗口</span></div>
+              {detail.market_reaction.matrix.length?<div class="reaction-table"><div class="reaction-table__head"><span>资产</span>{Object.values(WINDOW_LABELS).map(label=><span key={label}>{label}</span>)}</div>{detail.market_reaction.matrix.map(row=><div class="reaction-table__row" key={row.instrument_key+row.stage_key}><strong>{row.instrument_label}{row.is_proxy?<small>代理</small>:null}<small>{row.stage_key}</small></strong>{Object.keys(WINDOW_LABELS).map(key=>{const p=row.windows[key];return <span key={key} class={p?.reversal?"reaction-cell reaction-cell--reversal":"reaction-cell"} title={p?.missing_reason??undefined}>{p?.value==null?"—":`${p.value>0?"+":""}${p.value.toFixed(2)} ${p.unit}`}{p?.coverage!=null?<small>覆盖 {Math.round(p.coverage*100)}%</small>:null}{p?.reversal?<small>方向反转</small>:null}</span>;})}</div>)}</div>:<div class="minute-gap"><span class="gap-icon">↗</span><div><h3>还不能解释发布后的短时反应</h3><p>缺少合格分钟行情。日线不能代替 1m / 5m / 15m / 30m / 1h 反应，也无法判断谁先动。</p><div class="workflow-actions"><button type="button" class="button-primary" onClick={openMinuteWizard}>导入分钟行情</button><button type="button" class="button-secondary" onClick={onOpenMarkets}>查看日线背景</button></div></div></div>}
+              {detail.market_reaction.partial_assets.length?<p class="inline-notice">部分覆盖：{detail.market_reaction.partial_assets.map(i=>i.label).join("、")}。尚未满足研究条件。</p>:null}
+              <DetailsDisclosure label="资产覆盖与代理身份"><div class="asset-status-grid">{availableAssets.map(i=><div key={i.key}><strong>{i.label}</strong><Badge tone={i.eligible?"info":"warn"}>{i.eligible?"可用于分析":statusLabel(i.status??"missing")}</Badge>{i.is_proxy?<small>代理：{i.proxy_for}</small>:null}</div>)}</div></DetailsDisclosure>
+            </>:null}
+            {readingTab==="interpretation"?<>
+              <div class="section-heading"><h2>市场在交易什么？</h2></div>
+              {detail.analysis.run_id?<><ReleaseReading releaseId={detail.id} runId={detail.analysis.run_id} onEvent={id=>{const item=releases.find(r=>r.id===id);if(item)onSelect(item);}}/><p>已有研究记录 · 置信度 {detail.analysis.confidence==null?"未记录":Math.round(detail.analysis.confidence*100)+"%"} · {detail.analysis.reproducibility==="complete"?"可复现输入已保存":"复现状态待核验"}</p><button type="button" class="button-primary" onClick={()=>{setLabOpen(true);onOpenLab();}}>阅读证据、竞争解释与历史案例 →</button></>:<div class="inline-empty"><h3>尚未形成有证据约束的复盘</h3><p>目前不能根据数据惊喜直接断言市场原因，也没有可显示的本次历史百分位。</p><ul>{detail.actions.analysis_blockers.map(b=><li key={b}>{blockerLabel(b,detail)}</li>)}</ul>{detail.actions.can_run_analysis?<button type="button" class="button-primary" disabled={analysisBusy} onClick={()=>void runAnalysis()}>{analysisBusy?"正在生成复盘…":"生成本次复盘"}</button>:<button type="button" class="button-primary" onClick={()=>setReadingTab("reaction")}>补齐市场反应 →</button>}</div>}
+              {analysisError?<p class="inline-notice" role="alert">{analysisError}</p>:null}
+              {detail.analysis.data_gaps.length?<DetailsDisclosure label="本次分析的数据缺口"><ul>{detail.analysis.data_gaps.map(g=><li key={g}>{g}</li>)}</ul></DetailsDisclosure>:null}
+            </>:null}
+            {readingTab==="sources"?<>
+              <h2>来源与记录时间</h2><div class="source-records">{detail.expectations.indicators.map(i=><div key={i.key}><strong>{indicatorLabel(i)} · 预期</strong><span>{i.source??"未记录来源"}</span><time>{i.captured_at?new Date(i.captured_at).toLocaleString():"未记录采集时间"}</time></div>)}{detail.actual.indicators.map(i=><div key={i.key}><strong>{indicatorLabel(i)} · 实际</strong><span>{i.source??"未记录来源"}</span></div>)}</div>
+              <p>事件时间：{detail.event.scheduled_at} · 原始时区：{detail.event.source_timezone}</p>
+              <DetailsDisclosure label="高级研究详情"><pre class="json-view">{JSON.stringify({source:detail.source,provenance:detail.data_provenance,quality:detail.data_quality,contamination:detail.contamination,analysis:detail.analysis},null,2)}</pre></DetailsDisclosure>
+            </>:null}
+          </>}
+        </section>
       </div>
 
       {dialog === "consensus" && detail ? <Modal title={`添加市场预期 · ${eventType(detail.event.type)}`} onClose={() => setDialog(null)}><form class="form-stack" onSubmit={saveConsensus}><label>指标<select required value={indicatorKey} onChange={(event) => setIndicatorKey(event.currentTarget.value)}>{detail.supported_indicators.map((item) => <option value={item.key}>{indicatorLabel(item)} · {item.unit}</option>)}</select></label><label>Consensus<input required type="number" step="any" value={consensusValue} onInput={(event) => setConsensusValue(event.currentTarget.value)} /></label><label>Captured At · {localTimeZoneLabel()}<input required type="datetime-local" value={capturedAt} onInput={(event) => setCapturedAt(event.currentTarget.value)} /><small>保存时转换为 UTC；后端严格验证 Captured At &lt; T0。</small></label><label>来源<input required value={sourceName} onInput={(event) => setSourceName(event.currentTarget.value)} /></label><DetailsDisclosure label="高级信息"><label>来源链接<input type="url" value={sourceUrl} onInput={(event) => setSourceUrl(event.currentTarget.value)} /></label><label>核验说明<textarea value={verificationNotes} onInput={(event) => setVerificationNotes(event.currentTarget.value)} /></label></DetailsDisclosure>{formError ? <p class="form-error">{formError}</p> : null}<div class="modal-actions"><button type="button" class="button-secondary" onClick={() => setDialog(null)}>取消</button><button type="submit" class="button-primary" disabled={busy}>{busy ? "保存中…" : "保存预期"}</button></div></form></Modal> : null}

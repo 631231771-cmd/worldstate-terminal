@@ -21,7 +21,7 @@
         "minHeight": 720,
         "resizable": true,
         "fullscreen": false,
-        "backgroundColor": [17, 19, 16, 255]
+        "backgroundColor": [14, 19, 28, 255]
       }
     ],
     "security": {
@@ -42,7 +42,11 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../../../services/research-api": "services/research-api",
+      "../../../services/research-api/src": "services/research-api/src",
+      "../../../services/research-api/migrations": "services/research-api/migrations",
+      "../../../services/research-api/pyproject.toml": "services/research-api/pyproject.toml",
+      "../../../services/research-api/alembic.ini": "services/research-api/alembic.ini",
+      "../../../services/research-api/uv.lock": "services/research-api/uv.lock",
       "../../../data/fixtures": "data/fixtures",
       "../../../apps/desktop-tauri/src-tauri/bin/worldstate-research-api": "services/research-api-sidecar"
     }
