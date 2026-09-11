@@ -16,66 +16,14 @@ import type {
   WorldStateResponse,
   DataFreshnessResponse,
 } from "../types";
+import type { ConsensusCsvPreview, DatasetCapability, EventMinutePreview } from "../types/product";
+import { productApi } from "./product";
+import { request } from "./transport";
 
-const configuredBase = import.meta.env.VITE_RESEARCH_API_URL as string | undefined;
-export const API_BASE = configuredBase?.replace(/\/$/, "") ?? "";
-
-export class ApiError extends Error {
-  readonly status: number | null;
-  readonly technicalDetail: string;
-
-  constructor(message: string, status: number | null, technicalDetail = message) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.technicalDetail = technicalDetail;
-  }
-}
-
-async function request<T>(
-  path: string,
-  init?: RequestInit,
-  acceptedErrorStatuses: readonly number[] = [],
-): Promise<T> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 15_000);
-  try {
-    let response: Response;
-    try {
-      response = await fetch(`${API_BASE}${path}`, {
-        ...init,
-        signal: controller.signal,
-        headers: { "Content-Type": "application/json", ...init?.headers },
-      });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        throw new ApiError("Data request timed out. Try again.", null, error.message);
-      }
-      throw new ApiError("Research service is unavailable. Check that WorldState is running.", null, error instanceof Error ? error.message : String(error));
-    }
-    if (!response.ok && !acceptedErrorStatuses.includes(response.status)) {
-      const raw = await response.text();
-      let detail = raw;
-      try {
-        const parsed = JSON.parse(raw) as { detail?: string };
-        detail = parsed.detail ?? raw;
-      } catch {
-        // Keep the raw body as technical detail when it is not JSON.
-      }
-      const userMessage = response.status >= 500
-        ? "The research service returned an error. Open Data Sources for diagnostics."
-        : response.status === 404
-          ? "This research view is not available in the current service version."
-          : detail || `Request failed (${response.status})`;
-      throw new ApiError(userMessage, response.status, detail || `HTTP ${response.status}`);
-    }
-    return (await response.json()) as T;
-  } finally {
-    window.clearTimeout(timeout);
-  }
-}
+export { API_BASE, ApiError } from "./transport";
 
 export const api = {
+  ...productApi,
   health: () =>
     request<{
       status: string;
@@ -113,6 +61,29 @@ export const api = {
   evaluateThesis: (id: string) => request<Record<string, unknown>>(`/v2/theses/${id}/evaluate`),
   releases: () => request<ReleaseSummary[]>("/v2/releases?limit=500"),
   release: (id: string) => request<ReleaseDetail>(`/v2/releases/${id}`),
+  appendConsensus: (releaseId: string, payload: {
+    indicator_key: string;
+    consensus_value: number;
+    source_name: string;
+    source_url?: string;
+    captured_at: string;
+    quality_grade?: string;
+    is_manual?: boolean;
+    verification_notes?: string;
+  }) => request<{ release_id: string; snapshot_id: string; status: string }>(
+    `/v2/releases/${encodeURIComponent(releaseId)}/consensus`,
+    { method: "POST", body: JSON.stringify(payload) },
+  ),
+  previewConsensusCsv: (releaseId: string, csvText: string) =>
+    request<ConsensusCsvPreview>(
+      `/v2/releases/${encodeURIComponent(releaseId)}/consensus/import-csv/preview`,
+      { method: "POST", body: JSON.stringify({ csv_text: csvText }) },
+    ),
+  importConsensusCsv: (releaseId: string, csvText: string) =>
+    request<{ release_id: string; inserted: number; warnings: string[]; preview_summary: ConsensusCsvPreview["summary"] }>(
+      `/v2/releases/${encodeURIComponent(releaseId)}/consensus/import-csv`,
+      { method: "POST", body: JSON.stringify({ csv_text: csvText }) },
+    ),
   windows: (id: string) => request<WindowsResponse>(`/v2/releases/${id}/windows`),
   timeline: (id: string) => request<TimelineResponse>(`/v2/releases/${id}/timeline`),
   historical: (id: string) =>
@@ -121,12 +92,21 @@ export const api = {
     request<ExplanationsResponse>(`/v2/releases/${id}/explanations`),
   claims: (runId: string) =>
     request<{ run_id: string; items: ResearchClaim[] }>(`/v2/analysis-runs/${runId}/claims`),
+  analyzeRelease: (releaseId: string, idempotencyKey: string) =>
+    request<{ release_id: string; analysis_run_id: string; status: string }>(
+      `/v2/releases/${encodeURIComponent(releaseId)}/analysis-runs`,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey } }, [], 60_000,
+    ),
   instruments: () => request<Instrument[]>("/v2/instruments"),
   dataQuality: () => request<Record<string, unknown>>("/v2/data-quality"),
   providerRuns: () => request<Array<Record<string, unknown>>>("/v2/provider-runs"),
   dataProviders: () => request<DataProvidersResponse>("/v2/data/providers"),
   dataCoverage: () => request<DataCoverageResponse>("/v2/data/coverage"),
   dataFreshness: () => request<DataFreshnessResponse>("/v2/data/freshness"),
+  dataCapabilities: (dataMode: "observed" | "fixture" | "all" = "observed") =>
+    request<{ as_of: string; data_mode: string; items: DatasetCapability[]; summary: Record<string, number>; limitations: string[] }>(
+      `/v2/data/capabilities?data_mode=${dataMode}`,
+    ),
   syncPublic: (start_date: string, end_date: string) =>
     request<Record<string, unknown>>(
       "/v2/data/sync/public",
@@ -155,6 +135,35 @@ export const api = {
       { method: "POST", body: JSON.stringify(payload) },
       [207, 424],
     ),
+  importMarketBars: (releaseId: string, payload: {
+    instrument_key: string;
+    csv_text: string;
+    provider_key?: string;
+    source_name?: string;
+    source_url?: string;
+    verified?: boolean;
+    is_fixture?: boolean;
+    timezone?: string;
+    column_mapping?: Record<string, string>;
+  }) => request<Record<string, unknown>>(
+    `/v2/releases/${encodeURIComponent(releaseId)}/market-bars/import`,
+    { method: "POST", body: JSON.stringify(payload) },
+    [207, 424],
+  ),
+  previewMarketBars: (releaseId: string, payload: {
+    instrument_key: string;
+    csv_text: string;
+    provider_key?: string;
+    source_name?: string;
+    source_url?: string;
+    verified?: boolean;
+    is_fixture?: boolean;
+    timezone?: string;
+    column_mapping?: Record<string, string>;
+  }) => request<EventMinutePreview>(
+    `/v2/releases/${encodeURIComponent(releaseId)}/market-bars/preview`,
+    { method: "POST", body: JSON.stringify(payload) },
+  ),
   importOfficialMacroCsv: (payload: {
     csv_text: string;
     provider_key?: string;

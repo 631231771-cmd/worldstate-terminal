@@ -11,7 +11,7 @@ artifact records are the only contracts exposed to the rest of the system.
 | Manual release/consensus | Implemented | Implemented | Available locally |
 | CSV minute bars | Implemented | Implemented | Fixture/manual workflows covered by existing tests |
 | Fixture provider | Implemented | Implemented, isolated as `fixture` | End-to-end CPI/NFP/FOMC demonstrations |
-| BLS Public Data API | Implemented for CPI/NFP series and release schedules | Wired to append-only official/calendar sync | No key required in public mode; schedule HTML returned HTTP 403 on this validation network; current API cannot reconstruct old first prints |
+| BLS Public Data API | Implemented for CPI/NFP series; public calendar prefers the official `bls.ics` feed and falls back to official schedule HTML | Wired to append-only official/calendar sync; controlled browser capture is an explicit official-page fallback | Calendar path does not require a BLS API key; this validation network still returned HTTP 403 for both official endpoints; current API cannot reconstruct old first prints |
 | Federal Reserve | Implemented for FOMC calendar/material parsing | Wired for 2015–2020 archives and current/future scheduled meetings/stages | Public source was reachable in validation; unverified `key_qa`/`press_end` times remain absent |
 | FRED/ALFRED | Implemented for observations, realtime periods and vintages | Wired to official sync and PIT persistence | Blocked in this environment by missing FRED API key |
 | Trading Economics | Implemented for calendar/consensus/PIT semantics | Wired to snapshots, quota/entitlement, artifacts and Official-vs-TE reconciliation | Current fetch blocked by missing key; historical replay also requires PIT entitlement |

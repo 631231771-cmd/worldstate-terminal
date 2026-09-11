@@ -2,10 +2,13 @@
 
 use std::fs::{self, OpenOptions};
 use std::net::{SocketAddr, TcpStream};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
@@ -14,6 +17,7 @@ use tauri::{AppHandle, Manager, RunEvent};
 const KEYRING_SERVICE: &str = "worldstate-terminal";
 const API_URL: &str = "http://127.0.0.1:8000/v2/health";
 const EXPECTED_PRODUCT: &str = "worldstate-terminal";
+const SIDECAR_EXECUTABLE: &str = "worldstate-research-api-x86_64-pc-windows-msvc.exe";
 const ALLOWED_SECRET_NAMES: [&str; 6] = [
     "OPENAI_API_KEY",
     "WORLDSTATE_AI_COMPATIBLE_API_KEY",
@@ -35,7 +39,14 @@ struct ResearchApiState {
 struct HealthResponse {
     product: Option<String>,
     api_version: Option<String>,
+    status: Option<String>,
+    database: Option<DatabaseHealth>,
     ai_provider: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DatabaseHealth {
+    status: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -46,6 +57,7 @@ struct BackendStatus {
     port: u16,
     child_pid: Option<u32>,
     ai_provider: String,
+    database_status: String,
     database_path: Option<String>,
     log_path: Option<String>,
     source: String,
@@ -54,12 +66,25 @@ struct BackendStatus {
 fn health_matches(health: &HealthResponse) -> bool {
     health.product.as_deref() == Some(EXPECTED_PRODUCT)
         && health.api_version.as_deref() == Some("v2")
+        && health.status.as_deref() == Some("ok")
+        && health
+            .database
+            .as_ref()
+            .and_then(|database| database.status.as_deref())
+            == Some("ok")
 }
 
 async fn fetch_health() -> Option<HealthResponse> {
-    let Ok(response) = reqwest::get(API_URL).await else {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(750))
+        .build()
+        .ok()?;
+    let Ok(response) = client.get(API_URL).send().await else {
         return None;
     };
+    if !response.status().is_success() {
+        return None;
+    }
     let Ok(health) = response.json::<HealthResponse>().await else {
         return None;
     };
@@ -116,14 +141,45 @@ fn development_root() -> PathBuf {
         .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.."))
 }
 
+fn sqlite_database_url(path: &Path) -> String {
+    // canonicalize() returns a Windows verbatim path. That prefix is a file
+    // API convention, not part of a SQLite/SQLAlchemy database URL.
+    let raw = path.to_string_lossy();
+    let normalized = if let Some(unc) = raw.strip_prefix(r"\\?\UNC\") {
+        format!("//{}", unc.replace('\\', "/"))
+    } else {
+        raw.strip_prefix(r"\\?\").unwrap_or(&raw).replace('\\', "/")
+    };
+    format!("sqlite+aiosqlite:///{normalized}")
+}
+
 fn resolve_service_root(app: &AppHandle) -> PathBuf {
     if cfg!(debug_assertions) {
         return development_root().join("services/research-api");
     }
+    let resource_root = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|path| path.join("services/research-api"));
+    match resource_root {
+        Some(path) if path.join("pyproject.toml").exists() => path,
+        _ => development_root().join("services/research-api"),
+    }
+}
+
+fn resolve_bundled_sidecar(app: &AppHandle) -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        return None;
+    }
     app.path()
         .resource_dir()
-        .map(|path| path.join("services/research-api"))
-        .unwrap_or_else(|_| development_root().join("services/research-api"))
+        .ok()
+        .map(|root| {
+            root.join("services/research-api-sidecar")
+                .join(SIDECAR_EXECUTABLE)
+        })
+        .filter(|path| path.exists())
 }
 
 fn python_command(service_root: &Path) -> PathBuf {
@@ -144,6 +200,39 @@ fn existing_port_action(port_open: bool, product_verified: bool) -> Result<bool,
     Err("Port 8000 is occupied by a service that is not a verified WorldState Research API. Stop that service or select a different port before starting the desktop app.".into())
 }
 
+fn wait_for_readiness<F>(child: &mut Child, timeout: Duration, mut probe: F) -> Result<(), String>
+where
+    F: FnMut() -> bool,
+{
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| format!("Could not inspect Research API process: {error}"))?
+        {
+            return Err(format!(
+                "Research API exited before readiness check (status {status}). Open the desktop log for details."
+            ));
+        }
+        if probe() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(
+                "Research API startup timed out waiting for verified /v2/health. Open the desktop log for details."
+                    .into(),
+            );
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn wait_for_verified_health(child: &mut Child, timeout: Duration) -> Result<(), String> {
+    wait_for_readiness(child, timeout, || {
+        tauri::async_runtime::block_on(verified_health())
+    })
+}
+
 fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), String> {
     let api_address: SocketAddr = "127.0.0.1:8000"
         .parse()
@@ -155,19 +244,38 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
             .source
             .lock()
             .map_err(|_| "Backend state lock failed")? = "existing".into();
+        let runtime_root = development_root().join(".runtime");
+        let runtime_db = runtime_root.join("worldstate.db");
+        if runtime_db.exists() {
+            *state
+                .database_path
+                .lock()
+                .map_err(|_| "Database state lock failed")? = Some(runtime_db);
+            let runtime_log = runtime_root.join("logs/research-api.out.log");
+            if runtime_log.exists() {
+                *state.log_path.lock().map_err(|_| "Log state lock failed")? = Some(runtime_log);
+            }
+        }
         return Ok(());
     }
     let service_root = resolve_service_root(app);
-    if !service_root.join("pyproject.toml").exists() {
+    let bundled_sidecar = resolve_bundled_sidecar(app);
+    if bundled_sidecar.is_none() && !service_root.join("pyproject.toml").exists() {
         return Err(format!(
             "Research API files are missing at {}",
             service_root.display()
         ));
     }
-    let data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| error.to_string())?;
+    let development_data_dir = development_root().join(".runtime");
+    let data_dir = if service_root.join("pyproject.toml").exists()
+        && development_data_dir.join("worldstate.db").exists()
+    {
+        development_data_dir
+    } else {
+        app.path()
+            .app_local_data_dir()
+            .map_err(|error| error.to_string())?
+    };
     let log_dir = app
         .path()
         .app_log_dir()
@@ -176,10 +284,7 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
     fs::create_dir_all(&log_dir).map_err(|error| error.to_string())?;
     let database_path = data_dir.join("worldstate.db");
     let log_path = log_dir.join("research-api.log");
-    let database_url = format!(
-        "sqlite+aiosqlite:///{}",
-        database_path.to_string_lossy().replace('\\', "/")
-    );
+    let database_url = sqlite_database_url(&database_path);
     let python = python_command(&service_root);
     let worldstate_root = service_root
         .parent()
@@ -193,13 +298,29 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
     let trading_economics_secret = read_secret("TRADING_ECONOMICS_API_KEY");
     let databento_secret = read_secret("DATABENTO_API_KEY");
 
-    let mut migration_command = Command::new(&python);
+    let command_dir = bundled_sidecar
+        .as_ref()
+        .map(|_| data_dir.clone())
+        .unwrap_or_else(|| service_root.clone());
+    let mut migration_command = if let Some(sidecar) = bundled_sidecar.as_ref() {
+        let mut command = Command::new(sidecar);
+        command.arg("migrate");
+        command
+    } else {
+        let mut command = Command::new(&python);
+        command.args(["-m", "worldstate.cli", "migrate"]);
+        command
+    };
     migration_command
-        .args(["-m", "worldstate.cli", "migrate"])
-        .current_dir(&service_root)
-        .env("WORLDSTATE_DATABASE_URL", &database_url)
-        .env("WORLDSTATE_ROOT", worldstate_root)
-        .env("PYTHONPATH", &python_path);
+        .current_dir(&command_dir)
+        .env("WORLDSTATE_DATABASE_URL", &database_url);
+    #[cfg(windows)]
+    migration_command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    if bundled_sidecar.is_none() {
+        migration_command
+            .env("WORLDSTATE_ROOT", worldstate_root)
+            .env("PYTHONPATH", &python_path);
+    }
     let secret_environment = secret_environment(
         openai_secret.as_deref(),
         compatible_secret.as_deref(),
@@ -211,6 +332,18 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
     for (name, secret) in &secret_environment {
         migration_command.env(name, secret);
     }
+    let migration_log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|error| error.to_string())?;
+    migration_command
+        .stdout(Stdio::from(
+            migration_log
+                .try_clone()
+                .map_err(|error| error.to_string())?,
+        ))
+        .stderr(Stdio::from(migration_log));
     let migration = migration_command
         .status()
         .map_err(|error| format!("Could not start database migration: {error}"))?;
@@ -226,9 +359,13 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         .open(&log_path)
         .map_err(|error| error.to_string())?;
     let stderr = stdout.try_clone().map_err(|error| error.to_string())?;
-    let mut api_command = Command::new(&python);
-    api_command
-        .args([
+    let mut api_command = if let Some(sidecar) = bundled_sidecar.as_ref() {
+        let mut command = Command::new(sidecar);
+        command.args(["serve", "--host", "127.0.0.1", "--port", "8000"]);
+        command
+    } else {
+        let mut command = Command::new(&python);
+        command.args([
             "-m",
             "worldstate.cli",
             "serve",
@@ -236,20 +373,33 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
             "127.0.0.1",
             "--port",
             "8000",
-        ])
-        .current_dir(&service_root)
+        ]);
+        command
+    };
+    #[cfg(windows)]
+    api_command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    api_command
+        .current_dir(&command_dir)
         .env("WORLDSTATE_DATABASE_URL", database_url)
-        .env("WORLDSTATE_ROOT", worldstate_root)
-        .env("PYTHONPATH", python_path)
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
+    if bundled_sidecar.is_none() {
+        api_command
+            .env("WORLDSTATE_ROOT", worldstate_root)
+            .env("PYTHONPATH", python_path);
+    }
     for (name, secret) in &secret_environment {
         api_command.env(name, secret);
     }
-    let child = api_command
+    let mut child = api_command
         .spawn()
         .map_err(|error| format!("Could not start Research API: {error}"))?;
+    if let Err(error) = wait_for_verified_health(&mut child, Duration::from_secs(15)) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("{error} Log: {}", log_path.display()));
+    }
 
     *state
         .child
@@ -264,6 +414,12 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         .source
         .lock()
         .map_err(|_| "Backend state lock failed")? = "spawned".into();
+    if bundled_sidecar.is_some() {
+        *state
+            .source
+            .lock()
+            .map_err(|_| "Backend state lock failed")? = "bundled-sidecar".into();
+    }
     Ok(())
 }
 
@@ -285,7 +441,13 @@ async fn backend_status(
         port: 8000,
         child_pid,
         ai_provider: health
-            .and_then(|value| value.ai_provider)
+            .as_ref()
+            .and_then(|value| value.ai_provider.clone())
+            .unwrap_or_else(|| "unavailable".into()),
+        database_status: health
+            .as_ref()
+            .and_then(|value| value.database.as_ref())
+            .and_then(|database| database.status.clone())
             .unwrap_or_else(|| "unavailable".into()),
         database_path: state
             .database_path
@@ -307,6 +469,25 @@ async fn backend_status(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sqlite_url_preserves_database_identity_without_verbatim_prefix() {
+        assert_eq!(
+            super::sqlite_database_url(std::path::Path::new(
+                r"\\?\F:\Code\world\.runtime\worldstate.db"
+            )),
+            "sqlite+aiosqlite:///F:/Code/world/.runtime/worldstate.db"
+        );
+        assert_eq!(
+            super::sqlite_database_url(std::path::Path::new(
+                r"F:\Code\world\.runtime\worldstate.db"
+            )),
+            "sqlite+aiosqlite:///F:/Code/world/.runtime/worldstate.db"
+        );
+        assert_eq!(
+            super::sqlite_database_url(std::path::Path::new(r"\\?\UNC\server\share\worldstate.db")),
+            "sqlite+aiosqlite://///server/share/worldstate.db"
+        );
+    }
     use super::*;
 
     #[test]
@@ -314,15 +495,37 @@ mod tests {
         let valid = HealthResponse {
             product: Some(EXPECTED_PRODUCT.into()),
             api_version: Some("v2".into()),
+            status: Some("ok".into()),
+            database: Some(DatabaseHealth {
+                status: Some("ok".into()),
+            }),
             ai_provider: Some("none".into()),
         };
         let foreign = HealthResponse {
             product: Some("another-service".into()),
             api_version: Some("v2".into()),
+            status: Some("ok".into()),
+            database: Some(DatabaseHealth {
+                status: Some("ok".into()),
+            }),
             ai_provider: None,
         };
         assert!(health_matches(&valid));
         assert!(!health_matches(&foreign));
+    }
+
+    #[test]
+    fn health_identity_rejects_unavailable_database() {
+        let unhealthy = HealthResponse {
+            product: Some(EXPECTED_PRODUCT.into()),
+            api_version: Some("v2".into()),
+            status: Some("ok".into()),
+            database: Some(DatabaseHealth {
+                status: Some("error".into()),
+            }),
+            ai_provider: None,
+        };
+        assert!(!health_matches(&unhealthy));
     }
 
     #[test]
@@ -362,6 +565,49 @@ mod tests {
         assert!(existing_port_action(true, false)
             .unwrap_err()
             .contains("not a verified WorldState"));
+    }
+
+    #[test]
+    fn readiness_succeeds_after_verified_probe() {
+        let mut child = if cfg!(windows) {
+            Command::new("cmd")
+                .args(["/C", "ping -n 3 127.0.0.1 >NUL"])
+                .spawn()
+                .unwrap()
+        } else {
+            Command::new("sleep").arg("1").spawn().unwrap()
+        };
+        assert!(wait_for_readiness(&mut child, Duration::from_secs(1), || true).is_ok());
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn readiness_times_out_when_health_never_verifies() {
+        let mut child = if cfg!(windows) {
+            Command::new("cmd")
+                .args(["/C", "ping -n 3 127.0.0.1 >NUL"])
+                .spawn()
+                .unwrap()
+        } else {
+            Command::new("sleep").arg("1").spawn().unwrap()
+        };
+        let result = wait_for_readiness(&mut child, Duration::from_millis(20), || false);
+        assert!(result.unwrap_err().contains("startup timed out"));
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn readiness_reports_child_exit_before_timeout() {
+        let mut child = if cfg!(windows) {
+            Command::new("cmd").args(["/C", "exit 7"]).spawn().unwrap()
+        } else {
+            Command::new("sh").args(["-c", "exit 7"]).spawn().unwrap()
+        };
+        let result = wait_for_readiness(&mut child, Duration::from_secs(1), || false);
+        assert!(result.unwrap_err().contains("exited before readiness"));
+        let _ = child.wait();
     }
 }
 

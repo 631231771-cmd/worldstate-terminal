@@ -103,7 +103,7 @@ def _calculate_one(
 
     expected = expected_tradable_bars(start_at, end_at, interval_seconds, instrument_key)
     coverage = min(1.0, len(sample) / expected)
-    if not sample or start_value is None:
+    if not sample or start_value is None or (not spec.session_based and coverage < 1.0):
         return ComputedWindow(
             key=spec.key,
             label=spec.label,
@@ -127,7 +127,7 @@ def _calculate_one(
             missing_reason=(
                 "session_calendar_or_long_horizon_bars_unavailable"
                 if spec.session_based
-                else "insufficient_bars"
+                else ("incomplete_minute_window" if sample else "insufficient_bars")
             ),
             calendar_name=calendar_for_instrument(instrument_key),
             calendar_precision="exchange_session_lite",

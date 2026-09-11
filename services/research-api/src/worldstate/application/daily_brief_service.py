@@ -51,13 +51,18 @@ async def _market_confirmation(
     result: list[dict[str, Any]] = []
     for key, items in grouped.items():
         latest, instrument, latest_quality = items[0]
-        baseline = next(
-            (bar for bar, _, _ in items if _aware(bar.timestamp) <= cutoff - lookback),
-            items[-1][0],
-        )
+        # Market confirmation uses valid observations, not elapsed wall-clock
+        # time, so a weekend does not become a false 0.00% move.
+        baseline = items[1][0] if len(items) > 1 else None
         latest_close = float(latest.close_value)
-        baseline_close = float(baseline.close_value)
-        change = None if baseline_close == 0 else latest_close / baseline_close - 1.0
+        baseline_close = float(baseline.close_value) if baseline is not None else None
+        if baseline_close is None or baseline_close == 0:
+            change = None
+        else:
+            change = latest_close / baseline_close - 1.0
+        is_rate = "yield" in str(instrument.canonical_key) or "rate" in (
+            instrument.instrument_type.lower()
+        )
         result.append(
             {
                 "instrument_key": key,
@@ -69,6 +74,12 @@ async def _market_confirmation(
                 "latest": latest_close,
                 "baseline": baseline_close,
                 "change_percent": round((change or 0) * 100, 4) if change is not None else None,
+                "change_value": (
+                    round(latest_close - baseline_close, 6) if baseline_close is not None else None
+                ),
+                "change_unit": "bp" if is_rate else "percent",
+                "baseline_timestamp": baseline.timestamp.isoformat() if baseline else None,
+                "window_semantics": "valid_observation_lag",
                 "direction": _direction(change),
                 "timestamp": latest.timestamp.isoformat(),
                 "provider": latest.provider_key,
@@ -207,9 +218,7 @@ async def build_daily_brief(
             "data_mode": observation.data_mode,
             "point_in_time": bool(series.metadata_json.get("point_in_time", False)),
             "evidence_ids": [str(observation.id)],
-            "limitation": (
-                "当前 provider 标记为修订；没有本地首发快照时，不能重建完整修订幅度。"
-            ),
+            "limitation": ("当前 provider 标记为修订；没有本地首发快照时，不能重建完整修订幅度。"),
         }
         for observation, series in revised_rows
         if data_mode == "all" or observation.data_mode == data_mode

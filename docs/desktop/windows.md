@@ -39,11 +39,12 @@ npm run build --prefix apps/desktop-tauri
 ```
 
 Building requires the stable Rust toolchain and the Windows WebView2/build
-toolchain. The current desktop bundle carries the service resources but still
-expects a compatible Python 3.12 runtime/environment; therefore the BAT launcher
-is the fallback rather than a second product entry. A fully self-contained
-signed installer needs a frozen Python sidecar and code-signing and is
-intentionally listed as remaining packaging work.
+toolchain. The current desktop bundle carries the service resources and its
+normal launcher still expects the project Python environment; therefore the BAT
+launcher remains a supported fallback. `scripts/build-research-sidecar.ps1`
+now creates a 75 MB PyInstaller onedir artifact, migrates a clean SQLite
+database and verifies `/v2/health` without system Python. Wiring that verified
+directory into the Tauri bundle and code-signing remain packaging work.
 
 Local data is never written into the installation directory. Tauri uses the
 operating-system app-data/log directories and Windows Credential Manager for
@@ -59,8 +60,8 @@ secret command are forwarded to database migration and API child processes.
 
 Development and daily BAT operation currently share the same external Python
 boundary. A release build embeds the web UI and Research API source resources,
-but not a frozen Python interpreter; do not distribute the current EXE as a
-self-contained installer.
+but does not yet select the verified frozen sidecar directory at runtime; do
+not distribute the current EXE as a self-contained installer.
 
 The confirmed obsolete PySide shortcut and duplicate desktop BAT were archived
 under `WorldState Launcher Archive 2026-07-31` on the desktop. Do not run

@@ -42,6 +42,7 @@ dev = [
   "pytest>=8.3,<9",
   "pytest-asyncio>=0.25,<1",
   "pytest-cov>=6,<7",
+  "pyinstaller>=6.16,<7",
   "respx>=0.22,<1",
   "ruff>=0.9,<1",
   "types-pyyaml>=6.0.12,<7",

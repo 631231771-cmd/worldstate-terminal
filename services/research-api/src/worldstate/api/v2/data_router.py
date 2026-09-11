@@ -18,7 +18,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationErro
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from worldstate.api.v2.schemas import BackfillRequestInput
+from worldstate.api.v2.schemas import BackfillAsset, BackfillEventType, BackfillRequestInput
 from worldstate.application.analysis_orchestrator import select_analysis_inputs_from_rows
 from worldstate.application.backfill_service import (
     BackfillEstimate,
@@ -30,9 +30,15 @@ from worldstate.application.backfill_service import (
     make_backfill_idempotency_key,
 )
 from worldstate.application.bls_state_service import sync_bls_current_state
+from worldstate.application.capability_service import build_capability_inventory
 from worldstate.application.data_foundation_service import get_provider_data_status
+from worldstate.application.event_intraday_service import (
+    EVENT_ASSETS,
+    evaluate_stored_event_intraday_manifest,
+)
 from worldstate.application.freshness_service import build_data_freshness
 from worldstate.application.licensed_sync_service import (
+    capture_trading_economics_browser_consensus,
     snapshot_trading_economics_consensus,
     sync_databento_release_market,
 )
@@ -57,6 +63,7 @@ from worldstate.db.models import (
     DataReconciliationRecord,
     MacroRelease,
     MarketDataManifest,
+    MarketInstrument,
     Observation,
     Provider,
     ProviderRun,
@@ -67,12 +74,17 @@ from worldstate.db.models import (
     SyncJobRun,
 )
 from worldstate.macro_core.errors import MacroEngineError
-from worldstate.provider_kit import DatabentoDownloadRequest
+from worldstate.provider_kit import (
+    BlsOfficialProvider,
+    DatabentoDownloadRequest,
+    TradingEconomicsBrowserPage,
+)
 
 data_router = APIRouter(prefix="/data", tags=["data"])
 data_write_router = APIRouter(prefix="/data", tags=["data"])
 
 AssetRoot = Literal["GC", "SI", "CL", "ES", "NQ", "ZT", "ZN", "DX", "VX"]
+EVENT_INSTRUMENT_KEYS = {candidate["key"] for candidate in EVENT_ASSETS}
 
 
 def _default_asset_roots() -> list[AssetRoot]:
@@ -87,6 +99,70 @@ class DataRangeInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_range(self) -> DataRangeInput:
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must not be before start_date")
+        return self
+
+
+class BlsCalendarBrowserCaptureInput(BaseModel):
+    """Payload produced by the controlled browser for an official BLS page."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    family: Literal["US_CPI", "US_NFP"]
+    year: int = Field(ge=2000, le=2100)
+    source_url: str = Field(min_length=1, max_length=500)
+    captured_at: AwareDatetime
+    html: str = Field(min_length=100, max_length=5_000_000)
+
+    @model_validator(mode="after")
+    def validate_official_source(self) -> BlsCalendarBrowserCaptureInput:
+        if not self.source_url.startswith("https://www.bls.gov/schedule/"):
+            raise ValueError("source_url must be an official BLS schedule URL")
+        return self
+
+
+class TradingEconomicsBrowserPageInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_url: str = Field(min_length=1, max_length=500)
+    captured_at: AwareDatetime
+    html: str = Field(min_length=100, max_length=5_000_000)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> TradingEconomicsBrowserPageInput:
+        if not self.source_url.startswith("https://tradingeconomics.com/"):
+            raise ValueError("source_url must be a Trading Economics page")
+        return self
+
+
+class TradingEconomicsBrowserRowInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    calendar_id: str = Field(min_length=1, max_length=128)
+    event: str = Field(min_length=1, max_length=255)
+    country: str = "United States"
+    reference: str | None = None
+    release_at: AwareDatetime
+    actual: str | None = None
+    previous: str | None = None
+    revised: str | None = None
+    forecast: str | None = None
+    teforecast: str | None = None
+    unit: str | None = None
+    ticker: str | None = None
+
+
+class TradingEconomicsBrowserCaptureInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_date: date
+    end_date: date
+    pages: list[TradingEconomicsBrowserPageInput] = Field(min_length=1, max_length=8)
+    rows: list[TradingEconomicsBrowserRowInput] = Field(min_length=1, max_length=32)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> TradingEconomicsBrowserCaptureInput:
         if self.end_date < self.start_date:
             raise ValueError("end_date must not be before start_date")
         return self
@@ -585,6 +661,10 @@ async def build_data_coverage(
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
+        instrument_keys = {
+            item.id: item.canonical_key
+            for item in (await session.scalars(select(MarketInstrument))).all()
+        }
         releases = (
             await session.scalars(
                 select(MacroRelease).where(
@@ -704,11 +784,22 @@ async def build_data_coverage(
 
     def eligible_manifest(item: MarketDataManifest) -> bool:
         checks = market_reconciliation_by_subject.get(str(item.id), [])
+        intraday_policy_ok = True
+        if (
+            item.interval_seconds <= 60 or "1m" in item.schema_name.lower()
+        ) and instrument_keys.get(item.instrument_id) in EVENT_INSTRUMENT_KEYS:
+            intraday_policy_ok = evaluate_stored_event_intraday_manifest(
+                item.metadata_json,
+                data_mode=data_mode,
+                row_count=item.row_count,
+                interval_seconds=item.interval_seconds,
+            )["eligible"]
         return (
             item.row_count > 0
             and item.quality_grade.upper() in {"A", "B", "C"}
             and bool(checks)
             and all(check.status in {"matched", "resolved"} for check in checks)
+            and intraday_policy_ok
         )
 
     items: list[dict[str, Any]] = []
@@ -1200,9 +1291,7 @@ def normalize_multi_operation_result(result: dict[str, Any]) -> dict[str, Any]:
     nested_blocked = {
         key: status for key, status in nested_statuses.items() if status in blocked_statuses
     }
-    nested_partial = {
-        key: status for key, status in nested_statuses.items() if status == "partial"
-    }
+    nested_partial = {key: status for key, status in nested_statuses.items() if status == "partial"}
     successful_count = sum(status in successful_statuses for status in nested_statuses.values())
     # A result without its own status is a successful legacy operation result.
     successful_count += sum(not isinstance(value, dict) for value in result_rows.values())
@@ -1313,6 +1402,19 @@ async def data_freshness(
     )
 
 
+@data_router.get("/capabilities")
+async def data_capabilities(
+    request: Request,
+    data_mode: Literal["observed", "fixture", "all"] | None = Query(default=None),
+) -> dict[str, Any]:
+    """Expose capability-driven inventory without leaking database semantics."""
+    selected = data_mode or ("fixture" if request.app.state.settings.demo_mode else "observed")
+    return await build_capability_inventory(
+        request.app.state.database_engine,
+        data_mode=selected,
+    )
+
+
 def _set_multi_status(response: Response, result: dict[str, Any]) -> None:
     if result.get("status") == "partial":
         response.status_code = 207
@@ -1415,9 +1517,7 @@ async def bootstrap_free_data(
         )
     except Exception as exc:
         failures["public_macro"] = _safe_service_failure(exc, settings)
-    result = normalize_multi_operation_result(
-        {"results": results, "failures": failures}
-    )
+    result = normalize_multi_operation_result({"results": results, "failures": failures})
     _set_multi_status(response, result)
     return {
         **result,
@@ -1443,6 +1543,91 @@ async def sync_calendar_endpoint(
     )
     _set_multi_status(response, result)
     return result
+
+
+@data_write_router.post("/capture/bls-calendar")
+async def capture_bls_calendar_endpoint(
+    payload: BlsCalendarBrowserCaptureInput,
+    request: Request,
+    response: Response,
+) -> dict[str, Any]:
+    """Persist a BLS release calendar page captured by the controlled browser."""
+
+    provider = BlsOfficialProvider()
+    batch = provider.adapt_browser_schedule_html(
+        payload.html,
+        family=payload.family,
+        year=payload.year,
+        retrieved_at=payload.captured_at,
+        source_url=payload.source_url,
+    )
+    result = await sync_bls_calendar(
+        request.app.state.database_engine,
+        request.app.state.settings,
+        start_date=date(payload.year, 1, 1),
+        end_date=date(payload.year, 12, 31),
+        families=(payload.family,),
+        captured_batches={(payload.family, payload.year): batch},
+    )
+    response.headers["X-WorldState-Acquisition-Transport"] = "browser_capture"
+    return {
+        **result,
+        "acquisition_transport": "browser_capture",
+        "official_source": True,
+        "manual_user_entry": False,
+        "source_url": payload.source_url,
+        "captured_at": payload.captured_at,
+        "artifact_hash": batch.artifacts[0].content_hash,
+    }
+
+
+@data_write_router.post("/capture/trading-economics-consensus")
+async def capture_trading_economics_consensus_endpoint(
+    payload: TradingEconomicsBrowserCaptureInput,
+    request: Request,
+) -> dict[str, Any]:
+    """Persist consensus read from visible TE pages, not the TE API."""
+
+    rows = [
+        {
+            "CalendarId": row.calendar_id,
+            "Ticker": row.ticker,
+            "Event": row.event,
+            "Country": row.country,
+            "Reference": row.reference,
+            "Date": row.release_at.isoformat(),
+            "Actual": row.actual,
+            "Previous": row.previous,
+            "Revised": row.revised,
+            "Forecast": row.forecast,
+            "TEForecast": row.teforecast,
+            "Unit": row.unit,
+        }
+        for row in payload.rows
+    ]
+    pages = tuple(
+        TradingEconomicsBrowserPage(
+            source_url=page.source_url,
+            captured_at=page.captured_at,
+            html=page.html,
+        )
+        for page in payload.pages
+    )
+    result = await capture_trading_economics_browser_consensus(
+        request.app.state.database_engine,
+        request.app.state.settings,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        rows=rows,
+        pages=pages,
+    )
+    return {
+        **result,
+        "acquisition_transport": "browser_capture",
+        "manual_user_entry": False,
+        "consensus_semantics": "Forecast=survey_consensus; TEForecast=proprietary_forecast",
+        "source_urls": [page.source_url for page in pages],
+    }
 
 
 @data_write_router.post("/sync/bls-current-state")
@@ -1534,8 +1719,10 @@ async def estimate_backfill_endpoint(
         payload = BackfillRequestInput(
             start_date=start_date,
             end_date=end_date,
-            event_types=parse_csv_values(event_types, DEFAULT_EVENT_TYPES),
-            assets=parse_csv_values(assets, DEFAULT_ASSETS),
+            event_types=cast(
+                list[BackfillEventType], list(parse_csv_values(event_types, DEFAULT_EVENT_TYPES))
+            ),
+            assets=cast(list[BackfillAsset], list(parse_csv_values(assets, DEFAULT_ASSETS))),
         )
     except ValidationError as exc:
         detail = [
