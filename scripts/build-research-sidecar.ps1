@@ -39,6 +39,7 @@ New-Item -ItemType Directory -Force -Path $WorkRoot, $DistRoot, $BinRoot, $Targe
 
 $addAlembic = "$(Join-Path $ServiceRoot 'alembic.ini');."
 $addMigrations = "$(Join-Path $ServiceRoot 'migrations');migrations"
+$addMacroCatalog = "$(Join-Path $RepoRoot 'data\macro');data/macro"
 $entryPoint = Join-Path $ServiceRoot "src\worldstate\sidecar.py"
 
 & $Python -m PyInstaller `
@@ -53,6 +54,7 @@ $entryPoint = Join-Path $ServiceRoot "src\worldstate\sidecar.py"
     --specpath $WorkRoot `
     --add-data $addAlembic `
     --add-data $addMigrations `
+    --add-data $addMacroCatalog `
     --collect-all alembic `
     --collect-all uvicorn `
     --hidden-import aiosqlite `
@@ -88,6 +90,9 @@ if (-not $SkipSmoke) {
     New-Item -ItemType Directory -Force -Path $SmokeInstall, $SmokeWorking | Out-Null
     Copy-Item -Path (Join-Path $builtRoot "*") -Destination $SmokeInstall -Recurse -Force
     $SmokeExe = Join-Path $SmokeInstall "worldstate-research-api.exe"
+    $FrozenCatalog = Join-Path $SmokeInstall "_internal\data\macro"
+    & $Python -c "import sys; from pathlib import Path; from worldstate.provider_kit.catalog import load_catalog; rows=load_catalog(Path(sys.argv[1])); assert rows; print('Frozen catalog validated:', len(rows), 'series')" $FrozenCatalog
+    if ($LASTEXITCODE -ne 0) { throw "Frozen sidecar macro catalog is missing or invalid" }
     $DatabasePath = Join-Path $SmokeRoot "worldstate.db"
     $env:WORLDSTATE_DATABASE_URL = "sqlite+aiosqlite:///$($DatabasePath.Replace('\', '/'))"
     Remove-Item Env:WORLDSTATE_ROOT -ErrorAction SilentlyContinue

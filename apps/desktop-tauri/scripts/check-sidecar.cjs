@@ -10,10 +10,12 @@ if (process.platform === 'win32' && fs.existsSync(executable)) {
     return fs.readdirSync(directory, {withFileTypes:true}).flatMap(entry => {
       const file = path.join(directory, entry.name);
       if (entry.isDirectory()) return entry.name === '__pycache__' ? [] : sources(file);
-      return entry.name.endsWith('.py') ? [file] : [];
+      return /\.(py|yaml)$/.test(entry.name) ? [file] : [];
     });
   }
   const inputs = [...sources(path.join(service, 'src')), ...sources(path.join(service, 'migrations')),
+    ...sources(path.join(root, 'data/macro')),
+    path.join(root, 'scripts/build-research-sidecar.ps1'),
     ...['pyproject.toml', 'uv.lock', 'alembic.ini'].map(name => path.join(service, name))];
   if (inputs.some(file => fs.statSync(file).mtimeMs > builtAt)) {
     console.error('The bundled Research API is older than its source. Run scripts/build-research-sidecar.ps1 before building the desktop.');

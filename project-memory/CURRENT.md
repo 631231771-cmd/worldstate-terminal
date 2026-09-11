@@ -25,7 +25,13 @@ September 11 continuation found another desktop usability defect: the write-orig
 
 September 11 validation completed: 223 backend tests, Ruff, strict mypy (121 files), critical-method aggregate coverage 95%, 9 Rust tests, fmt/check and 11 UI policy tests passed. Updated sidecar clean migration/product smoke and production-like Tauri build passed. The normal launcher cold-started the bundled API and embedded UI; actual native Radar showed connected state and the correct WTI value, and the packaged API accepted Windows PATCH preflight. No synthetic write was made to production. Existing daily data remains delayed; this is not proof of a live event chain.
 
-Remaining: push this desktop/read-write checkpoint and check CI; review daily data activation within existing providers without expanding scope; retain the explicit minute-data blocker. PRs remain unmerged.
+Checkpoint `faa12f807` and browser timing correction `b3f84d71a` are pushed. All four CI jobs for `b3f84d71a` passed. Always pass `--repo 631231771-cmd/worldstate-terminal` to gh commands: the default can select the unrelated upstream World Monitor repository. WorldState PR #11 is OPEN/Draft, base `feature/v0.7-live-global`, unmerged.
+
+Late September 11 runtime check found FRED synchronization failing in the frozen API because `data/macro` was missing. The sidecar build now includes the static YAML catalog and validates its 58 definitions from the isolated install directory. The freshness guard includes catalog/build-script changes. The updated desktop build and normal launcher passed; FRED's existing scheduled sync is now running instead of failing immediately with CatalogValidationError. Completion of that live sync remains to be checked.
+
+Read-only runtime inventory at September 11 23:48 local: 261,569 observed macro observations across 70 series; 50,161 observed daily bars through September 4; 4 observed consensus snapshots; zero observed minute bars and zero observed AnalysisRuns. Fixture data remains separate (26,102 minute bars, 16 completed runs). Do not present these fixture runs as real event coverage.
+
+Remaining: verify current FRED sync outcome, push catalog packaging fix and check its CI; continue daily-data/product workflow work without expanding scope; retain the explicit minute-data blocker. PRs remain unmerged.
 
 ## Product truth
 
