@@ -8,7 +8,7 @@ WorldState Terminal（世界状态终端）是一款个人使用、local-first �
 
 ## v0.7 当前状态
 
-### 2026-09-07 产品工作流重整（进行中）
+### 2026-09-11 产品工作流重整（进行中）
 
 当前分支为 `feature/v0.7-terminal-rebuild`。主界面改为：
 
@@ -19,7 +19,9 @@ WorldState Terminal（世界状态终端）是一款个人使用、local-first �
 
 数据源、方法和高级模式在“工具与设置”中。成功读取的 observed 视图保存在本机，重开立即显示并后台刷新；刷新失败保留记录及时间。这只是展示缓存，不进入研究计算。
 
-目前运行库的市场数据仍停留在 2026 年 8 月，CPI 尚缺合格分钟行情，因此**还不能回答实时波动原因，也没有新的真实 CPI AnalysisRun**。本轮没有补造行情、修改共识或下载 Databento。详见 [产品重整记录](docs/product/intelligence-workflow.md)。
+9 月 8 日桌面验证中，部分日线已同步至 9 月初，黄金仍较旧。CPI 尚缺合格分钟行情，因此**还不能回答实时波动原因，也没有新的真实 CPI AnalysisRun**。本轮没有补造行情、修改共识或下载 Databento。详见 [产品重整记录](docs/product/intelligence-workflow.md)。
+
+桌面冷启动已修复 Windows 数据库路径转换；冻结后端必须与源码同步，构建入口会拒绝旧后端。重新构建时先执行 `scripts/build-research-sidecar.ps1`，再执行 `npm run build --prefix apps/desktop-tauri -- --no-bundle`。读写请求共用明确的本地来源列表，包含 Windows 的 `http://tauri.localhost`；没有关闭 CORS 或 CSP。
 
 以下版本段落保留为历史记录，不代表实时覆盖状态。
 

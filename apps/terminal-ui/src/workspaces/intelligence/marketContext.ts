@@ -2,7 +2,7 @@ import type { ProductMarketItem } from '../../types/product';
 
 export type MarketRole = 'gold' | 'silver' | 'oil' | 'rates2' | 'rates10' | 'real' | 'dollar' | 'equity' | 'nasdaq' | 'vix' | 'credit' | 'btc';
 const patterns: Array<[MarketRole, RegExp]> = [
-  ['gold', /gold|黄金|\bGC\b/i], ['silver', /silver|白银/i], ['oil', /wti|原油/i],
+  ['gold', /gold|黄金|\bGC\b/i], ['silver', /silver|白银/i], ['oil', /wti|西德克萨斯|\bCL\b/i],
   ['real', /real.yield|实际.*收益/i], ['rates2', /ust2y|美国 2Y/i], ['rates10', /ust10y|美国 10Y/i],
   ['dollar', /broad.*dollar|dollar_broad|broad_usd|广义美元|美元指数/i], ['nasdaq', /nasdaq|纳斯达克/i],
   ['equity', /sp500|标普/i], ['vix', /vix/i], ['credit', /high.yield|高收益利差/i], ['btc', /btc|bitcoin|比特币/i],

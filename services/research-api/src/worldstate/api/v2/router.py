@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from worldstate import __version__
 from worldstate.ai_researcher import answer_question
+from worldstate.api.origins import LOCAL_BROWSER_ORIGINS
 from worldstate.api.v2.data_router import data_router, data_write_router
 from worldstate.api.v2.product_router import product_router
 from worldstate.api.v2.schemas import (
@@ -114,14 +115,6 @@ def _aware(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
-_LOCAL_ORIGINS = {
-    "http://127.0.0.1:4173",
-    "http://localhost:4173",
-    "http://127.0.0.1:5173",
-    "http://localhost:5173",
-    "tauri://localhost",
-    "https://tauri.localhost",
-}
 
 
 def require_write_access(
@@ -131,7 +124,7 @@ def require_write_access(
 ) -> None:
     client_host = request.client.host if request.client else ""
     origin = request.headers.get("origin")
-    if client_host in _LOCAL_HOSTS and (origin is None or origin in _LOCAL_ORIGINS):
+    if client_host in _LOCAL_HOSTS and (origin is None or origin in LOCAL_BROWSER_ORIGINS):
         return
     settings: Settings = request.app.state.settings
     supplied = x_write_token

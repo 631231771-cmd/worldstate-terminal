@@ -1,5 +1,30 @@
 from fastapi.testclient import TestClient
 
+from worldstate.api.origins import LOCAL_BROWSER_ORIGINS
+
+
+def test_desktop_write_and_remove_watchlist_in_isolated_database(client: TestClient) -> None:
+    headers = {"Origin": "http://tauri.localhost"}
+    payload = {"item_type": "country", "item_key": "USA", "label": "Desktop CORS test"}
+    denied = client.post("/v2/watchlist", json=payload, headers={"Origin": "https://evil.example"})
+    assert denied.status_code == 403
+    created = client.post("/v2/watchlist", json=payload, headers=headers)
+    assert created.status_code == 200
+    assert created.headers["access-control-allow-origin"] == headers["Origin"]
+    removed = client.delete(f"/v2/watchlist/{created.json()['id']}", headers=headers)
+    assert removed.status_code == 200
+
+
+def test_all_local_origins_allow_existing_mutation_methods(client: TestClient) -> None:
+    for origin in LOCAL_BROWSER_ORIGINS:
+        for method in ("POST", "PATCH", "DELETE"):
+            response = client.options(
+                "/v2/watchlist",
+                headers={"Origin": origin, "Access-Control-Request-Method": method},
+            )
+            assert response.status_code == 200
+            assert response.headers["access-control-allow-origin"] == origin
+
 
 def test_tauri_v2_production_origin_is_allowed(client: TestClient) -> None:
     response = client.get("/v2/health", headers={"Origin": "http://tauri.localhost"})

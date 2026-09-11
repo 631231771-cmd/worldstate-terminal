@@ -1,6 +1,6 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-09-08
+Updated: 2026-09-11
 
 ## Active product restructuring checkpoint (read first)
 
@@ -17,7 +17,15 @@ The user wants a complete usable workflow, not a cosmetic dashboard revision. Wo
 
 September 8 continuation: the event interpretation tab now submits the existing analysis endpoint when readiness allows it, with a stable idempotency key and visible failure/retry. Browser regression verifies the submission, a simulated 503, retry identity and reading the completed validated claims. No live analysis was submitted. UI build, 10 policy tests and all browser smoke scenarios passed again. The tests intercept every API request in an isolated context, including the new write test; they never write to the runtime database.
 
-Remaining: finish final desktop rebuild/verification and checkpoint push; review daily data activation within existing providers without expanding scope; retain the explicit minute-data blocker. PRs remain unmerged.
+Product checkpoint `cd6b35f2e` was pushed to the existing branch on September 8. Cold desktop startup then exposed two real defects hidden by an already-running development API: a Windows verbatim path (`\\?\`) was embedded in the SQLite URL, and the packaged API was still an August 11 build without the CORS fix. The Rust path conversion is fixed and tested (9 Rust tests pass); migration output now goes to the actual desktop log and child consoles are hidden. The sidecar was rebuilt from current source and passed clean-directory migration plus all four product endpoint checks. Desktop builds now refuse a sidecar older than backend source/config. Final packaged WebView verification is still in progress; do not infer it from external HTTP success.
+
+September 8 actual packaged verification succeeded after rebuilding the sidecar: normal launcher started the embedded UI and bundled API, health was 200, Windows CORS was present, and Radar/CPI/Markets/Macro/Memory rendered in the native window. The existing scheduler updated some daily observations through September 4; gold remained old and event minutes remained absent. The radar oil matcher also needed correction: a broad Chinese “原油” match was relabeling Brent as WTI. It now resolves WTI explicitly, with a regression test (11 UI policy tests pass).
+
+September 11 continuation found another desktop usability defect: the write-origin allowlist omitted HTTP tauri.localhost despite CORS allowing it, and CORS omitted PATCH/DELETE used by existing research/watchlist routes. CORS and local write checks now share `api/origins.py`; isolated tests create/remove a watchlist entry, reject a foreign origin and verify mutation preflights. No production research data was changed by these tests. Full backend regression and the updated packaged sidecar are being verified.
+
+September 11 validation completed: 223 backend tests, Ruff, strict mypy (121 files), critical-method aggregate coverage 95%, 9 Rust tests, fmt/check and 11 UI policy tests passed. Updated sidecar clean migration/product smoke and production-like Tauri build passed. The normal launcher cold-started the bundled API and embedded UI; actual native Radar showed connected state and the correct WTI value, and the packaged API accepted Windows PATCH preflight. No synthetic write was made to production. Existing daily data remains delayed; this is not proof of a live event chain.
+
+Remaining: push this desktop/read-write checkpoint and check CI; review daily data activation within existing providers without expanding scope; retain the explicit minute-data blocker. PRs remain unmerged.
 
 ## Product truth
 

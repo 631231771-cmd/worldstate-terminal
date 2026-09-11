@@ -2,6 +2,8 @@
 
 use std::fs::{self, OpenOptions};
 use std::net::{SocketAddr, TcpStream};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -139,6 +141,18 @@ fn development_root() -> PathBuf {
         .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.."))
 }
 
+fn sqlite_database_url(path: &Path) -> String {
+    // canonicalize() returns a Windows verbatim path. That prefix is a file
+    // API convention, not part of a SQLite/SQLAlchemy database URL.
+    let raw = path.to_string_lossy();
+    let normalized = if let Some(unc) = raw.strip_prefix(r"\\?\UNC\") {
+        format!("//{}", unc.replace('\\', "/"))
+    } else {
+        raw.strip_prefix(r"\\?\").unwrap_or(&raw).replace('\\', "/")
+    };
+    format!("sqlite+aiosqlite:///{normalized}")
+}
+
 fn resolve_service_root(app: &AppHandle) -> PathBuf {
     if cfg!(debug_assertions) {
         return development_root().join("services/research-api");
@@ -270,10 +284,7 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
     fs::create_dir_all(&log_dir).map_err(|error| error.to_string())?;
     let database_path = data_dir.join("worldstate.db");
     let log_path = log_dir.join("research-api.log");
-    let database_url = format!(
-        "sqlite+aiosqlite:///{}",
-        database_path.to_string_lossy().replace('\\', "/")
-    );
+    let database_url = sqlite_database_url(&database_path);
     let python = python_command(&service_root);
     let worldstate_root = service_root
         .parent()
@@ -303,6 +314,8 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
     migration_command
         .current_dir(&command_dir)
         .env("WORLDSTATE_DATABASE_URL", &database_url);
+    #[cfg(windows)]
+    migration_command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     if bundled_sidecar.is_none() {
         migration_command
             .env("WORLDSTATE_ROOT", worldstate_root)
@@ -319,6 +332,18 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
     for (name, secret) in &secret_environment {
         migration_command.env(name, secret);
     }
+    let migration_log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|error| error.to_string())?;
+    migration_command
+        .stdout(Stdio::from(
+            migration_log
+                .try_clone()
+                .map_err(|error| error.to_string())?,
+        ))
+        .stderr(Stdio::from(migration_log));
     let migration = migration_command
         .status()
         .map_err(|error| format!("Could not start database migration: {error}"))?;
@@ -351,6 +376,8 @@ fn spawn_research_api(app: &AppHandle, state: &ResearchApiState) -> Result<(), S
         ]);
         command
     };
+    #[cfg(windows)]
+    api_command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     api_command
         .current_dir(&command_dir)
         .env("WORLDSTATE_DATABASE_URL", database_url)
@@ -442,6 +469,25 @@ async fn backend_status(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sqlite_url_preserves_database_identity_without_verbatim_prefix() {
+        assert_eq!(
+            super::sqlite_database_url(std::path::Path::new(
+                r"\\?\F:\Code\world\.runtime\worldstate.db"
+            )),
+            "sqlite+aiosqlite:///F:/Code/world/.runtime/worldstate.db"
+        );
+        assert_eq!(
+            super::sqlite_database_url(std::path::Path::new(
+                r"F:\Code\world\.runtime\worldstate.db"
+            )),
+            "sqlite+aiosqlite:///F:/Code/world/.runtime/worldstate.db"
+        );
+        assert_eq!(
+            super::sqlite_database_url(std::path::Path::new(r"\\?\UNC\server\share\worldstate.db")),
+            "sqlite+aiosqlite://///server/share/worldstate.db"
+        );
+    }
     use super::*;
 
     #[test]

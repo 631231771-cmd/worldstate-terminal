@@ -62,3 +62,10 @@ test('market focus includes actual dollar identity and stable priority',()=>{
  const rows=ctx.focusMarkets([market('hy_spread_context',1),market('dollar_broad_context',1),market('gold_gc',1)]);
  assert.equal(rows[0].key,'gold_gc');assert.equal(ctx.marketRole(rows[1]),'dollar');
 });
+test('WTI identity never aliases Brent because both Chinese labels contain crude oil',()=>{
+ const brent=market('brent_spot',7,{label:'布伦特原油',symbol:'BRENT'});
+ const wti=market('wti_spot',5,{label:'WTI 原油',symbol:'WTI'});
+ assert.equal(ctx.marketRole(brent),undefined);
+ assert.equal(ctx.focusMarkets([brent,wti]).find(row=>ctx.marketRole(row)==='oil').key,'wti_spot');
+ assert.equal(ctx.checkPath(ctx.CONTEXT_PATHS[3],[brent,wti],wti,now)[0].item.key,'wti_spot');
+});

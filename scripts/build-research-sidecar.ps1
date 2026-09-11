@@ -107,6 +107,14 @@ if (-not $SkipSmoke) {
             } catch { }
         }
         if (-not $Healthy) { throw "Frozen sidecar did not pass /v2/health smoke" }
+        foreach ($method in @("POST", "PATCH", "DELETE")) {
+            $preflight = Invoke-WebRequest -UseBasicParsing -Method Options `
+                -Uri "http://127.0.0.1:8765/v2/watchlist" -TimeoutSec 5 `
+                -Headers @{Origin = "http://tauri.localhost"; "Access-Control-Request-Method" = $method}
+            if ($preflight.StatusCode -ne 200 -or $preflight.Headers["Access-Control-Allow-Origin"] -ne "http://tauri.localhost") {
+                throw "Frozen sidecar rejected the Windows desktop $method origin"
+            }
+        }
         foreach ($endpoint in @("today", "markets", "macro", "events")) {
             $bodyPath = Join-Path $SmokeRoot "$endpoint.json"
             $statusCode = (& curl.exe --silent --show-error --max-time 5 --output $bodyPath --write-out "%{http_code}" "http://127.0.0.1:8765/v2/product/$endpoint").Trim()

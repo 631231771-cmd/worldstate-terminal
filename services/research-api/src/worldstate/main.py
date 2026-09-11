@@ -13,6 +13,7 @@ from prometheus_client import make_asgi_app
 
 from worldstate import __version__
 from worldstate.api import router
+from worldstate.api.origins import LOCAL_BROWSER_ORIGINS
 from worldstate.application.backfill_worker import BackfillWorker
 from worldstate.application.bootstrap_service import (
     bootstrap_research_data,
@@ -71,18 +72,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://127.0.0.1:4173",
-            "http://localhost:4173",
-            "http://127.0.0.1:5173",
-            "http://localhost:5173",
-            "tauri://localhost",
-            # Tauri v2's Windows production WebView uses the HTTP custom
-            # protocol origin. Keep the legacy/dev origins above as well.
-            "http://tauri.localhost",
-            "https://tauri.localhost",
-        ],
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_origins=sorted(LOCAL_BROWSER_ORIGINS),
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 
