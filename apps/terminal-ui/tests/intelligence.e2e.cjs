@@ -54,7 +54,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
   console.log('PASS radar, data age, learning');
   await page.goto(origin+'/#markets');await page.getByRole('row').filter({hasText:'黄金'}).click();await visible('[role="dialog"] .investigation');
   await page.locator('[role="dialog"]').getByText('来源与研究详情',{exact:true}).click();await visible('[role="dialog"] .detail-grid');
-  await page.keyboard.press('Escape');assert.equal(await page.locator('[role="dialog"]').count(),0);
+  await page.keyboard.press('Escape');await page.locator('[role="dialog"]').waitFor({state:'detached'});
   console.log('PASS market drilldown, source disclosure');
   await page.goto(origin+'/#macro');await page.locator('.matrix-table .link-button').click();await visible('[role="dialog"] .drawer-kpi');await page.keyboard.press('Escape');
   console.log('PASS country drilldown');
