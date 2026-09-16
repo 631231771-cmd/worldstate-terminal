@@ -56,6 +56,8 @@ $entryPoint = Join-Path $ServiceRoot "src\worldstate\sidecar.py"
     --add-data $addMigrations `
     --add-data $addMacroCatalog `
     --collect-all alembic `
+    --collect-all fontTools `
+    --collect-all pypdf `
     --collect-all uvicorn `
     --hidden-import aiosqlite `
     --hidden-import sqlalchemy.dialects.sqlite.aiosqlite `

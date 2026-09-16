@@ -1,10 +1,19 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-09-11
+Updated: 2026-09-16
 
 ## Active product restructuring checkpoint (read first)
 
 The user wants a complete usable workflow, not a cosmetic dashboard revision. Work is ongoing; do not mark the full product goal complete yet.
+
+### September 16 operational catch-up checkpoint
+
+- The missed-event problem was a pipeline defect, not a missing page: the desktop had been off, the daily calendar task only requested `today`, and both BLS calendar HTTP endpoints return 403 in this environment. Scheduled calendar sync now looks back 45 days and forward 370 days, so a reopened desktop can recover missed official releases.
+- The BLS adapter now falls back from the official BLS ICS/HTML endpoints to the official U.S. Department of Labor economic-data archive. It persists the original DOL/BLS release PDF, URL, retrieval time, content hash and official provenance; no third-party calendar defines T0.
+- Runtime now contains the observed August 2026 CPI release at `2026-09-11T12:30:00Z` and the scheduled September 2026 release at `2026-10-14T12:30:00Z`. The September 11 official PDF supplies verified initial values: headline MoM 0.4, headline YoY 3.4, core MoM 0.3 and core YoY 2.4, plus the publication-document previous values.
+- Late BLS current-API captures remain non-initial and cannot replace the immutable PDF initial values. Changed API envelopes with unchanged release values are now idempotent. Product detail reports Actual ready, while Surprise and Analysis remain blocked because this release has no pre-T0 Consensus and no observed one-minute manifest. Do not manufacture or backfill those inputs.
+- Actual runtime inventory: 275,343 observed macro observations across 70 populated series, 50,282 observed daily bars, zero observed minute bars, four observed Consensus snapshots (for the August 12 CPI event), eight observed world-state snapshots and zero observed AnalysisRuns.
+- Validation: 228 backend tests passed with 74.45% aggregate coverage; full Ruff and strict mypy passed; 11 UI policy tests, production build and browser E2E passed; Rust fmt/check and 9 tests passed. The frozen sidecar includes the PDF/font parser dependencies and passed isolated migration/health/product/CORS smoke. A production-like Tauri release build launched the bundled sidecar against the existing runtime DB; health plus Today/Markets/Macro/Events and the CPI product detail all returned HTTP 200.
 
 - Baseline was `f30ae84f4a834fce9f1b386f73cfadd413af4016`, branch remains `feature/v0.7-terminal-rebuild`.
 - Implemented four primary entries: 雷达 / 事件台 / 市场脉络 / 研究记忆. Radar couples selected markets with explicitly conditional pathways and cross-asset checks; Data/Methods are in tools. Old TodayBoard is removed, underlying APIs retained.

@@ -459,6 +459,63 @@ async def test_first_desktop_start_catches_up_today_once(
     )
 
 
+async def test_daily_calendar_sync_recovers_releases_missed_while_desktop_was_off(
+    worker_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[str, date, date]] = []
+
+    async def bls(
+        _engine: AsyncEngine,
+        _settings: Settings,
+        *,
+        start_date: date,
+        end_date: date,
+    ) -> dict[str, object]:
+        captured.append(("bls", start_date, end_date))
+        return {"status": "completed", "records_read": 1, "records_written": 1}
+
+    async def fomc(
+        _engine: AsyncEngine,
+        _settings: Settings,
+        *,
+        start_date: date,
+        end_date: date,
+    ) -> dict[str, object]:
+        captured.append(("fomc", start_date, end_date))
+        return {"status": "completed", "records_read": 1, "records_written": 0}
+
+    monkeypatch.setattr("worldstate.application.scheduler_runtime.sync_bls_calendar", bls)
+    monkeypatch.setattr("worldstate.application.scheduler_runtime.sync_fomc_materials", fomc)
+    now = datetime(2026, 9, 16, 8, 0, tzinfo=UTC)
+    job = SyncJob(
+        id=uuid.uuid4(),
+        job_key="calendar-catch-up",
+        operation="sync_calendar",
+        schedule_type="manual",
+        schedule_json={},
+    )
+    run = SyncJobRun(
+        id=uuid.uuid4(),
+        sync_job_id=job.id,
+        idempotency_key="calendar-catch-up",
+        scheduled_for=now,
+        available_at=now,
+        input_json={},
+    )
+    await execute_scheduled_operation(
+        worker_engine,
+        _settings(),
+        run,
+        job,
+        now=now,
+    )
+    assert captured == [
+        ("bls", date(2026, 8, 2), date(2027, 9, 21)),
+        ("fomc", date(2026, 8, 2), date(2027, 9, 21)),
+    ]
+
+
 @pytest.mark.parametrize(
     ("offset_minutes", "scheduled_for", "now", "expected_pit", "expected_mode"),
     [

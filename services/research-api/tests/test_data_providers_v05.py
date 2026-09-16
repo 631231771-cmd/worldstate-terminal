@@ -361,6 +361,151 @@ async def test_bls_public_calendar_html_fallback_is_explicit() -> None:
     )
 
 
+def test_bls_dol_pdf_recovers_current_and_next_official_t0(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    text = """
+    Transmission of material in this release is embargoed until
+    8:30 a.m. (ET) Friday, September 11, 2026
+    CONSUMER PRICE INDEX - AUGUST 2026
+    The Consumer Price Index for September 2026 is scheduled to be released on
+    Wednesday, October 14, 2026, at 8:30 a.m. (ET).
+    """
+
+    class FakePage:
+        def extract_text(self) -> str:
+            return text
+
+    class FakeReader:
+        def __init__(self, _stream: object) -> None:
+            self.pages = [FakePage()]
+
+    monkeypatch.setattr("worldstate.provider_kit.bls.PdfReader", FakeReader)
+    provider = BlsOfficialProvider()
+    batch = provider.adapt_dol_release_pdf(
+        b"%PDF-fixture",
+        family="US_CPI",
+        year=2026,
+        retrieved_at=datetime(2026, 9, 11, 12, 31, tzinfo=UTC),
+        source_url="https://www.dol.gov/newsroom/economicdata/cpi_09112026.pdf",
+    )
+    actual = [
+        (item.reference_period, item.scheduled_local.astimezone(UTC))
+        for item in batch.entries
+    ]
+    assert actual == [
+        ("2026-08", datetime(2026, 9, 11, 12, 30, tzinfo=UTC)),
+        ("2026-09", datetime(2026, 10, 14, 12, 30, tzinfo=UTC)),
+    ]
+    assert batch.artifacts[0].metadata["calendar_provider"] == (
+        "dol_official_economicdata_pdf"
+    )
+    assert batch.artifacts[0].metadata["official"] is True
+
+
+def test_bls_dol_pdf_recovers_initial_cpi_values_without_backdating_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    text = """
+    Transmission of material in this release is embargoed until
+    8:30 a.m. (ET) Friday, September 11, 2026
+    CONSUMER PRICE INDEX - AUGUST 2026
+    The Consumer Price Index for All Urban Consumers (CPI-U) increased 0.4 percent
+    on a seasonally adjusted basis in August after rising 0.1 percent in July.
+    Over the last 12 months, the all items index increased 3.4 percent before
+    seasonal adjustment.
+    The index for all items less food and energy rose 0.3 percent after increasing
+    0.2 percent in July.
+    The all items index rose 3.4 percent for the 12 months ending August as it did
+    for the 12 months ending July. The all items less food and energy index rose
+    2.4 percent over the year, following a 2.5-percent increase over the 12 months
+    ending July.
+    """
+
+    class FakePage:
+        def extract_text(self) -> str:
+            return text
+
+    class FakeReader:
+        def __init__(self, _stream: object) -> None:
+            self.pages = [FakePage()]
+
+    monkeypatch.setattr("worldstate.provider_kit.bls.PdfReader", FakeReader)
+    captured_at = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
+    values = BlsOfficialProvider().adapt_dol_initial_release_values(
+        b"%PDF-fixture-values",
+        retrieved_at=captured_at,
+        source_url="https://www.dol.gov/newsroom/economicdata/cpi_09112026.pdf",
+    )
+    assert values.reference_period == "2026-08"
+    assert values.published_at.astimezone(UTC) == datetime(
+        2026, 9, 11, 12, 30, tzinfo=UTC
+    )
+    assert values.actual_values == {
+        "US_CPI.HEADLINE.MOM": Decimal("0.4"),
+        "US_CPI.HEADLINE.YOY": Decimal("3.4"),
+        "US_CPI.CORE.MOM": Decimal("0.3"),
+        "US_CPI.CORE.YOY": Decimal("2.4"),
+    }
+    assert values.previous_values == {
+        "US_CPI.HEADLINE.MOM": Decimal("0.1"),
+        "US_CPI.HEADLINE.YOY": Decimal("3.4"),
+        "US_CPI.CORE.MOM": Decimal("0.2"),
+        "US_CPI.CORE.YOY": Decimal("2.5"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_bls_uses_official_dol_archive_after_bls_calendar_403(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested: list[str] = []
+    text = """
+    8:30 a.m. (ET) Friday, September 11, 2026
+    CONSUMER PRICE INDEX - AUGUST 2026
+    The Consumer Price Index for September 2026 is scheduled to be released on
+    Wednesday, October 14, 2026, at 8:30 a.m. (ET).
+    """
+
+    class FakePage:
+        def extract_text(self) -> str:
+            return text
+
+    class FakeReader:
+        def __init__(self, _stream: object) -> None:
+            self.pages = [FakePage()]
+
+    monkeypatch.setattr("worldstate.provider_kit.bls.PdfReader", FakeReader)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        if request.url.host == "www.bls.gov":
+            return httpx.Response(403, request=request)
+        if request.url.path == "/newsroom/economicdata":
+            return httpx.Response(
+                200,
+                content=(
+                    b'<a href="/newsroom/economicdata/cpi_09112026.pdf">'
+                    b"Consumer Price Index</a>"
+                ),
+                request=request,
+            )
+        return httpx.Response(200, content=b"%PDF-fixture", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        schedule = await BlsOfficialProvider(client=client).fetch_schedule(
+            "US_CPI", year=2026
+        )
+    assert requested == [
+        "https://www.bls.gov/schedule/news_release/bls.ics",
+        "https://www.bls.gov/schedule/news_release/cpi.htm",
+        "https://www.dol.gov/newsroom/economicdata",
+        "https://www.dol.gov/newsroom/economicdata/cpi_09112026.pdf",
+    ]
+    assert schedule.entries[0].reference_period == "2026-08"
+    assert schedule.quality.source_type == "official_pdf"
+
+
 @pytest.mark.asyncio
 async def test_bls_public_calendar_failure_is_not_reported_as_api_entitlement() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
@@ -374,6 +519,9 @@ async def test_bls_public_calendar_failure_is_not_reported_as_api_entitlement() 
     assert caught.value.error_code == ProviderErrorCode.PUBLIC_CALENDAR_UNAVAILABLE
     assert caught.value.details["public_calendar_error"] == (
         ProviderErrorCode.ENTITLEMENT.value
+    )
+    assert caught.value.details["official_archive_url"] == (
+        "https://www.dol.gov/newsroom/economicdata"
     )
 
 

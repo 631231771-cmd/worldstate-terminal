@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, date, datetime
@@ -12,7 +13,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from worldstate.application import official_sync_service
-from worldstate.application.analysis_orchestrator import initialize_research_catalog
+from worldstate.application.analysis_orchestrator import (
+    initialize_research_catalog,
+    select_analysis_inputs,
+)
 from worldstate.application.official_sync_service import (
     sync_bls_actuals,
     sync_bls_calendar,
@@ -21,7 +25,13 @@ from worldstate.application.official_sync_service import (
 from worldstate.config import Settings
 from worldstate.db import models as _models  # noqa: F401
 from worldstate.db.base import Base
-from worldstate.db.models import Indicator, MacroRelease, ProviderRun, ReleaseValue
+from worldstate.db.models import (
+    Indicator,
+    MacroRelease,
+    ProviderRun,
+    ReleaseValue,
+    SourceArtifact,
+)
 from worldstate.db.session import create_engine
 from worldstate.provider_kit import (
     BlsOfficialProvider,
@@ -80,6 +90,7 @@ async def _add_observed_release(
     period_label: str,
     scheduled_at: datetime,
     released: bool = True,
+    source_artifact_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     release_id = uuid.uuid4()
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -98,6 +109,7 @@ async def _add_observed_release(
                 status="released" if released else "scheduled",
                 data_version="calendar-test",
                 data_mode="observed",
+                source_artifact_id=source_artifact_id,
                 contamination_level="unknown",
                 clean_window=False,
                 overlapping_events=[],
@@ -214,11 +226,171 @@ async def test_bls_actual_range_uses_release_date_and_selected_family(
     assert len(headline_row.metadata_json["source_artifact_hash"]) == 64
     assert headline_row.metadata_json["availability_method"] == "ingestion_time_proxy"
 
+    changed_envelope = _cpi_payload()
+    changed_envelope["message"] = ["response envelope changed without a value revision"]
+    batch = adapter.adapt_payload(
+        changed_envelope,
+        family="US_CPI",
+        retrieved_at=datetime(2024, 3, 13, 13, 0, tzinfo=UTC),
+    )
     repeated = await sync_bls_actuals(
         bls_engine,
         settings,
         start_date=date(2024, 3, 1),
         end_date=date(2024, 3, 31),
+        families=("US_CPI",),
+    )
+    assert repeated["records_written"] == 0
+
+
+async def test_late_bls_api_cannot_replace_official_pdf_initial_values(
+    bls_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await initialize_research_catalog(bls_engine)
+    pdf_payload = b"%PDF-official-cpi-initial-values"
+    pdf_hash = hashlib.sha256(pdf_payload).hexdigest()
+    artifact_id = uuid.uuid4()
+    retrieved_at = datetime(2024, 3, 17, 12, 0, tzinfo=UTC)
+    factory = async_sessionmaker(bls_engine, expire_on_commit=False)
+    async with factory() as session, session.begin():
+        session.add(
+            SourceArtifact(
+                id=artifact_id,
+                source_key=f"bls_official:{pdf_hash}",
+                provider_key="bls_official",
+                artifact_type="application/pdf",
+                title="Official CPI release",
+                source_url="https://www.dol.gov/newsroom/economicdata/cpi_03122024.pdf",
+                retrieved_at=retrieved_at,
+                content_hash=pdf_hash,
+                content_type="application/pdf",
+                byte_length=len(pdf_payload),
+                content_bytes=pdf_payload,
+                is_fixture=False,
+                data_mode="observed",
+                metadata_json={
+                    "calendar_provider": "dol_official_economicdata_pdf",
+                    "official": True,
+                },
+            )
+        )
+    release_id = await _add_observed_release(
+        bls_engine,
+        release_type="US_CPI",
+        period_label="2024-02",
+        scheduled_at=datetime(2024, 3, 12, 12, 30, tzinfo=UTC),
+        source_artifact_id=artifact_id,
+    )
+    pdf_text = """
+    8:30 a.m. (ET) Tuesday, March 12, 2024
+    CONSUMER PRICE INDEX - FEBRUARY 2024
+    The Consumer Price Index for All Urban Consumers (CPI-U) increased 0.6 percent
+    on a seasonally adjusted basis in February after rising 0.2 percent in January.
+    Over the last 12 months, the all items index increased 3.0 percent.
+    The index for all items less food and energy rose 0.5 percent after increasing
+    0.1 percent in January. The all items index rose 3.0 percent for the 12 months
+    ending February as it did for the 12 months ending January. The all items less
+    food and energy index rose 3.1 percent over the year, following a 3.2-percent
+    increase over the 12 months ending January.
+    """
+
+    class FakePage:
+        def extract_text(self) -> str:
+            return pdf_text
+
+    class FakeReader:
+        def __init__(self, _stream: object) -> None:
+            self.pages = [FakePage()]
+
+    monkeypatch.setattr("worldstate.provider_kit.bls.PdfReader", FakeReader)
+    adapter = BlsOfficialProvider()
+    late_api_batch = adapter.adapt_payload(
+        _cpi_payload(),
+        family="US_CPI",
+        retrieved_at=retrieved_at,
+    )
+
+    class FakeBls:
+        key = adapter.key
+        terms = adapter.terms
+        adapt_dol_initial_release_values = adapter.adapt_dol_initial_release_values
+
+        async def fetch_bundle(self, *_args: object, **_kwargs: object) -> object:
+            return late_api_batch
+
+    monkeypatch.setattr(
+        official_sync_service,
+        "build_provider_clients",
+        lambda settings: SimpleNamespace(bls=FakeBls()),
+    )
+    settings = Settings(database_url="sqlite+aiosqlite://", scheduler_enabled=False)
+    result = await sync_bls_actuals(
+        bls_engine,
+        settings,
+        start_date=date(2024, 3, 12),
+        end_date=date(2024, 3, 12),
+        families=("US_CPI",),
+    )
+    assert result["status"] == "completed"
+
+    async with factory() as session:
+        rows = (
+            await session.execute(
+                select(ReleaseValue, Indicator.indicator_key)
+                .join(Indicator, Indicator.id == ReleaseValue.indicator_id)
+                .where(
+                    ReleaseValue.macro_release_id == release_id,
+                    ReleaseValue.value_kind == "actual",
+                )
+            )
+        ).all()
+    initial = {
+        indicator_key: row
+        for row, indicator_key in rows
+        if row.is_initial
+        and row.metadata_json.get("historical_initial_status")
+        == "verified_official_release_pdf"
+    }
+    assert {key: row.value for key, row in initial.items()} == {
+        "headline_mom": Decimal("0.6"),
+        "headline_yoy": Decimal("3.0"),
+        "core_mom": Decimal("0.5"),
+        "core_yoy": Decimal("3.1"),
+    }
+    late_rows = [
+        row
+        for row, _indicator_key in rows
+        if row.metadata_json.get("historical_initial_status")
+        == "not_reconstructable_from_current_bls_api"
+    ]
+    assert late_rows
+    assert all(row.is_initial is False for row in late_rows)
+    async with factory() as session:
+        release = await session.get(MacroRelease, release_id)
+        assert release is not None
+        selected, _consensus, _artifacts = await select_analysis_inputs(session, release)
+        indicators = {
+            row.id: row.indicator_key
+            for row in (await session.scalars(select(Indicator))).all()
+        }
+    selected_actuals = {
+        indicators[indicator_id]: value.value
+        for (indicator_id, value_kind), value in selected.items()
+        if value_kind == "actual"
+    }
+    assert selected_actuals == {
+        "headline_mom": Decimal("0.6"),
+        "headline_yoy": Decimal("3.0"),
+        "core_mom": Decimal("0.5"),
+        "core_yoy": Decimal("3.1"),
+    }
+
+    repeated = await sync_bls_actuals(
+        bls_engine,
+        settings,
+        start_date=date(2024, 3, 12),
+        end_date=date(2024, 3, 12),
         families=("US_CPI",),
     )
     assert repeated["records_written"] == 0

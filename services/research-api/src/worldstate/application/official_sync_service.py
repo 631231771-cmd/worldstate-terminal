@@ -28,6 +28,7 @@ from worldstate.application.scheduler_service import (
     schedule_release_tasks,
 )
 from worldstate.config import Settings, repository_root
+from worldstate.data_quality import DataQuality, QualityGrade
 from worldstate.db.models import (
     EconomicEntity,
     Indicator,
@@ -50,6 +51,7 @@ from worldstate.provider_kit import (
     ProviderError,
     ProviderErrorCode,
 )
+from worldstate.provider_kit.bls import BlsInitialReleaseValues
 from worldstate.provider_kit.catalog import load_catalog
 
 _BLS_INDICATOR_MAP = {
@@ -782,6 +784,181 @@ async def _prior_bls_snapshot(engine: AsyncEngine) -> dict[str, Decimal]:
     return snapshot
 
 
+async def _persist_dol_cpi_initial_values(
+    engine: AsyncEngine,
+    *,
+    releases: list[MacroRelease],
+    parser: object,
+) -> tuple[int, int, uuid.UUID | None, list[str]]:
+    """Persist immutable CPI initial values from an official DOL/BLS PDF.
+
+    Current BLS API responses cannot prove what was first published after the
+    release day. The archived official release document can, while its real
+    local retrieval time remains preserved separately.
+    """
+
+    parse = getattr(parser, "adapt_dol_initial_release_values", None)
+    if not callable(parse):
+        return 0, 0, None, []
+    read = written = 0
+    primary_artifact_id: uuid.UUID | None = None
+    warnings: list[str] = []
+    factory = _factory(engine)
+    for detached_release in releases:
+        if detached_release.release_type != "US_CPI":
+            continue
+        async with factory() as session:
+            release = await session.get(MacroRelease, detached_release.id)
+            artifact = (
+                await session.get(StoredSourceArtifact, release.source_artifact_id)
+                if release is not None and release.source_artifact_id is not None
+                else None
+            )
+        if (
+            release is None
+            or artifact is None
+            or artifact.content_bytes is None
+            or artifact.metadata_json.get("calendar_provider")
+            != "dol_official_economicdata_pdf"
+        ):
+            continue
+        try:
+            parsed = parse(
+                artifact.content_bytes,
+                retrieved_at=_aware(artifact.retrieved_at),
+                source_url=artifact.source_url,
+            )
+        except Exception as exc:
+            warnings.append(
+                f"{release.release_key}: official CPI PDF values could not be parsed "
+                f"({type(exc).__name__})"
+            )
+            continue
+        if not isinstance(parsed, BlsInitialReleaseValues):
+            warnings.append(f"{release.release_key}: official CPI PDF parser returned invalid data")
+            continue
+        if parsed.reference_period != release.period_label:
+            warnings.append(
+                f"{release.release_key}: official CPI PDF period {parsed.reference_period} "
+                f"did not match {release.period_label}"
+            )
+            continue
+        if _aware(parsed.published_at) != _aware(release.scheduled_at):
+            warnings.append(
+                f"{release.release_key}: official CPI PDF T0 did not match calendar T0"
+            )
+            continue
+        if parsed.artifact_hash != artifact.content_hash:
+            warnings.append(
+                f"{release.release_key}: official CPI PDF content hash did not match "
+                "stored artifact"
+            )
+            continue
+
+        primary_artifact_id = primary_artifact_id or artifact.id
+        capture_delay = _aware(artifact.retrieved_at) - _aware(release.scheduled_at)
+        quality = await persist_quality_record(
+            engine,
+            DataQuality(
+                source_name="U.S. Department of Labor / Bureau of Labor Statistics",
+                source_url=artifact.source_url,
+                source_type="official_release_pdf",
+                acquired_at=_aware(artifact.retrieved_at),
+                is_verified=True,
+                latency_seconds=max(0, int(capture_delay.total_seconds())),
+                quality_grade=QualityGrade.A,
+                verification_notes=(
+                    "Initial publication values parsed from the immutable official CPI release PDF."
+                ),
+                metadata={
+                    "official": True,
+                    "initial_release_document": True,
+                    "parser_version": parsed.parser_version,
+                },
+            ),
+            subject_type="official_release_values",
+            subject_id=str(release.id),
+            identity=f"quality:dol-cpi-pdf:{artifact.content_hash}",
+        )
+        version = f"dol-cpi-pdf-{artifact.content_hash[:16]}"
+        values = {
+            **{(key, "actual"): value for key, value in parsed.actual_values.items()},
+            **{(key, "previous"): value for key, value in parsed.previous_values.items()},
+        }
+        read += len(values)
+        async with factory() as session, session.begin():
+            current_release = await session.get(MacroRelease, release.id)
+            if current_release is None:
+                continue
+            stage = await session.scalar(
+                select(ReleaseStage).where(
+                    ReleaseStage.macro_release_id == current_release.id,
+                    ReleaseStage.stage_key == "release",
+                )
+            )
+            indicator_rows = (
+                await session.scalars(
+                    select(Indicator).where(
+                        Indicator.indicator_key.in_(
+                            [_BLS_INDICATOR_MAP[key] for key, _kind in values]
+                        )
+                    )
+                )
+            ).all()
+            indicators = {row.indicator_key: row for row in indicator_rows}
+            for (canonical_key, value_kind), value in values.items():
+                indicator = indicators.get(_BLS_INDICATOR_MAP[canonical_key])
+                if indicator is None:
+                    continue
+                existing = await session.scalar(
+                    select(ReleaseValue.id).where(
+                        ReleaseValue.macro_release_id == current_release.id,
+                        ReleaseValue.indicator_id == indicator.id,
+                        ReleaseValue.value_kind == value_kind,
+                        ReleaseValue.data_version == version,
+                        ReleaseValue.data_mode == "observed",
+                    )
+                )
+                if existing is not None:
+                    continue
+                session.add(
+                    ReleaseValue(
+                        id=uuid.uuid4(),
+                        macro_release_id=current_release.id,
+                        release_stage_id=stage.id if stage else None,
+                        indicator_id=indicator.id,
+                        value_kind=value_kind,
+                        value=value,
+                        raw_value=str(value),
+                        data_version=version,
+                        valid_from=_aware(current_release.scheduled_at),
+                        captured_at=_aware(artifact.retrieved_at),
+                        is_initial=value_kind == "actual",
+                        data_mode="observed",
+                        source_artifact_id=artifact.id,
+                        quality_id=quality.id,
+                        metadata_json={
+                            "reference_period": parsed.reference_period,
+                            "standard_unit": "percent_change",
+                            "source_artifact_hash": artifact.content_hash,
+                            "availability_method": "official_embargo_timestamp",
+                            "official_initial_release_document": True,
+                            "historical_initial_status": "verified_official_release_pdf",
+                            "parser_version": parsed.parser_version,
+                            "retrieved_at": _aware(artifact.retrieved_at).isoformat(),
+                            "capture_delay_seconds": capture_delay.total_seconds(),
+                        },
+                    )
+                )
+                written += 1
+            current_release.released_at = _aware(current_release.scheduled_at)
+            current_release.status = "released"
+            if stage is not None:
+                stage.released_at = _aware(stage.scheduled_at)
+                stage.status = "released"
+    return read, written, primary_artifact_id, warnings
+
+
 async def sync_bls_actuals(
     engine: AsyncEngine,
     settings: Settings,
@@ -885,7 +1062,20 @@ async def sync_bls_actuals(
                 "warnings": warnings,
             }
 
+        pdf_read, pdf_written, pdf_artifact_id, pdf_warnings = (
+            await _persist_dol_cpi_initial_values(
+                engine,
+                releases=releases,
+                parser=clients.bls,
+            )
+        )
+        read += pdf_read
+        written += pdf_written
+        primary_artifact_id = primary_artifact_id or pdf_artifact_id
+        warnings.extend(pdf_warnings)
+
         matched = 0
+        blocked_families: list[str] = []
         for family in families:
             periods = target_periods[family]
             if not periods:
@@ -896,12 +1086,20 @@ async def sync_bls_actuals(
             # CPI/AHE YoY, while also supplying December for January payroll and
             # MoM derivations from official levels.
             fetch_start_year = first_period.year - 1
-            batch = await clients.bls.fetch_bundle(
-                family,
-                start_year=fetch_start_year,
-                end_year=max(periods).year,
-                prior_snapshot=prior_snapshot,
-            )
+            try:
+                batch = await clients.bls.fetch_bundle(
+                    family,
+                    start_year=fetch_start_year,
+                    end_year=max(periods).year,
+                    prior_snapshot=prior_snapshot,
+                )
+            except ProviderError as exc:
+                blocked_families.append(family)
+                warnings.append(
+                    f"{family}: current BLS API refresh unavailable ({exc.code}); "
+                    "verified official release-document values were preserved"
+                )
+                continue
             requests += len(batch.artifacts)
             read += len(batch.observations)
             warnings.extend(batch.warnings)
@@ -987,6 +1185,25 @@ async def sync_bls_actuals(
                         )
                         if existing is not None:
                             continue
+                        equivalent_rows = (
+                            await session.scalars(
+                                select(ReleaseValue).where(
+                                    ReleaseValue.macro_release_id == target_release.id,
+                                    ReleaseValue.indicator_id == indicator.id,
+                                    ReleaseValue.value_kind == value_kind,
+                                    ReleaseValue.value == value,
+                                    ReleaseValue.data_mode == "observed",
+                                )
+                            )
+                        ).all()
+                        if any(
+                            row.metadata_json.get("bls_snapshot_key") == snapshot_key
+                            for row in equivalent_rows
+                        ):
+                            # The BLS response envelope changes as newer months are
+                            # appended. Do not create another vintage for an older
+                            # release unless that release's value actually changed.
+                            continue
                         prior_initial = None
                         if value_kind == "actual":
                             prior_initial = await session.scalar(
@@ -1050,6 +1267,13 @@ async def sync_bls_actuals(
                         )
                         written += 1
                     target_release.data_version = version
+        operation_status: Literal["completed", "partial", "blocked"] = (
+            "blocked"
+            if blocked_families and read == 0
+            else "partial"
+            if blocked_families
+            else "completed"
+        )
         await complete_provider_run(
             engine,
             run.id,
@@ -1066,10 +1290,18 @@ async def sync_bls_actuals(
                 "records_matched_to_release": matched,
                 "historical_vintage_reconstruction": False,
                 "point_in_time_basis": "local capture time",
+                "current_api_blocked_families": blocked_families,
             },
+            status=operation_status,
+            error_message=(
+                "Current BLS API refresh was unavailable and no official release-document "
+                "values could be recovered."
+                if operation_status == "blocked"
+                else None
+            ),
         )
         return {
-            "status": "completed",
+            "status": operation_status,
             "provider": clients.bls.key,
             "records_read": read,
             "records_written": written,

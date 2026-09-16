@@ -2,6 +2,7 @@
 
 from worldstate.provider_kit.bls import (
     BLS_SERIES_MAP,
+    BlsInitialReleaseValues,
     BlsOfficialProvider,
     BlsReleaseBatch,
     BlsScheduleBatch,
@@ -74,6 +75,7 @@ __all__ = [
     "BLS_SERIES_MAP",
     "DATABENTO_INSTRUMENTS",
     "BarQuery",
+    "BlsInitialReleaseValues",
     "BlsOfficialProvider",
     "BlsReleaseBatch",
     "BlsScheduleBatch",
