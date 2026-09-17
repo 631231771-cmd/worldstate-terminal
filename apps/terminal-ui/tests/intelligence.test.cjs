@@ -10,7 +10,7 @@ function load(relative) {
  const result=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}});
  const m=new Module(file,module);m.filename=file;m.paths=module.paths;m._compile(result.outputText,file);return m.exports;
 }
-const cache=load('app/resourceCache.ts');const nav=load('app/navigation.ts');const ctx=load('workspaces/intelligence/marketContext.ts');
+const cache=load('app/resourceCache.ts');const nav=load('app/navigation.ts');const ctx=load('workspaces/intelligence/marketContext.ts');const eventPresentation=load('workspaces/rebuild/eventPresentation.ts');
 function storage(){const data=new Map();return {getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};}
 test('read cache keeps successful observed data across reopen',()=>{
  const s=storage();cache.saveCached(s,'local','markets',{data_mode:'observed',items:[{value:5}]});
@@ -40,6 +40,12 @@ test('default event favors available research then most recent released then nea
  const event=(id,status,time,analysis_status='not_run')=>({id,status,scheduled_at:time,analysis_status,reproducibility_status:'complete'});
  const future=event('future','scheduled','2028-01-01');const next=event('next','scheduled','2026-10-01');const recent=event('recent','released','2026-08-12');const run=event('run','released','2026-07-01','completed');
  const now=Date.parse('2026-09-05');assert.equal(nav.preferredRelease([future,next],now).id,'next');assert.equal(nav.preferredRelease([future,recent,next],now).id,'recent');assert.equal(nav.preferredRelease([recent,run],now).id,'run');
+});
+test('partially captured released event is never presented as waiting for release',()=>{
+ const value=eventPresentation.eventPresentationState({event:{status:'released',type:'FOMC'},actual:{available:false,indicators:[{actual:3.75},{actual:4},{actual:null},{actual:null}]},surprise:{available:false,classification:null,direction:null}},()=> 'mixed');
+ assert.equal(value.title,'利率决定已发布，阶段资料仍待补齐');
+ assert.equal(value.actualProgress,'部分已获取（2 项）');
+ assert.match(value.detail,/不会被估算填满/);
 });
 const now=Date.parse('2026-09-05T12:00:00Z');
 function market(key,change,extra={}){return {key,label:key,symbol:key,change,change_unit:key.includes('yield')?'bp':'%',status:'available',freshness:'AVAILABLE',details:{timestamp:'2026-09-04T00:00:00Z',granularity_seconds:86400,data_mode:'observed'},...extra};}

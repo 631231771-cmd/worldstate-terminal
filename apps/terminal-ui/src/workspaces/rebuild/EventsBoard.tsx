@@ -9,6 +9,7 @@ import { fromLocalDateTimeInput, localTimeZoneLabel, toLocalDateTimeInput } from
 import { EventLabWorkspace } from "../event-lab/EventLabWorkspace";
 
 import { PreReleaseGuide, ReleaseReading } from "../intelligence/ReleaseReading";
+import { eventPresentationState } from "./eventPresentation";
 
 type EventTab = "upcoming" | "recent" | "all";
 type Dialog = "consensus" | "consensus-csv" | "minutes" | null;
@@ -330,6 +331,8 @@ export function EventsBoard({
   if (!releases.length) return <StateMessage title="暂无宏观事件" detail="请先加载官方事件日历。" action={<button type="button" class="button-primary" onClick={onOpenDataSources}>打开数据源</button>} />;
   if (labOpen && selected) return <div class="workspace workspace--product"><button type="button" class="button-secondary" onClick={() => setLabOpen(false)}>← 返回事件工作流</button><EventLabWorkspace release={selected} onRefresh={async () => undefined} /></div>;
 
+  const presentation = detail ? eventPresentationState(detail, surpriseDirectionLabel) : null;
+
   return (
     <div class="workspace workspace--product">
 
@@ -343,8 +346,8 @@ export function EventsBoard({
         <section class="event-reading">
           {!detail?<div class="inline-empty"><h2>{selected?"正在读取这个事件":"选择事件开始研究"}</h2><p>右侧保留完整的预期 → 数据 → 市场反应链。</p></div>:<>
             <header class="event-reading-head"><div><span class="section-label">{countryLabel(detail.event.country)} · {detail.event.period_label}</span><h1>{detail.event.title}</h1><time>{new Date(detail.event.scheduled_at).toLocaleString()} · {localTimeZoneLabel()}</time></div><Badge tone={detail.event.status==="released"?"info":"neutral"}>{statusLabel(detail.event.status)}</Badge></header>
-            <div class="event-takeaway"><span>数据告诉我们</span><strong>{detail.surprise.available?detail.surprise.classification??surpriseDirectionLabel(detail.surprise.direction):detail.actual.available?"实际值已到，事前预期尚未齐备":"等待正式发布"}</strong><p>{detail.surprise.available?"先看哪些指标偏离预期，再核对市场是否按同一条路径反应。":detail.event.status==="scheduled"?"发布前先记录市场预期；发布后的实际值不会被提前填入。":"打开来源核对已有数据，缺少的输入不会被估算填满。"}</p></div>
-            <div class="event-progress"><span class={detail.expectations.eligible_count?"done":""}>① 事前预期 {detail.expectations.eligible_count?detail.expectations.eligible_count+" 项":"未齐"}</span><span class={detail.actual.available?"done":""}>② 实际值 {detail.actual.available?"已获取":"待发布 / 获取"}</span><span class={detail.market_reaction.available?"done":""}>③ 市场反应 {detail.market_reaction.available?"可查看":"待补齐"}</span><span class={detail.analysis.run_id?"done":""}>④ 复盘 {detail.analysis.run_id?"已有记录":"尚未形成"}</span></div>
+            <div class="event-takeaway"><span>数据告诉我们</span><strong>{presentation!.title}</strong><p>{presentation!.detail}</p></div>
+            <div class="event-progress"><span class={detail.expectations.eligible_count?"done":""}>① 事前预期 {detail.expectations.eligible_count?detail.expectations.eligible_count+" 项":"未齐"}</span><span class={presentation!.actualCount>0?"done":""}>② 实际值 {presentation!.actualProgress}</span><span class={detail.market_reaction.available?"done":""}>③ 市场反应 {detail.market_reaction.available?"可查看":"待补齐"}</span><span class={detail.analysis.run_id?"done":""}>④ 复盘 {detail.analysis.run_id?"已有记录":"尚未形成"}</span></div>
             <div class="tabs-bar event-reading-tabs">{[["difference","预期差"],["reaction","跨资产反应"],["interpretation","解释与历史"],["sources","来源与详情"]].map(([key,label])=><button type="button" key={key} class={readingTab===key?"active":""} onClick={()=>setReadingTab(key!)}>{label}</button>)}</div>
             {readingTab==="difference"?<>
               <ConceptStrip concepts={["consensus","surprise","revision"]} active={learningMode}/>
