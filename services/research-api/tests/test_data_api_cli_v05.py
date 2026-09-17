@@ -33,7 +33,7 @@ from worldstate.application.reconciliation_service import (
     reconcile_values,
     record_market_reconciliation,
 )
-from worldstate.cli import run
+from worldstate.cli import run, service_root
 from worldstate.config import Settings
 from worldstate.db import models as _models  # noqa: F401
 from worldstate.db.base import Base
@@ -52,6 +52,13 @@ from worldstate.db.models import (
     SyncJobRun,
 )
 from worldstate.db.session import create_engine
+
+
+def test_cli_service_root_uses_pyinstaller_resource_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("worldstate.cli.sys._MEIPASS", str(tmp_path), raising=False)
+    assert service_root() == tmp_path.resolve()
 
 
 def test_health_and_fixed_provider_status_are_secret_safe(client: TestClient) -> None:

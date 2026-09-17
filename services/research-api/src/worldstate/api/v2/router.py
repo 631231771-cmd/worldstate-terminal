@@ -14,7 +14,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from worldstate import __version__
 from worldstate.ai_researcher import answer_question
+from worldstate.api.origins import LOCAL_BROWSER_ORIGINS
 from worldstate.api.v2.data_router import data_router, data_write_router
+from worldstate.api.v2.product_router import product_router
 from worldstate.api.v2.schemas import (
     AssistantInput,
     ConsensusCsvInput,
@@ -28,14 +30,27 @@ from worldstate.api.v2.schemas import (
     WatchlistInput,
     stage_payload,
 )
-from worldstate.application.analysis_orchestrator import METHODOLOGY_VERSION, analyze_release
+from worldstate.application.analysis_orchestrator import (
+    METHODOLOGY_VERSION,
+    AnalysisReadinessError,
+    analyze_release,
+)
 from worldstate.application.analysis_persistence import (
     diff_analysis_runs,
     get_analysis_manifest,
     replay_analysis_run,
 )
-from worldstate.application.consensus_service import append_consensus, import_consensus_csv
+from worldstate.application.consensus_service import (
+    append_consensus,
+    import_consensus_csv,
+    preview_consensus_csv,
+)
 from worldstate.application.daily_brief_service import build_daily_brief
+from worldstate.application.event_intraday_service import (
+    preview_event_minute_csv,
+    resolve_release_t0,
+)
+from worldstate.application.event_readiness import build_analysis_readiness
 from worldstate.application.evidence_service import get_evidence_pack
 from worldstate.application.global_macro_service import build_global_macro
 from worldstate.application.macro_import_service import import_official_macro_csv
@@ -84,6 +99,7 @@ from worldstate.db.models import (
     Indicator,
     MacroRelease,
     MarketInstrument,
+    ReleaseStage,
     ResearchClaim,
 )
 from worldstate.research_engine.history import (
@@ -94,15 +110,11 @@ from worldstate.research_engine.history import (
 
 router = APIRouter(prefix="/v2")
 
+
+def _aware(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
-_LOCAL_ORIGINS = {
-    "http://127.0.0.1:4173",
-    "http://localhost:4173",
-    "http://127.0.0.1:5173",
-    "http://localhost:5173",
-    "tauri://localhost",
-    "https://tauri.localhost",
-}
 
 
 def require_write_access(
@@ -112,7 +124,7 @@ def require_write_access(
 ) -> None:
     client_host = request.client.host if request.client else ""
     origin = request.headers.get("origin")
-    if client_host in _LOCAL_HOSTS and (origin is None or origin in _LOCAL_ORIGINS):
+    if client_host in _LOCAL_HOSTS and (origin is None or origin in LOCAL_BROWSER_ORIGINS):
         return
     settings: Settings = request.app.state.settings
     supplied = x_write_token
@@ -425,6 +437,16 @@ async def release_consensus(release_id: str, request: Request) -> object:
         release = await session.get(MacroRelease, release_uuid)
         if release is None:
             raise HTTPException(status_code=404, detail="macro release not found")
+        stages = list(
+            (
+                await session.scalars(
+                    select(ReleaseStage)
+                    .where(ReleaseStage.macro_release_id == release.id)
+                    .order_by(ReleaseStage.sequence)
+                )
+            ).all()
+        )
+        t0 = resolve_release_t0(release, stages)
         rows = (
             await session.execute(
                 select(ConsensusSnapshot, Indicator)
@@ -450,7 +472,7 @@ async def release_consensus(release_id: str, request: Request) -> object:
                     "quality_grade": snapshot.quality_grade,
                     "is_manual": snapshot.is_manual,
                     "verification_notes": snapshot.verification_notes,
-                    "available_before_t0": snapshot.captured_at < release.scheduled_at,
+                    "available_before_t0": _aware(snapshot.captured_at) < t0,
                     "metadata": snapshot.metadata_json,
                 }
                 for snapshot, indicator in rows
@@ -552,6 +574,29 @@ async def capture_consensus(
 
 
 @router.post(
+    "/releases/{release_id}/consensus/import-csv/preview",
+    tags=["releases"],
+)
+async def preview_consensus_import(
+    release_id: str,
+    payload: ConsensusCsvInput,
+    request: Request,
+) -> dict[str, object]:
+    try:
+        return await preview_consensus_csv(
+            request.app.state.database_engine,
+            release_id=release_id,
+            csv_text=payload.csv_text,
+            default_source_name=payload.default_source_name,
+            default_source_url=payload.default_source_url,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
     "/releases/{release_id}/consensus/import-csv",
     tags=["releases"],
     dependencies=[Depends(require_write_access)],
@@ -569,6 +614,34 @@ async def import_consensus(
             default_source_name=payload.default_source_name,
             default_source_url=payload.default_source_url,
         )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/releases/{release_id}/market-bars/preview",
+    tags=["providers"],
+)
+async def preview_bars(
+    release_id: str,
+    payload: MarketCsvImportInput,
+    request: Request,
+) -> dict[str, object]:
+    try:
+        result = await preview_event_minute_csv(
+            request.app.state.database_engine,
+            release_id=release_id,
+            instrument_key=payload.instrument_key,
+            csv_text=payload.csv_text,
+            timezone_name=payload.timezone,
+            column_mapping=payload.column_mapping,
+            verified=payload.verified,
+            is_fixture=payload.is_fixture,
+        )
+        result.pop("normalized_csv", None)
+        return result
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -596,6 +669,8 @@ async def import_bars(
             source_url=payload.source_url,
             verified=payload.verified,
             is_fixture=payload.is_fixture,
+            timezone_name=payload.timezone,
+            column_mapping=payload.column_mapping,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -677,11 +752,21 @@ async def run_analysis(
             idempotency_key=idempotency_key,
             force=force,
         )
+    except AnalysisReadinessError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "analysis_not_ready", "readiness": exc.readiness.as_dict()},
+        ) from exc
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"release_id": release_id, "analysis_run_id": run_id, "status": "completed"}
+
+
+@router.get("/releases/{release_id}/analysis-readiness", tags=["analysis"])
+async def analysis_readiness(release_id: str, request: Request) -> object:
+    return (await build_analysis_readiness(request.app.state.database_engine, release_id)).as_dict()
 
 
 @router.get("/analysis-runs/{run_id}", tags=["analysis"])
@@ -813,9 +898,7 @@ async def world_state(
     while this response describes the latest series state for the terminal.
     """
     mode = requested_data_mode(request, data_mode)
-    return await build_world_state(
-        request.app.state.database_engine, data_mode=mode, as_of=as_of
-    )
+    return await build_world_state(request.app.state.database_engine, data_mode=mode, as_of=as_of)
 
 
 @router.get("/global-macro", tags=["macro"])
@@ -850,9 +933,7 @@ async def daily_brief(
 ) -> dict[str, object]:
     """Build the deterministic daily entry point used by the Today workspace."""
     mode = requested_data_mode(request, data_mode)
-    return await build_daily_brief(
-        request.app.state.database_engine, data_mode=mode, as_of=as_of
-    )
+    return await build_daily_brief(request.app.state.database_engine, data_mode=mode, as_of=as_of)
 
 
 @router.get("/market-dashboard", tags=["market"])
@@ -1123,5 +1204,6 @@ async def context_assistant(
 
 
 # Data Foundation has public read routes and separately protected state-changing routes.
+router.include_router(product_router)
 router.include_router(data_router)
 router.include_router(data_write_router, dependencies=[Depends(require_write_access)])

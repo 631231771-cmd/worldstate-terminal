@@ -213,15 +213,26 @@ def test_manual_release_consensus_csv_and_analysis_workflow(client: TestClient) 
     )
     assert late_consensus.status_code == 400
 
-    csv_text = "\n".join(
-        [
-            "timestamp,instrument_key,open,high,low,close,volume",
-            "2030-02-13T13:29:00Z,gold_gc,2000,2001,1999,2000,100",
-            "2030-02-13T13:30:00Z,gold_gc,2000,2002,1998,1999,150",
-            "2030-02-13T13:31:00Z,gold_gc,1999,2000,1995,1996,180",
-            "2030-02-13T13:35:00Z,gold_gc,1996,1997,1990,1992,170",
-        ]
+    csv_rows = ["timestamp,instrument_key,open,high,low,close,volume"]
+    for index in range(76):
+        timestamp = datetime.fromisoformat("2030-02-13T13:15:00+00:00") + timedelta(minutes=index)
+        close = 2000 - index / 10
+        csv_rows.append(
+            f"{timestamp.isoformat()},gold_gc,{close},{close + 1},{close - 1},{close},100"
+        )
+    csv_text = "\n".join(csv_rows)
+    preview = client.post(
+        f"/v2/releases/{release_id}/market-bars/preview",
+        json={
+            "instrument_key": "gold_gc",
+            "csv_text": csv_text,
+            "provider_key": "test_csv",
+            "source_name": "Test CSV",
+            "verified": True,
+        },
     )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["eligibility"]["status"] == "eligible"
     imported = client.post(
         f"/v2/releases/{release_id}/market-bars/import",
         json={
@@ -233,7 +244,8 @@ def test_manual_release_consensus_csv_and_analysis_workflow(client: TestClient) 
         },
     )
     assert imported.status_code == 200, imported.text
-    assert imported.json()["inserted"] == 4
+    assert imported.json()["inserted"] == 76
+    assert imported.json()["eligibility"]["eligible"] is True
 
     analyzed = client.post(f"/v2/releases/{release_id}/analysis-runs")
     assert analyzed.status_code == 200, analyzed.text
@@ -331,8 +343,7 @@ def test_official_macro_csv_requires_traceable_source(client: TestClient) -> Non
         "/v2/data/macro-series/import-official-csv",
         json={
             "csv_text": (
-                "canonical_key,period_start,value,entity_iso3\n"
-                "JPN.GROWTH.X,2026-01-01,1,JPN"
+                "canonical_key,period_start,value,entity_iso3\nJPN.GROWTH.X,2026-01-01,1,JPN"
             ),
             "source_name": "unlinked file",
             "source_url": "",
@@ -353,6 +364,26 @@ def test_consensus_csv_import_keeps_pre_t0_and_manual_provenance(
             f"headline_mom,0.2,{(scheduled - timedelta(minutes=20)).isoformat()},Manual CSV,https://example.test/csv,B",
         ]
     )
+    preview_text = "\n".join(
+        [
+            "indicator_key,consensus_value,captured_at,source_name",
+            f"headline_mom,0.2,{(scheduled - timedelta(minutes=20)).isoformat()},Manual CSV",
+            f"core_mom,0.3,{(scheduled + timedelta(minutes=5)).isoformat()},Late reference",
+            f"unknown_key,1,{(scheduled - timedelta(minutes=20)).isoformat()},Unknown",
+        ]
+    )
+    preview = client.post(
+        f"/v2/releases/{release['id']}/consensus/import-csv/preview",
+        json={"csv_text": preview_text},
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["summary"] == {
+        "eligible": 1,
+        "post_t0": 1,
+        "unknown_indicator": 1,
+        "invalid": 0,
+        "total": 3,
+    }
     response = client.post(
         f"/v2/releases/{release['id']}/consensus/import-csv",
         json={"csv_text": csv_text},

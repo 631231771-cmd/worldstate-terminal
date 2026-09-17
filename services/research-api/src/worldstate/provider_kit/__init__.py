@@ -2,6 +2,7 @@
 
 from worldstate.provider_kit.bls import (
     BLS_SERIES_MAP,
+    BlsInitialReleaseValues,
     BlsOfficialProvider,
     BlsReleaseBatch,
     BlsScheduleBatch,
@@ -64,6 +65,7 @@ from worldstate.provider_kit.providers import (
 from worldstate.provider_kit.trading_economics import (
     ConsensusCalendarBatch,
     ConsensusSnapshotRecord,
+    TradingEconomicsBrowserPage,
     TradingEconomicsConsensusProvider,
     TradingEconomicsEntitlement,
     TradingEconomicsQuota,
@@ -73,6 +75,7 @@ __all__ = [
     "BLS_SERIES_MAP",
     "DATABENTO_INSTRUMENTS",
     "BarQuery",
+    "BlsInitialReleaseValues",
     "BlsOfficialProvider",
     "BlsReleaseBatch",
     "BlsScheduleBatch",
@@ -117,6 +120,7 @@ __all__ = [
     "PublicObservationBatch",
     "PublicSeriesSpec",
     "SourceArtifact",
+    "TradingEconomicsBrowserPage",
     "TradingEconomicsConsensusProvider",
     "TradingEconomicsEntitlement",
     "TradingEconomicsQuota",

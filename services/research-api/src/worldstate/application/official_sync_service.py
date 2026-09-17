@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -27,6 +28,7 @@ from worldstate.application.scheduler_service import (
     schedule_release_tasks,
 )
 from worldstate.config import Settings, repository_root
+from worldstate.data_quality import DataQuality, QualityGrade
 from worldstate.db.models import (
     EconomicEntity,
     Indicator,
@@ -43,11 +45,13 @@ from worldstate.db.models import (
     SourceArtifact as StoredSourceArtifact,
 )
 from worldstate.provider_kit import (
+    BlsScheduleBatch,
     FomcDocument,
     FomcMaterialType,
     ProviderError,
     ProviderErrorCode,
 )
+from worldstate.provider_kit.bls import BlsInitialReleaseValues
 from worldstate.provider_kit.catalog import load_catalog
 
 _BLS_INDICATOR_MAP = {
@@ -72,13 +76,36 @@ _FRED_FOUNDATION_SERIES = {
 
 _FRED_MARKET_CONTEXT = {
     "SP500": "sp500_cash",
+    "NASDAQ100": "nasdaq100_cash",
     "VIXCLS": "vix_cash",
     "DCOILWTICO": "wti_spot",
     "DCOILBRENTEU": "brent_spot",
     "DTWEXBGS": "dollar_broad_context",
     "DGS2": "ust2y_yield_context",
+    "DGS3MO": "ust3m_yield_context",
+    "DGS5": "ust5y_yield_context",
     "DGS10": "ust10y_yield_context",
+    "DGS30": "ust30y_yield_context",
+    "DFII10": "ust10y_real_yield_context",
+    "DEXUSEU": "eurusd_context",
+    "DEXJPUS": "usdjpy_context",
+    "DEXCHUS": "usdcny_context",
+    "BAMLH0A0HYM2": "hy_spread_context",
 }
+
+_DERIVED_MARKET_CONTEXT = {
+    "curve_2s10s_derived": (
+        "ust10y_yield_context",
+        "ust2y_yield_context",
+        "US10Y - US2Y",
+    ),
+    "curve_3m10y_derived": (
+        "ust10y_yield_context",
+        "ust3m_yield_context",
+        "US10Y - US3M",
+    ),
+}
+_DERIVED_MARKET_VERSION = "market-derived-v1"
 
 _FOMC_VALUE_PARSER_VERSION = "fomc-target-range-v2"
 _INVALIDATED_RELEASE_STATUS = "invalidated"
@@ -154,6 +181,123 @@ async def _upsert_fred_context_bar(
     else:
         for key, value in values.items():
             setattr(bar, key, value)
+
+
+async def _sync_derived_market_context(
+    engine: AsyncEngine, *, calculated_at: datetime
+) -> int:
+    """Persist auditable curve spreads from locally observed input bars."""
+
+    written = 0
+    factory = _factory(engine)
+    async with factory() as session, session.begin():
+        keys = {
+            key
+            for output_key, (left_key, right_key, _) in _DERIVED_MARKET_CONTEXT.items()
+            for key in (output_key, left_key, right_key)
+        }
+        instruments = {
+            row.canonical_key: row
+            for row in (
+                await session.scalars(
+                    select(MarketInstrument).where(MarketInstrument.canonical_key.in_(keys))
+                )
+            ).all()
+        }
+        for output_key, (left_key, right_key, formula) in _DERIVED_MARKET_CONTEXT.items():
+            output = instruments.get(output_key)
+            left = instruments.get(left_key)
+            right = instruments.get(right_key)
+            if output is None or left is None or right is None:
+                continue
+            left_bars = {
+                _aware(row.timestamp): row
+                for row in (
+                    await session.scalars(
+                        select(MarketBar).where(
+                            MarketBar.instrument_id == left.id,
+                            MarketBar.provider_key == "fred_alfred",
+                            MarketBar.interval_seconds == 86400,
+                            MarketBar.data_mode == "observed",
+                        )
+                    )
+                ).all()
+            }
+            right_bars = {
+                _aware(row.timestamp): row
+                for row in (
+                    await session.scalars(
+                        select(MarketBar).where(
+                            MarketBar.instrument_id == right.id,
+                            MarketBar.provider_key == "fred_alfred",
+                            MarketBar.interval_seconds == 86400,
+                            MarketBar.data_mode == "observed",
+                        )
+                    )
+                ).all()
+            }
+            existing = {
+                _aware(row.timestamp): row
+                for row in (
+                    await session.scalars(
+                        select(MarketBar).where(
+                            MarketBar.instrument_id == output.id,
+                            MarketBar.provider_key == "worldstate_derived",
+                            MarketBar.interval_seconds == 86400,
+                            MarketBar.data_mode == "observed",
+                        )
+                    )
+                ).all()
+            }
+            for timestamp in sorted(left_bars.keys() & right_bars.keys()):
+                left_bar = left_bars[timestamp]
+                right_bar = right_bars[timestamp]
+                value = left_bar.close_value - right_bar.close_value
+                metadata = {
+                    "context_only": True,
+                    "not_event_window": True,
+                    "derived": True,
+                    "input_datasets": [left_key, right_key],
+                    "input_bar_ids": [left_bar.id, right_bar.id],
+                    "formula": formula,
+                    "calculation_version": _DERIVED_MARKET_VERSION,
+                    "calculated_at": calculated_at.isoformat(),
+                    "point_in_time": bool(left_bar.metadata_json.get("point_in_time"))
+                    and bool(right_bar.metadata_json.get("point_in_time")),
+                }
+                values = {
+                    "open_value": value,
+                    "high_value": value,
+                    "low_value": value,
+                    "close_value": value,
+                    "volume": None,
+                    "source_symbol": f"{left.symbol}-{right.symbol}",
+                    "contract_code": "",
+                    "is_regular_session": True,
+                    "quality_id": left_bar.quality_id
+                    if left_bar.quality_id == right_bar.quality_id
+                    else None,
+                    "fetched_at": calculated_at,
+                    "metadata_json": metadata,
+                }
+                row = existing.get(timestamp)
+                if row is None:
+                    session.add(
+                        MarketBar(
+                            instrument_id=output.id,
+                            futures_contract_id=None,
+                            timestamp=timestamp,
+                            interval_seconds=86400,
+                            provider_key="worldstate_derived",
+                            data_mode="observed",
+                            **values,
+                        )
+                    )
+                    written += 1
+                else:
+                    for field, field_value in values.items():
+                        setattr(row, field, field_value)
+    return written
 
 
 async def _upsert_release_stage(
@@ -393,6 +537,7 @@ async def sync_bls_calendar(
     start_date: date,
     end_date: date,
     families: tuple[BlsFamily, ...] = _BLS_FAMILIES,
+    captured_batches: Mapping[tuple[BlsFamily, int], BlsScheduleBatch] | None = None,
 ) -> dict[str, object]:
     families = tuple(dict.fromkeys(families))
     if not families:
@@ -422,7 +567,11 @@ async def sync_bls_calendar(
             for year in range(start_date.year, end_date.year + 1):
                 requests += 1
                 try:
-                    batch = await clients.bls.fetch_schedule(family, year=year)
+                    batch = (
+                        captured_batches[(family, year)]
+                        if captured_batches is not None and (family, year) in captured_batches
+                        else await clients.bls.fetch_schedule(family, year=year)
+                    )
                 except ProviderError as exc:
                     blocked_requests += 1
                     warnings.append(f"{family} {year}: {exc.code}")
@@ -446,7 +595,20 @@ async def sync_bls_calendar(
                     payload=[entry.model_dump(mode="json") for entry in batch.entries],
                     provider_run_id=run.id,
                     source_artifact_id=artifact.id,
-                    metadata={"source_timezone": "America/New_York"},
+                    metadata={
+                        "source_timezone": "America/New_York",
+                        "calendar_provider": str(
+                            batch.artifacts[0].metadata.get("calendar_provider")
+                            or "bls_official_schedule"
+                        ),
+                        **(
+                            {
+                                "fallback_from": batch.artifacts[0].metadata["fallback_from"]
+                            }
+                            if batch.artifacts[0].metadata.get("fallback_from")
+                            else {}
+                        ),
+                    },
                 )
                 quality = await persist_quality_record(
                     engine,
@@ -459,8 +621,22 @@ async def sync_bls_calendar(
                     released_at = _aware(entry.scheduled_local)
                     if not start_date <= released_at.date() <= end_date:
                         continue
-                    period = _previous_month(released_at.date())
-                    release_key = f"{family.lower()}-{period.isoformat()}-observed"
+                    calendar_metadata = batch.artifacts[0].metadata
+                    calendar_provider = str(
+                        calendar_metadata.get("calendar_provider") or "bls_official_schedule"
+                    )
+                    period = entry.reference_period
+                    if period is None and calendar_provider != "bls_public_calendar":
+                        # Preserve the legacy HTML adapter behavior for older
+                        # fixtures while refusing to invent a period from a
+                        # public ICS event that did not state one.
+                        period = _previous_month(released_at.date()).strftime("%Y-%m")
+                    if period is None:
+                        warnings.append(
+                            f"{family} {released_at.date()}: calendar event has no reference period"
+                        )
+                        continue
+                    release_key = f"{family.lower()}-{period}-observed"
                     factory = _factory(engine)
                     async with factory() as session, session.begin():
                         release = await session.scalar(
@@ -476,7 +652,7 @@ async def sync_bls_calendar(
                                 release_type=family,
                                 title=entry.title,
                                 country="USA",
-                                period_label=period.strftime("%Y-%m"),
+                                period_label=period,
                                 scheduled_at=released_at,
                                 released_at=(
                                     released_at if released_at <= datetime.now(UTC) else None
@@ -496,7 +672,12 @@ async def sync_bls_calendar(
                                     "overlap and news contamination have not been reconciled"
                                 ],
                                 metadata_json={
-                                    "period_derivation": "calendar month before release month",
+                                    "period_derivation": (
+                                        "official event title/description"
+                                        if entry.reference_period
+                                        else "calendar month before release month"
+                                    ),
+                                    "calendar_provider": calendar_provider,
                                     "official_schedule": True,
                                 },
                             )
@@ -511,6 +692,16 @@ async def sync_bls_calendar(
                             release.data_version = f"bls-calendar-{artifact.content_hash[:16]}"
                             release.source_artifact_id = artifact.id
                             release.primary_quality_id = quality.id
+                            release.period_label = period
+                            release.metadata_json = {
+                                **release.metadata_json,
+                                "calendar_provider": calendar_provider,
+                                "period_derivation": (
+                                    "official event title/description"
+                                    if entry.reference_period
+                                    else "calendar month before release month"
+                                ),
+                            }
                         await session.flush()
                         await _upsert_release_stage(
                             session,
@@ -520,7 +711,10 @@ async def sync_bls_calendar(
                             sequence=1,
                             published_at=released_at,
                             source_artifact_id=artifact.id,
-                            metadata={"timestamp_source": "BLS official release calendar"},
+                            metadata={
+                                "timestamp_source": "BLS official release calendar",
+                                "calendar_provider": calendar_provider,
+                            },
                         )
                         scheduled_release_ids.append(release.id)
         for release_id in dict.fromkeys(scheduled_release_ids):
@@ -588,6 +782,181 @@ async def _prior_bls_snapshot(engine: AsyncEngine) -> dict[str, Decimal]:
         if isinstance(key, str) and row.value is not None:
             snapshot[key] = row.value
     return snapshot
+
+
+async def _persist_dol_cpi_initial_values(
+    engine: AsyncEngine,
+    *,
+    releases: list[MacroRelease],
+    parser: object,
+) -> tuple[int, int, uuid.UUID | None, list[str]]:
+    """Persist immutable CPI initial values from an official DOL/BLS PDF.
+
+    Current BLS API responses cannot prove what was first published after the
+    release day. The archived official release document can, while its real
+    local retrieval time remains preserved separately.
+    """
+
+    parse = getattr(parser, "adapt_dol_initial_release_values", None)
+    if not callable(parse):
+        return 0, 0, None, []
+    read = written = 0
+    primary_artifact_id: uuid.UUID | None = None
+    warnings: list[str] = []
+    factory = _factory(engine)
+    for detached_release in releases:
+        if detached_release.release_type != "US_CPI":
+            continue
+        async with factory() as session:
+            release = await session.get(MacroRelease, detached_release.id)
+            artifact = (
+                await session.get(StoredSourceArtifact, release.source_artifact_id)
+                if release is not None and release.source_artifact_id is not None
+                else None
+            )
+        if (
+            release is None
+            or artifact is None
+            or artifact.content_bytes is None
+            or artifact.metadata_json.get("calendar_provider")
+            != "dol_official_economicdata_pdf"
+        ):
+            continue
+        try:
+            parsed = parse(
+                artifact.content_bytes,
+                retrieved_at=_aware(artifact.retrieved_at),
+                source_url=artifact.source_url,
+            )
+        except Exception as exc:
+            warnings.append(
+                f"{release.release_key}: official CPI PDF values could not be parsed "
+                f"({type(exc).__name__})"
+            )
+            continue
+        if not isinstance(parsed, BlsInitialReleaseValues):
+            warnings.append(f"{release.release_key}: official CPI PDF parser returned invalid data")
+            continue
+        if parsed.reference_period != release.period_label:
+            warnings.append(
+                f"{release.release_key}: official CPI PDF period {parsed.reference_period} "
+                f"did not match {release.period_label}"
+            )
+            continue
+        if _aware(parsed.published_at) != _aware(release.scheduled_at):
+            warnings.append(
+                f"{release.release_key}: official CPI PDF T0 did not match calendar T0"
+            )
+            continue
+        if parsed.artifact_hash != artifact.content_hash:
+            warnings.append(
+                f"{release.release_key}: official CPI PDF content hash did not match "
+                "stored artifact"
+            )
+            continue
+
+        primary_artifact_id = primary_artifact_id or artifact.id
+        capture_delay = _aware(artifact.retrieved_at) - _aware(release.scheduled_at)
+        quality = await persist_quality_record(
+            engine,
+            DataQuality(
+                source_name="U.S. Department of Labor / Bureau of Labor Statistics",
+                source_url=artifact.source_url,
+                source_type="official_release_pdf",
+                acquired_at=_aware(artifact.retrieved_at),
+                is_verified=True,
+                latency_seconds=max(0, int(capture_delay.total_seconds())),
+                quality_grade=QualityGrade.A,
+                verification_notes=(
+                    "Initial publication values parsed from the immutable official CPI release PDF."
+                ),
+                metadata={
+                    "official": True,
+                    "initial_release_document": True,
+                    "parser_version": parsed.parser_version,
+                },
+            ),
+            subject_type="official_release_values",
+            subject_id=str(release.id),
+            identity=f"quality:dol-cpi-pdf:{artifact.content_hash}",
+        )
+        version = f"dol-cpi-pdf-{artifact.content_hash[:16]}"
+        values = {
+            **{(key, "actual"): value for key, value in parsed.actual_values.items()},
+            **{(key, "previous"): value for key, value in parsed.previous_values.items()},
+        }
+        read += len(values)
+        async with factory() as session, session.begin():
+            current_release = await session.get(MacroRelease, release.id)
+            if current_release is None:
+                continue
+            stage = await session.scalar(
+                select(ReleaseStage).where(
+                    ReleaseStage.macro_release_id == current_release.id,
+                    ReleaseStage.stage_key == "release",
+                )
+            )
+            indicator_rows = (
+                await session.scalars(
+                    select(Indicator).where(
+                        Indicator.indicator_key.in_(
+                            [_BLS_INDICATOR_MAP[key] for key, _kind in values]
+                        )
+                    )
+                )
+            ).all()
+            indicators = {row.indicator_key: row for row in indicator_rows}
+            for (canonical_key, value_kind), value in values.items():
+                indicator = indicators.get(_BLS_INDICATOR_MAP[canonical_key])
+                if indicator is None:
+                    continue
+                existing = await session.scalar(
+                    select(ReleaseValue.id).where(
+                        ReleaseValue.macro_release_id == current_release.id,
+                        ReleaseValue.indicator_id == indicator.id,
+                        ReleaseValue.value_kind == value_kind,
+                        ReleaseValue.data_version == version,
+                        ReleaseValue.data_mode == "observed",
+                    )
+                )
+                if existing is not None:
+                    continue
+                session.add(
+                    ReleaseValue(
+                        id=uuid.uuid4(),
+                        macro_release_id=current_release.id,
+                        release_stage_id=stage.id if stage else None,
+                        indicator_id=indicator.id,
+                        value_kind=value_kind,
+                        value=value,
+                        raw_value=str(value),
+                        data_version=version,
+                        valid_from=_aware(current_release.scheduled_at),
+                        captured_at=_aware(artifact.retrieved_at),
+                        is_initial=value_kind == "actual",
+                        data_mode="observed",
+                        source_artifact_id=artifact.id,
+                        quality_id=quality.id,
+                        metadata_json={
+                            "reference_period": parsed.reference_period,
+                            "standard_unit": "percent_change",
+                            "source_artifact_hash": artifact.content_hash,
+                            "availability_method": "official_embargo_timestamp",
+                            "official_initial_release_document": True,
+                            "historical_initial_status": "verified_official_release_pdf",
+                            "parser_version": parsed.parser_version,
+                            "retrieved_at": _aware(artifact.retrieved_at).isoformat(),
+                            "capture_delay_seconds": capture_delay.total_seconds(),
+                        },
+                    )
+                )
+                written += 1
+            current_release.released_at = _aware(current_release.scheduled_at)
+            current_release.status = "released"
+            if stage is not None:
+                stage.released_at = _aware(stage.scheduled_at)
+                stage.status = "released"
+    return read, written, primary_artifact_id, warnings
 
 
 async def sync_bls_actuals(
@@ -693,7 +1062,20 @@ async def sync_bls_actuals(
                 "warnings": warnings,
             }
 
+        pdf_read, pdf_written, pdf_artifact_id, pdf_warnings = (
+            await _persist_dol_cpi_initial_values(
+                engine,
+                releases=releases,
+                parser=clients.bls,
+            )
+        )
+        read += pdf_read
+        written += pdf_written
+        primary_artifact_id = primary_artifact_id or pdf_artifact_id
+        warnings.extend(pdf_warnings)
+
         matched = 0
+        blocked_families: list[str] = []
         for family in families:
             periods = target_periods[family]
             if not periods:
@@ -704,12 +1086,20 @@ async def sync_bls_actuals(
             # CPI/AHE YoY, while also supplying December for January payroll and
             # MoM derivations from official levels.
             fetch_start_year = first_period.year - 1
-            batch = await clients.bls.fetch_bundle(
-                family,
-                start_year=fetch_start_year,
-                end_year=max(periods).year,
-                prior_snapshot=prior_snapshot,
-            )
+            try:
+                batch = await clients.bls.fetch_bundle(
+                    family,
+                    start_year=fetch_start_year,
+                    end_year=max(periods).year,
+                    prior_snapshot=prior_snapshot,
+                )
+            except ProviderError as exc:
+                blocked_families.append(family)
+                warnings.append(
+                    f"{family}: current BLS API refresh unavailable ({exc.code}); "
+                    "verified official release-document values were preserved"
+                )
+                continue
             requests += len(batch.artifacts)
             read += len(batch.observations)
             warnings.extend(batch.warnings)
@@ -771,6 +1161,12 @@ async def sync_bls_actuals(
                         "previous": observation.previous_value,
                         "revised_previous": observation.revised_previous_value,
                     }
+                    if observation.value is not None:
+                        target_release.released_at = _aware(target_release.scheduled_at)
+                        target_release.status = "released"
+                        if stage is not None:
+                            stage.released_at = _aware(stage.scheduled_at)
+                            stage.status = "released"
                     capture_delay = _aware(observation.retrieved_at) - _aware(
                         target_release.scheduled_at
                     )
@@ -788,6 +1184,25 @@ async def sync_bls_actuals(
                             )
                         )
                         if existing is not None:
+                            continue
+                        equivalent_rows = (
+                            await session.scalars(
+                                select(ReleaseValue).where(
+                                    ReleaseValue.macro_release_id == target_release.id,
+                                    ReleaseValue.indicator_id == indicator.id,
+                                    ReleaseValue.value_kind == value_kind,
+                                    ReleaseValue.value == value,
+                                    ReleaseValue.data_mode == "observed",
+                                )
+                            )
+                        ).all()
+                        if any(
+                            row.metadata_json.get("bls_snapshot_key") == snapshot_key
+                            for row in equivalent_rows
+                        ):
+                            # The BLS response envelope changes as newer months are
+                            # appended. Do not create another vintage for an older
+                            # release unless that release's value actually changed.
                             continue
                         prior_initial = None
                         if value_kind == "actual":
@@ -852,6 +1267,13 @@ async def sync_bls_actuals(
                         )
                         written += 1
                     target_release.data_version = version
+        operation_status: Literal["completed", "partial", "blocked"] = (
+            "blocked"
+            if blocked_families and read == 0
+            else "partial"
+            if blocked_families
+            else "completed"
+        )
         await complete_provider_run(
             engine,
             run.id,
@@ -868,10 +1290,18 @@ async def sync_bls_actuals(
                 "records_matched_to_release": matched,
                 "historical_vintage_reconstruction": False,
                 "point_in_time_basis": "local capture time",
+                "current_api_blocked_families": blocked_families,
             },
+            status=operation_status,
+            error_message=(
+                "Current BLS API refresh was unavailable and no official release-document "
+                "values could be recovered."
+                if operation_status == "blocked"
+                else None
+            ),
         )
         return {
-            "status": "completed",
+            "status": operation_status,
             "provider": clients.bls.key,
             "records_read": read,
             "records_written": written,
@@ -1403,33 +1833,50 @@ async def sync_fred_foundation(
                 )
                 session.add(provider_row)
                 await session.flush()
-            entity = await session.scalar(
-                select(EconomicEntity).where(EconomicEntity.iso3 == "USA")
-            )
-            if entity is None:
-                entity = EconomicEntity(
-                    iso2="US",
-                    iso3="USA",
-                    name="United States",
-                    entity_type="country",
-                    parent_id=None,
-                    currency="USD",
-                    timezone="America/New_York",
-                    latitude=None,
-                    longitude=None,
-                    metadata_json={},
+            entity_definitions = {
+                "US": ("US", "USA", "United States", "USD", "America/New_York"),
+                "CHN": ("CN", "CHN", "China", "CNY", "Asia/Shanghai"),
+                "JPN": ("JP", "JPN", "Japan", "JPY", "Asia/Tokyo"),
+                "EA19": ("EA", "EA19", "Euro Area", "EUR", "Europe/Brussels"),
+                "GBR": ("GB", "GBR", "United Kingdom", "GBP", "Europe/London"),
+            }
+            entity_ids: dict[str, int] = {}
+            for entity_code in sorted({item.entity for item in catalog}):
+                iso2, iso3, name, currency, timezone = entity_definitions[entity_code]
+                entity = await session.scalar(
+                    select(EconomicEntity).where(EconomicEntity.iso3 == iso3)
                 )
-                session.add(entity)
-                await session.flush()
+                if entity is None:
+                    entity = EconomicEntity(
+                        iso2=iso2,
+                        iso3=iso3,
+                        name=name,
+                        entity_type="country",
+                        parent_id=None,
+                        currency=currency,
+                        timezone=timezone,
+                        latitude=None,
+                        longitude=None,
+                        metadata_json={"catalog_source": "fred_alfred"},
+                    )
+                    session.add(entity)
+                    await session.flush()
+                entity_ids[entity_code] = entity.id
             provider_id = provider_row.id
-            entity_id = entity.id
         for definition in catalog:
-            batch = await clients.fred.fetch_observation_batch(
-                definition.native_id,
-                start=start_date,
-                end=end_date,
-                as_of=as_of,
-            )
+            if public_current:
+                batch = await clients.fred.fetch_public_current_batch(
+                    definition.native_id,
+                    start=start_date,
+                    end=end_date,
+                )
+            else:
+                batch = await clients.fred.fetch_observation_batch(
+                    definition.native_id,
+                    start=start_date,
+                    end=end_date,
+                    as_of=as_of,
+                )
             requests += 1
             read += len(batch.observations)
             artifact = await persist_provider_artifact(
@@ -1483,7 +1930,7 @@ async def sync_fred_foundation(
                         provider_id=provider_id,
                         native_id=definition.native_id,
                         canonical_key=definition.canonical_key,
-                        entity_id=entity_id,
+                        entity_id=entity_ids[definition.entity],
                         title=definition.title,
                         description=None,
                         frequency=definition.frequency,
@@ -1520,6 +1967,7 @@ async def sync_fred_foundation(
                     session.add(series)
                     await session.flush()
                 else:
+                    series.entity_id = entity_ids[definition.entity]
                     prior_source_mode = str(series.metadata_json.get("source_mode") or "")
                     series.metadata_json = {
                         **series.metadata_json,
@@ -1590,12 +2038,18 @@ async def sync_fred_foundation(
                             observation=observation,
                             quality_id=quality_row.id,
                             provider_key=clients.fred.key,
-                            source_mode=(
-                                "current_public_csv" if public_current else "alfred_api"
-                            ),
+                            source_mode=("current_public_csv" if public_current else "alfred_api"),
                             retrieved_at=batch.retrieved_at,
                             native_id=definition.native_id,
                         )
+        derived_written = await _sync_derived_market_context(
+            engine, calculated_at=datetime.now(UTC)
+        )
+        written += derived_written
+        if derived_written:
+            warnings.append(
+                f"persisted {derived_written} WorldState-derived Treasury curve observations"
+            )
         await upsert_entitlement(
             engine,
             provider_key=clients.fred.key,

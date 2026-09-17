@@ -13,6 +13,9 @@ htmlcov/
 .ruff_cache/
 test-results/
 *.log
+.sidecar-build/
+.sidecar-dist/
+apps/desktop-tauri/src-tauri/bin/
 
 # Local state and secrets
 .env

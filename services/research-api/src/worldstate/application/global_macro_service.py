@@ -12,8 +12,9 @@ from worldstate.application.world_state_service import (
     SeriesSignal,
     aggregate_dimension,
     calculate_signal,
+    load_point_in_time_observations,
 )
-from worldstate.db.models import EconomicEntity, Observation, Provider, Series
+from worldstate.db.models import EconomicEntity, Provider, Series
 
 DataMode = Literal["observed", "fixture", "all"]
 
@@ -63,29 +64,28 @@ async def build_global_macro(
         ).all()
         countries: list[dict[str, Any]] = []
         for iso3, title, iso2 in _COUNTRIES:
+            canonical_prefixes = {iso3}
+            if iso3 == "USA":
+                canonical_prefixes.add("US")
+            if iso3 == "EA19":
+                canonical_prefixes.add("EA")
             entity_series = [
                 (series, provider)
                 for series, provider in rows
-                if str(series.canonical_key).startswith(f"{iso3}.")
-                or (iso3 == "EA19" and str(series.canonical_key).startswith("EA."))
+                if any(
+                    str(series.canonical_key).startswith(f"{prefix}.")
+                    for prefix in canonical_prefixes
+                )
             ]
             by_dimension: dict[str, list[SeriesSignal]] = {key: [] for key in _DIMENSIONS}
             latest_data_at: datetime | None = None
             for series, provider in entity_series:
-                query = select(Observation).where(
-                    Observation.series_id == series.id,
-                    Observation.available_at.is_not(None),
-                    Observation.available_at <= cutoff,
-                    Observation.vintage_date <= cutoff.date(),
-                )
-                if data_mode != "all":
-                    query = query.where(Observation.data_mode == data_mode)
-                observations = list(
-                    (
-                        await session.scalars(
-                            query.order_by(Observation.period_start).limit(240)
-                        )
-                    ).all()
+                observations = await load_point_in_time_observations(
+                    session,
+                    series_id=series.id,
+                    as_of=cutoff,
+                    data_mode=data_mode,
+                    limit=240,
                 )
                 dimensions = [
                     str(item)
@@ -99,7 +99,7 @@ async def build_global_macro(
                 score, momentum, missing = calculate_signal(
                     values,
                     orientation=orientation,
-                    transform=str(series.metadata_json.get("default_transform", "level")),
+                    transform=series.default_transform,
                     minimum_history=max(3, int(series.metadata_json.get("minimum_history", 3))),
                 )
                 latest = observations[-1]
@@ -124,15 +124,18 @@ async def build_global_macro(
                     quality="C" if latest.data_mode == "fixture" else "B",
                     missing_reason=missing,
                     evidence_ids=(f"observation:{latest.id}",),
+                    freshness_half_life_days=float(
+                        (series.metadata_json or {}).get("freshness_half_life_days") or 45.0
+                    ),
                 )
                 for dimension in dimensions:
                     by_dimension[dimension].append(
-                        signal if dimension == signal.dimension else SeriesSignal(
-                            **{**signal.__dict__, "dimension": dimension}
-                        )
+                        signal
+                        if dimension == signal.dimension
+                        else SeriesSignal(**{**signal.__dict__, "dimension": dimension})
                     )
             dimensions_result = {
-                dimension: aggregate_dimension(by_dimension[dimension])
+                dimension: aggregate_dimension(by_dimension[dimension], as_of=cutoff)
                 for dimension in _DIMENSIONS
             }
             available_dimensions = [
@@ -220,9 +223,7 @@ async def build_global_macro(
                 "key": "energy_and_credit",
                 "title": "能源与信用",
                 "status": (
-                    "available"
-                    if {"credit", "risk"}.intersection(available_keys)
-                    else "partial"
+                    "available" if {"credit", "risk"}.intersection(available_keys) else "partial"
                 ),
                 "components": ["WTI", "Brent", "HY", "IG"],
             },

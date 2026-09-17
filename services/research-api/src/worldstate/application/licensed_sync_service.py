@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import cast
+from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -50,6 +50,7 @@ from worldstate.db.models import (
 from worldstate.market_core.sessions import expected_tradable_bars
 from worldstate.provider_kit import (
     BarQuery,
+    ConsensusCalendarBatch,
     ConsensusSnapshotRecord,
     DatabentoCostEstimate,
     DatabentoDownloadRequest,
@@ -57,6 +58,8 @@ from worldstate.provider_kit import (
     ProviderBudgetError,
     ProviderError,
     ProviderErrorCode,
+    TradingEconomicsBrowserPage,
+    TradingEconomicsConsensusProvider,
 )
 
 _ROOT_TO_INSTRUMENT_KEY = {
@@ -266,6 +269,7 @@ async def _snapshot_trading_economics_consensus(
     start_date: date,
     end_date: date,
     pit_at: datetime | None = None,
+    captured_batch: ConsensusCalendarBatch | None = None,
 ) -> dict[str, object]:
     invocation_id = uuid.uuid4()
     clients = build_provider_clients(
@@ -283,7 +287,7 @@ async def _snapshot_trading_economics_consensus(
     )
     warnings: list[str] = []
     try:
-        if settings.trading_economics_api_key is None:
+        if captured_batch is None and settings.trading_economics_api_key is None:
             await upsert_entitlement(
                 engine,
                 provider_key=provider.key,
@@ -298,7 +302,11 @@ async def _snapshot_trading_economics_consensus(
                 ProviderErrorCode.NOT_CONFIGURED,
                 "Trading Economics API key is not configured",
             )
-        if pit_at is not None and not settings.trading_economics_pit_entitled:
+        if (
+            captured_batch is None
+            and pit_at is not None
+            and not settings.trading_economics_pit_entitled
+        ):
             await upsert_entitlement(
                 engine,
                 provider_key=provider.key,
@@ -313,7 +321,9 @@ async def _snapshot_trading_economics_consensus(
                 ProviderErrorCode.ENTITLEMENT,
                 "Trading Economics historical PIT entitlement is not enabled",
             )
-        batch = await provider.fetch_calendar(start=start_date, end=end_date, pit_at=pit_at)
+        batch = captured_batch or await provider.fetch_calendar(
+            start=start_date, end=end_date, pit_at=pit_at
+        )
         warnings.extend(batch.warnings)
         artifact = await persist_provider_artifact(
             engine,
@@ -356,39 +366,42 @@ async def _snapshot_trading_economics_consensus(
                 tzinfo=UTC,
             )
         )
-        await record_quota(
-            engine,
-            provider_key=provider.key,
-            quota_key="calendar_requests",
-            unit="requests",
-            period_start=month_start,
-            period_end=month_end,
-            used_value=Decimal(quota.monthly_used),
-            limit_value=(Decimal(quota.monthly_limit) if quota.monthly_limit else None),
-            remaining_value=(Decimal(quota.remaining) if quota.remaining is not None else None),
-            captured_at=quota.observed_at,
-            provider_run_id=run.id,
-            source_artifact_id=artifact.id,
-        )
-        await upsert_entitlement(
-            engine,
-            provider_key=provider.key,
-            capability="calendar_consensus",
-            status="granted",
-            provider_run_id=run.id,
-            source_artifact_id=artifact.id,
-            terms_url=provider.terms.terms_url,
-        )
-        await upsert_entitlement(
-            engine,
-            provider_key=provider.key,
-            capability="historical_pit_consensus",
-            status="granted" if batch.entitlement.historical_point_in_time else "denied",
-            provider_run_id=run.id,
-            source_artifact_id=artifact.id,
-            error_message=batch.entitlement.reason,
-            terms_url=provider.terms.terms_url,
-        )
+        if captured_batch is None:
+            await record_quota(
+                engine,
+                provider_key=provider.key,
+                quota_key="calendar_requests",
+                unit="requests",
+                period_start=month_start,
+                period_end=month_end,
+                used_value=Decimal(quota.monthly_used),
+                limit_value=(Decimal(quota.monthly_limit) if quota.monthly_limit else None),
+                remaining_value=(
+                    Decimal(quota.remaining) if quota.remaining is not None else None
+                ),
+                captured_at=quota.observed_at,
+                provider_run_id=run.id,
+                source_artifact_id=artifact.id,
+            )
+            await upsert_entitlement(
+                engine,
+                provider_key=provider.key,
+                capability="calendar_consensus",
+                status="granted",
+                provider_run_id=run.id,
+                source_artifact_id=artifact.id,
+                terms_url=provider.terms.terms_url,
+            )
+            await upsert_entitlement(
+                engine,
+                provider_key=provider.key,
+                capability="historical_pit_consensus",
+                status="granted" if batch.entitlement.historical_point_in_time else "denied",
+                provider_run_id=run.id,
+                source_artifact_id=artifact.id,
+                error_message=batch.entitlement.reason,
+                terms_url=provider.terms.terms_url,
+            )
         quality = await persist_quality_record(
             engine,
             batch.quality,
@@ -731,6 +744,28 @@ async def snapshot_trading_economics_consensus(
             end_date=end_date,
             pit_at=pit_at,
         )
+
+
+async def capture_trading_economics_browser_consensus(
+    engine: AsyncEngine,
+    settings: Settings,
+    *,
+    start_date: date,
+    end_date: date,
+    rows: list[dict[str, Any]],
+    pages: tuple[TradingEconomicsBrowserPage, ...],
+) -> dict[str, object]:
+    """Persist a browser-captured TE consensus snapshot without API claims."""
+
+    provider = TradingEconomicsConsensusProvider(None)
+    batch = provider.adapt_browser_calendar(rows, pages=pages)
+    return await _snapshot_trading_economics_consensus(
+        engine,
+        settings,
+        start_date=start_date,
+        end_date=end_date,
+        captured_batch=batch,
+    )
 
 
 async def sync_databento_release_market(
@@ -1223,6 +1258,7 @@ async def sync_databento_release_market(
 
 
 __all__ = [
+    "capture_trading_economics_browser_consensus",
     "snapshot_trading_economics_consensus",
     "sync_databento_release_market",
 ]

@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../../api/client";
 import { Badge, DetailsDisclosure, Modal, Panel, StateMessage } from "../../components/Primitives";
-import type { DataFreshnessResponse, DataProviderStatus } from "../../types";
+import type { DataFreshnessResponse, DataProviderStatus, ReleaseSummary } from "../../types";
+import type { DatasetCapability } from "../../types/product";
 
 interface ControlData {
   providers: DataProviderStatus[];
   freshness: DataFreshnessResponse;
   systems: Array<Record<string, unknown>>;
+  capabilities: DatasetCapability[];
+  releases: ReleaseSummary[];
 }
 
-type Dialog = "fred" | "market" | "macro" | null;
+type Dialog = "fred" | "market" | "macro" | "event" | null;
 
 const MARKET_INSTRUMENTS = [
   ["gold_gc", "Gold futures"],
@@ -35,20 +38,27 @@ export function DataControlWorkspace() {
   const [macroSourceUrl, setMacroSourceUrl] = useState("");
   const [macroVerified, setMacroVerified] = useState(false);
   const [macroNotes, setMacroNotes] = useState("");
+  const [eventReleaseId, setEventReleaseId] = useState("");
+  const [eventInstrument, setEventInstrument] = useState("gold_gc");
+  const [eventSourceUrl, setEventSourceUrl] = useState("");
+  const [eventVerified, setEventVerified] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const marketFileRef = useRef<HTMLInputElement>(null);
   const macroFileRef = useRef<HTMLInputElement>(null);
+  const eventFileRef = useRef<HTMLInputElement>(null);
 
   const reload = async () => {
-    const [providers, freshness, systemsPayload] = await Promise.all([
+    const [providers, freshness, systemsPayload, capabilityPayload, releases] = await Promise.all([
       api.dataProviders(),
       api.dataFreshness(),
       api.macroSystems(),
+      api.dataCapabilities(),
+      api.releases(),
     ]);
     const systems = Array.isArray(systemsPayload.systems)
       ? (systemsPayload.systems as Array<Record<string, unknown>>)
       : [];
-    setData({ providers: providers.items, freshness, systems });
+    setData({ providers: providers.items, freshness, systems, capabilities: capabilityPayload.items, releases });
   };
 
   useEffect(() => {
@@ -152,6 +162,15 @@ export function DataControlWorkspace() {
     });
   };
 
+  const importEventBars = () => {
+    if (!selectedFile || !eventReleaseId) return;
+    void runAction(async () => {
+      const result = await api.importMarketBars(eventReleaseId, { instrument_key: eventInstrument, csv_text: await selectedFile.text(), provider_key: "manual_csv", source_name: selectedFile.name, source_url: eventSourceUrl.trim() || undefined, verified: eventVerified, is_fixture: false });
+      setDialog(null); setSelectedFile(null);
+      return `Imported ${String(result.inserted ?? 0)} event-linked minute bars. Coverage remains subject to validation.`;
+    });
+  };
+
   if (!data) {
     return <StateMessage title="Loading Data Control" detail="Checking providers, freshness and observed coverage." />;
   }
@@ -167,8 +186,10 @@ export function DataControlWorkspace() {
         <div class="page-heading__actions">
           <input ref={marketFileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => chooseFile(event, "market")} />
           <input ref={macroFileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => chooseFile(event, "macro")} />
+          <input ref={eventFileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => chooseFile(event, "event")} />
           <button class="button-secondary" disabled={busy} onClick={() => marketFileRef.current?.click()}>Import market data</button>
           <button class="button-secondary" disabled={busy} onClick={() => macroFileRef.current?.click()}>Import official macro file</button>
+          <button class="button-secondary" disabled={busy} onClick={() => eventFileRef.current?.click()}>Import event minute data</button>
           <button class="button-secondary" disabled={busy} onClick={() => setDialog("fred")}>Configure FRED</button>
           <button class="button-secondary" disabled={busy} onClick={syncBlsState}>Sync BLS current</button>
           <button class="button-primary" disabled={busy} onClick={bootstrap}>{busy ? "Syncing…" : "Bootstrap public data"}</button>
@@ -222,6 +243,12 @@ export function DataControlWorkspace() {
           ))}
         </tbody></table></div>
       </Panel>
+      <Panel title="Dataset capability inventory" eyebrow="WHAT THE PRODUCT CAN ACTUALLY DO">
+        <p class="method-note">Rows alone do not imply event research. Each dataset is classified by coverage, provenance, PIT semantics and eligible workflows.</p>
+        <div class="freshness-table-wrap"><table class="coverage-table"><thead><tr><th>Dataset</th><th>Rows</th><th>Coverage</th><th>Source</th><th>Current</th><th>Event intraday</th><th>PIT</th></tr></thead><tbody>
+          {data.capabilities.slice(0, 160).map((item) => <tr key={item.dataset_key}><td><strong>{item.label}</strong><small>{item.kind} / {item.canonical_key}</small></td><td>{item.rows}</td><td>{item.coverage_start ?? "—"} → {item.coverage_end ?? "—"}</td><td>{item.source_class}</td><td><Badge tone={item.capabilities.CURRENT_STATE?.available ? "good" : "neutral"}>{item.capabilities.CURRENT_STATE?.status ?? "MISSING"}</Badge></td><td><Badge tone={item.capabilities.EVENT_INTRADAY?.available ? "good" : "neutral"}>{item.capabilities.EVENT_INTRADAY?.status ?? "MISSING"}</Badge></td><td><Badge tone={item.point_in_time ? "good" : "neutral"}>{item.point_in_time ? "YES" : "NO"}</Badge></td></tr>)}
+        </tbody></table></div>
+      </Panel>
 
       {dialog === "fred" ? <Modal title="Configure FRED" onClose={() => setDialog(null)}>
         <p class="modal-copy">The public CSV path works without a key. A key enables ALFRED historical vintages and point-in-time research.</p>
@@ -242,6 +269,14 @@ export function DataControlWorkspace() {
         <label class="form-field"><span>Verification note</span><textarea value={macroNotes} onInput={(event) => setMacroNotes(event.currentTarget.value)} placeholder="What did you verify?" /></label>
         <label class="check-field"><input type="checkbox" checked={macroVerified} onChange={(event) => setMacroVerified(event.currentTarget.checked)} /><span>I checked this file against its official source</span></label>
         <div class="modal-actions"><button class="button-secondary" onClick={() => setDialog(null)}>Cancel</button><button class="button-primary" disabled={busy || !macroSourceUrl.trim()} onClick={importMacro}>Import {selectedFile?.name}</button></div>
+      </Modal> : null}
+      {dialog === "event" ? <Modal title="Import event minute data" onClose={() => { setDialog(null); setSelectedFile(null); }}>
+        <p class="modal-copy">This wizard links observed minute bars to one release. It does not accept fixture data and does not infer missing bars.</p>
+        <label class="form-field"><span>Release</span><select value={eventReleaseId} onChange={(event) => setEventReleaseId(event.currentTarget.value)}><option value="">Select a release</option>{data.releases.filter((item) => item.status === "released").slice(0, 120).map((item) => <option key={item.id} value={item.id}>{item.title} / {item.period_label}</option>)}</select></label>
+        <label class="form-field"><span>Asset</span><select value={eventInstrument} onChange={(event) => setEventInstrument(event.currentTarget.value)}>{MARKET_INSTRUMENTS.map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label>
+        <label class="form-field"><span>Source URL (optional)</span><input value={eventSourceUrl} onInput={(event) => setEventSourceUrl(event.currentTarget.value)} placeholder="Legal source for this file" /></label>
+        <label class="check-field"><input type="checkbox" checked={eventVerified} onChange={(event) => setEventVerified(event.currentTarget.checked)} /><span>I checked timestamps, timezone, duplicates and source</span></label>
+        <div class="modal-actions"><button class="button-secondary" onClick={() => setDialog(null)}>Cancel</button><button class="button-primary" disabled={busy || !eventReleaseId} onClick={importEventBars}>Import {selectedFile?.name}</button></div>
       </Modal> : null}
     </div>
   );
