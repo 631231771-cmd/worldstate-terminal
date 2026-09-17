@@ -59,7 +59,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
   console.log('PASS market drilldown, source disclosure');
   await page.goto(origin+'/#macro');await page.locator('.matrix-table .link-button').click();await visible('[role="dialog"] .drawer-kpi');
   await page.getByRole('button',{name:'查看序列：测试通胀序列'}).click();await page.getByRole('heading',{name:'历史轨迹',exact:true}).waitFor();assert.match(page.url(),/series=test-inflation/);
-  await page.goBack();await page.getByRole('button',{name:'查看序列：测试通胀序列'}).waitFor();await page.keyboard.press('Escape');await page.locator('[role="dialog"]').waitFor({state:'detached'});
+  await page.goBack();await page.getByRole('button',{name:'查看序列：测试通胀序列'}).waitFor();await page.locator('[role="dialog"]').getByRole('button',{name:'Close'}).click();await page.locator('[role="dialog"]').waitFor({state:'detached'});
   console.log('PASS country to source series drilldown and back navigation');
   await page.goto(origin+'/#events?release=test-cpi');await visible('.event-comparison');assert.match(await page.locator('.event-comparison').innerText(),/0\.2%/);assert.match(await page.locator('.event-comparison').innerText(),/0\.3%/);
   await page.getByRole('button',{name:'添加预期记录',exact:true}).click();await visible('[role="dialog"]');await page.getByRole('button',{name:'取消',exact:true}).click();
