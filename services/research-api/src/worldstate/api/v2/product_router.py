@@ -23,9 +23,16 @@ from worldstate.application.product_projection_service import (
     build_markets_projection,
     build_today_projection,
 )
+from worldstate.application.quote_service import QuoteService, QuotesResponse
 
 DataMode = Literal["observed", "fixture", "all"]
 product_router = APIRouter(prefix="/product", tags=["product"])
+
+
+@product_router.get("/quotes", response_model=QuotesResponse)
+async def product_quotes(request: Request) -> QuotesResponse:
+    service: QuoteService = request.app.state.quote_service
+    return await service.read()
 
 
 def _requested_data_mode(request: Request, explicit: DataMode | None) -> DataMode:

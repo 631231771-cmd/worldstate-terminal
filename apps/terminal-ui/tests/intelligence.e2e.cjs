@@ -32,6 +32,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
   const analysisRequests=[];
   await context.route('**/v2/**',async route=>{
    const p=new URL(route.request().url()).pathname;
+   if(p==='/v2/product/quotes')return route.fulfill({json:{as_of:'2026-08-12T15:00:00Z',refresh_seconds:60,items:[{key:'xau_usd',label:'黄金现货参考',symbol:'XAU',kind:'spot_indicative',unit:'USD/盎司',price:4000,change:null,change_unit:'%',quoted_at:'2026-08-12T15:00:00Z',retrieved_at:'2026-08-12T15:00:00Z',delay_minutes:null,status:'indicative',error:null,source_url:'https://gold-api.com/',limitation:'仅用于隔离浏览器测试',points:[{time:'2026-08-12T14:59:00Z',value:3999},{time:'2026-08-12T15:00:00Z',value:4000}]}]}});
    if(route.request().method()==='POST'){
     assert.equal(p,'/v2/releases/test-second/analysis-runs','Only the isolated analysis mock may receive writes');
     const key=route.request().headers()['idempotency-key'];
@@ -49,6 +50,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
   await context.route('**/v2/series/test-inflation*',route=>route.fulfill({json:{data_mode:'observed',title:'测试通胀序列',frequency:'monthly',unit:'%',points:[{period:'2026-07-01',transformed:3.3},{period:'2026-08-01',transformed:3.2}],limitations:[]}}));
   const visible=async selector=>page.locator(selector).first().waitFor({state:'visible',timeout:8000});
   await page.goto(origin+'/#radar');await visible('.radar-ticker');
+  await page.getByRole('button',{name:/黄金现货参考/}).click();await visible('.quote-detail .timeseries-chart');assert.match(await page.locator('.quote-tile').innerText(),/旧报价/);await page.getByRole('button',{name:'收起',exact:true}).click();console.log('PASS quote detail and source-age disclosure');
   assert.equal(await page.locator('nav[aria-label="主导航"] button').count(),4);
   assert.match(await page.locator('.reality-alert').innerText(),/不能回答/);
   await page.getByRole('button',{name:'学习',exact:true}).click();await page.getByRole('button',{name:'解释：实际利率'}).click();await visible('[role="note"]');

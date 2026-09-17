@@ -1,6 +1,22 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-09-16
+Updated: 2026-09-17
+
+### September 17 quote activation
+
+- Added `/v2/product/quotes` and a visible auto-refreshing quote board on Radar/Markets.
+  Gold API XAU/XAG are indicative USD-per-ounce reference quotes (no latency guarantee).
+  Yahoo GC, ZT, ZN and Cboe 5Y/10Y/30Y yield quotes explicitly disclose public-feed delays.
+  There is no public 2Y cash-yield feed in this slice; ZT remains a futures price.
+- A shared 60-second bounded cache preserves source timestamps on failures; stale values
+  remain marked stale. Quote history is display-only and never writes MarketBar,
+  Consensus, manifests or AnalysisRun. Gold history starts with actual samples collected.
+- The actual local API and rendered 1440px UI returned all eight instruments on September
+  17 around 13:00 UTC, including XAU 4374.399902 and US10Y 4.961%; these are timestamped
+  test readings, not permanent current prices. Browser chart drill-down and overflow checks
+  passed. 231 Python tests, strict mypy, Ruff, 12 UI policy tests and UI E2E passed.
+  The network intermittently returns TLS failures; the next refresh recovers while old
+  quotes remain explicitly marked. No licensed exchange-realtime entitlement was added.
 
 ## Active product restructuring checkpoint (read first)
 

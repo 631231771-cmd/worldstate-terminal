@@ -4,6 +4,7 @@ import { Badge, DetailsDisclosure, Drawer, Panel, StateMessage } from "../compon
 import { ConceptStrip } from "../components/ConceptHelp";
 import { TimeSeriesChart, type ChartHorizon } from "../components/TimeSeriesChart";
 import { WorkspaceBoundary } from "../components/WorkspaceBoundary";
+import { QuoteBoard } from "../components/QuoteBoard";
 import type { ReleaseSummary } from "../types";
 import type { ProductCountry, ProductCountryDetail, ProductDimension, ProductEventDetail, ProductEventsResponse, ProductMarketItem, ProductMarketsResponse, ProductMacroResponse, ProductTodayResponse } from "../types/product";
 import { DataControlWorkspace } from "../workspaces/data-control/DataControlWorkspace";
@@ -160,6 +161,7 @@ export function App() {
     </aside>
     <main class="main" ref={mainRef}><header class="topbar"><strong>{pageTitle}</strong><div class="topbar__status"><button type="button" class="shell-command" onClick={()=>setCommandOpen(true)}>搜索市场、事件、序列 <kbd>Ctrl K</kbd></button><button type="button" class={learningMode?"mode-toggle mode-toggle--active":"mode-toggle"} onClick={()=>toggle("worldstate.learning_mode",learningMode,setLearningMode)}>{learningMode?"学习：开":"学习"}</button>{advancedMode?<Badge>高级</Badge>:null}<button type="button" class="mode-toggle" onClick={refreshCurrent}>刷新</button><span class={health?.database.status==="ok"?"connection-indicator ready":"connection-indicator"} title={serviceError??"服务状态不代表行情实时性"}>{health?.database.status==="ok"?"服务已连接":serviceError?"离线 · 保留记录":"连接中"}</span></div></header>
     <WorkspaceBoundary key={view}>
+      {view==="today"||view==="markets"?<QuoteBoard/>:null}
       {view==="today"?<><ReadStatus label="市场" resource={markets} advanced={advancedMode}/><ReadStatus label="事件" resource={events} advanced={advancedMode}/><RadarWorkspace markets={marketList} events={releases} onEvent={openEvent} onData={()=>navigate("data-control")} advanced={advancedMode} learningMode={learningMode}/></>:null}
       {view==="markets"||view==="macro"?<div class="context-navigation tabs-bar"><button type="button" class={view==="markets"?"active":""} onClick={()=>navigate("markets")}>跨资产市场</button><button type="button" class={view==="macro"?"active":""} onClick={()=>navigate("macro")}>全球宏观环境</button></div>:null}
       {view==="markets"?<><ReadStatus label="市场" resource={markets} advanced={advancedMode}/>{markets.data?<MarketsBoard items={marketList} onOpen={openMarket}/>:null}</>:null}

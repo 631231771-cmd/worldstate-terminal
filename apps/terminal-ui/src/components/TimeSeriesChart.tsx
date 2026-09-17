@@ -15,7 +15,7 @@ const HORIZON_DAYS: Record<ChartHorizon, number> = {
   "1y": 367,
 };
 
-export function TimeSeriesChart({ points, horizon }: { points: ChartPoint[]; horizon: ChartHorizon }) {
+export function TimeSeriesChart({ points, horizon, intraday = false }: { points: ChartPoint[]; horizon: ChartHorizon; intraday?: boolean }) {
   const container = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState<{ time: string; value: number } | null>(null);
   const visible = useMemo(() => {
@@ -49,7 +49,7 @@ export function TimeSeriesChart({ points, horizon }: { points: ChartPoint[]; hor
         horzLine: { color: "rgba(218, 172, 74, 0.35)", labelBackgroundColor: "#926f25" },
       },
       rightPriceScale: { borderColor: "rgba(115, 128, 140, 0.2)" },
-      timeScale: { borderColor: "rgba(115, 128, 140, 0.2)", timeVisible: false },
+      timeScale: { borderColor: "rgba(115, 128, 140, 0.2)", timeVisible: intraday },
       localization: { locale: "zh-CN" },
     });
     const series = chart.addSeries(AreaSeries, {
@@ -74,15 +74,15 @@ export function TimeSeriesChart({ points, horizon }: { points: ChartPoint[]; hor
       const timestamp = typeof parameter.time === "number"
         ? new Date(parameter.time * 1000)
         : new Date(String(parameter.time));
-      setHovered({ time: timestamp.toLocaleDateString("zh-CN"), value: value.value });
+      setHovered({ time: intraday ? timestamp.toLocaleString("zh-CN") : timestamp.toLocaleDateString("zh-CN"), value: value.value });
     });
     return () => chart.remove();
-  }, [visible]);
+  }, [visible, intraday]);
 
   if (!visible.length) return <div class="chart-empty">当前区间没有可绘制的连续观测。</div>;
   const latestPoint = visible.at(-1)!;
   const latest = hovered ?? {
-    time: new Date(latestPoint.time).toLocaleDateString("zh-CN"),
+    time: intraday ? new Date(latestPoint.time).toLocaleString("zh-CN") : new Date(latestPoint.time).toLocaleDateString("zh-CN"),
     value: latestPoint.value,
   };
   return <div class="timeseries-chart">
