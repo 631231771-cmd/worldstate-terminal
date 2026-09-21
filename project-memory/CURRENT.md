@@ -1,6 +1,33 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-09-17
+Updated: 2026-09-21
+
+### September 21 Macro Reasoning vertical slice
+
+- Added a versioned YAML + strict Pydantic mechanism playbook and the first
+  source → author claim → human review → observed evidence assessment workflow.
+  Author statements, exact quotes, and WorldState assessments remain separate.
+- The first generic playbook checks three competing hypotheses: energy supply
+  shock, demand acceleration, and dollar/liquidity easing. It reports every
+  causal step as supporting, contradicting, neutral, missing, or mixed, plus
+  falsifiers and limitations. Agreement is never called causal proof or a
+  probability.
+- Migration `0011_macro_reasoning` adds `research_sources`, `author_claims`, and
+  immutable `mechanism_assessments`. Assessments persist playbook/input/output
+  hashes and use only the claim's observed/fixture mode at the requested as-of.
+- Research Memory now opens a Macro Reasoning workbench. The previous free-form
+  Thesis Book remains under Personal Research Notes. A browser flow verifies
+  saving source text, exact-quote extraction, confirmation, three competing
+  mechanisms, evidence ledgers, falsifiers, and reproducibility details.
+- The user's oil-supply example is stored as an observed user-authored note in
+  the existing runtime database. Its current result is intentionally not a
+  confirmation: supply shock is incomplete (1/6 consecutive steps), demand
+  acceleration is unconfirmed (2/4), and dollar/liquidity easing is incomplete.
+  This result is time-specific and reflects the current data gaps.
+- Validation: 234 backend tests passed; full Ruff and strict mypy passed; 12 UI
+  policy tests, UI production build, and browser E2E passed. The live local API,
+  existing runtime database, and rendered 1440px workbench were checked.
+  Detailed boundary: `docs/macro/macro-reasoning-engine-v1.md`.
 
 ### September 17 quote activation
 

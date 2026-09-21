@@ -40,6 +40,7 @@ New-Item -ItemType Directory -Force -Path $WorkRoot, $DistRoot, $BinRoot, $Targe
 $addAlembic = "$(Join-Path $ServiceRoot 'alembic.ini');."
 $addMigrations = "$(Join-Path $ServiceRoot 'migrations');migrations"
 $addMacroCatalog = "$(Join-Path $RepoRoot 'data\macro');data/macro"
+$addReasoningPlaybooks = "$(Join-Path $ServiceRoot 'src\worldstate\reasoning\playbooks');worldstate/reasoning/playbooks"
 $entryPoint = Join-Path $ServiceRoot "src\worldstate\sidecar.py"
 
 & $Python -m PyInstaller `
@@ -55,6 +56,7 @@ $entryPoint = Join-Path $ServiceRoot "src\worldstate\sidecar.py"
     --add-data $addAlembic `
     --add-data $addMigrations `
     --add-data $addMacroCatalog `
+    --add-data $addReasoningPlaybooks `
     --collect-all alembic `
     --collect-all fontTools `
     --collect-all pypdf `
@@ -93,8 +95,10 @@ if (-not $SkipSmoke) {
     Copy-Item -Path (Join-Path $builtRoot "*") -Destination $SmokeInstall -Recurse -Force
     $SmokeExe = Join-Path $SmokeInstall "worldstate-research-api.exe"
     $FrozenCatalog = Join-Path $SmokeInstall "_internal\data\macro"
+    $FrozenPlaybook = Join-Path $SmokeInstall "_internal\worldstate\reasoning\playbooks\macro_reasoning_v1.yaml"
     & $Python -c "import sys; from pathlib import Path; from worldstate.provider_kit.catalog import load_catalog; rows=load_catalog(Path(sys.argv[1])); assert rows; print('Frozen catalog validated:', len(rows), 'series')" $FrozenCatalog
     if ($LASTEXITCODE -ne 0) { throw "Frozen sidecar macro catalog is missing or invalid" }
+    if (-not (Test-Path -LiteralPath $FrozenPlaybook)) { throw "Frozen sidecar reasoning playbook is missing" }
     $DatabasePath = Join-Path $SmokeRoot "worldstate.db"
     $env:WORLDSTATE_DATABASE_URL = "sqlite+aiosqlite:///$($DatabasePath.Replace('\', '/'))"
     Remove-Item Env:WORLDSTATE_ROOT -ErrorAction SilentlyContinue
@@ -129,6 +133,10 @@ if (-not $SkipSmoke) {
                 $body = if (Test-Path -LiteralPath $bodyPath) { Get-Content -LiteralPath $bodyPath -Raw } else { "" }
                 throw "Frozen sidecar product smoke failed: $endpoint ($statusCode) $body"
             }
+        }
+        $playbooks = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v2/reasoning/playbooks" -TimeoutSec 5
+        if ($playbooks.items.Count -lt 1 -or $playbooks.items[0].version -ne "1.0.0") {
+            throw "Frozen sidecar reasoning playbook smoke failed"
         }
     } finally {
         if (-not $Process.HasExited) { Stop-Process -Id $Process.Id -Force }

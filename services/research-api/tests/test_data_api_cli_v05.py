@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from worldstate.api.v2.data_router import (
@@ -489,7 +490,7 @@ async def test_backfill_uses_provider_metadata_quote_when_key_exists(
     )
     settings = Settings(
         database_url=database_url,
-        databento_api_key="configured-test-key",
+        databento_api_key=SecretStr("configured-test-key"),
         allow_paid_download=True,
         databento_max_estimated_cost_usd=Decimal("2"),
     )
@@ -539,7 +540,7 @@ async def test_configured_key_with_fallback_quote_cannot_enqueue_paid_backfill(
     )
     settings = Settings(
         database_url=database_url,
-        databento_api_key="configured-test-key",
+        databento_api_key=SecretStr("configured-test-key"),
         allow_paid_download=True,
         databento_max_estimated_cost_usd=Decimal("10"),
         scheduler_enabled=False,

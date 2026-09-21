@@ -17,6 +17,7 @@ from worldstate.ai_researcher import answer_question
 from worldstate.api.origins import LOCAL_BROWSER_ORIGINS
 from worldstate.api.v2.data_router import data_router, data_write_router
 from worldstate.api.v2.product_router import product_router
+from worldstate.api.v2.reasoning_router import reasoning_read_router, reasoning_write_router
 from worldstate.api.v2.schemas import (
     AssistantInput,
     ConsensusCsvInput,
@@ -1205,5 +1206,7 @@ async def context_assistant(
 
 # Data Foundation has public read routes and separately protected state-changing routes.
 router.include_router(product_router)
+router.include_router(reasoning_read_router)
+router.include_router(reasoning_write_router, dependencies=[Depends(require_write_access)])
 router.include_router(data_router)
 router.include_router(data_write_router, dependencies=[Depends(require_write_access)])

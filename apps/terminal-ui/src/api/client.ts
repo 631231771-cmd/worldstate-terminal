@@ -18,12 +18,14 @@ import type {
 } from "../types";
 import type { ConsensusCsvPreview, DatasetCapability, EventMinutePreview } from "../types/product";
 import { productApi } from "./product";
+import { reasoningApi } from "./reasoning";
 import { request } from "./transport";
 
 export { API_BASE, ApiError } from "./transport";
 
 export const api = {
   ...productApi,
+  ...reasoningApi,
   health: () =>
     request<{
       status: string;
