@@ -1121,7 +1121,7 @@ def test_databento_mappings_contract_cost_gates_and_dedupe() -> None:
         symbols=("GC",),
         start=_market_query().start,
         end=_market_query().end,
-        schema="ohlcv-1m",
+        schema_name="ohlcv-1m",
     )
     estimate = provider.estimate_cost(
         request,
@@ -1225,7 +1225,7 @@ async def test_databento_provider_metadata_estimate_does_not_download() -> None:
                 symbols=("GC",),
                 start=datetime(2024, 3, 12, 11, 0, tzinfo=UTC),
                 end=datetime(2024, 3, 12, 16, 30, tzinfo=UTC),
-                schema="ohlcv-1m",
+                schema_name="ohlcv-1m",
             )
         )
     assert estimate.source == "provider_metadata"

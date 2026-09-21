@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi.testclient import TestClient
 
 from worldstate.application.reasoning_service import list_playbooks
@@ -26,7 +28,7 @@ def _create_source(client: TestClient, *, data_mode: str = "observed") -> dict[s
         },
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    return cast(dict[str, object], response.json())
 
 
 def _extract_claim(client: TestClient, source_id: str) -> dict[str, object]:
@@ -42,7 +44,7 @@ def _extract_claim(client: TestClient, source_id: str) -> dict[str, object]:
         },
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    return cast(dict[str, object], response.json())
 
 
 def test_playbook_is_versioned_strict_and_competitive() -> None:
