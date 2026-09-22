@@ -16,6 +16,11 @@ versioned Playbook 同时比较能源供给冲击、需求加速、美元/流动
 falsifier 和 limitations，但不把跨资产共振写成唯一因果，也不输出伪概率。
 详见 [Macro Reasoning Engine v1](docs/macro/macro-reasoning-engine-v1.md)。
 
+官方证据扩展已接入 EIA、美国财政部、纽约联储和 CFTC 的免费导出。
+研究记忆中可更新证据并重新检查竞争解释；仓位风险与方向性证据分开。
+这些历史导出明确为 current-version/non-PIT，不是历史首次发布版本。
+真实数据范围与案例结果见 [Evidence Expansion v1](docs/macro/evidence-expansion-v1.md)。
+
 ### 2026-09-11 产品工作流重整（进行中）
 
 当前分支为 `feature/v0.7-terminal-rebuild`。主界面改为：

@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from worldstate.application.market_research_service import build_market_dashboard
+from worldstate.application.series_evidence import load_series_evidence, match_series
 from worldstate.application.world_state_service import build_world_state
 from worldstate.db.models import AuthorClaim, MechanismAssessment, ResearchSource
 from worldstate.reasoning.loader import load_playbook
@@ -254,8 +255,8 @@ def _market_rule(
         }
     timestamp = datetime.fromisoformat(str(item["timestamp"]).replace("Z", "+00:00"))
     age_days = max(0.0, (cutoff - _aware(timestamp)).total_seconds() / 86400)
-    raw_value = item.get("change_value") if item.get("change_unit") == "bp" else item.get(
-        "change_percent"
+    raw_value = (
+        item.get("change_value") if item.get("change_unit") == "bp" else item.get("change_percent")
     )
     observed = float(raw_value) if raw_value is not None else None
     base = {
@@ -363,8 +364,7 @@ def _macro_rule(
         actual = "up" if score > 0 else "down"
         state = "supporting" if actual == rule.expected_direction else "contradicting"
         statement = (
-            f"状态分数 {score:+.2f}，"
-            f"{'符合' if state == 'supporting' else '反对'}预设方向。"
+            f"状态分数 {score:+.2f}，{'符合' if state == 'supporting' else '反对'}预设方向。"
         )
     return {**base, "state": state, "statement": statement, "missing_reason": None}
 
@@ -375,14 +375,19 @@ def _step_result(
     dimensions: dict[str, dict[str, Any]],
     *,
     cutoff: datetime,
+    series: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     checks = [
         _market_rule(rule, markets, cutoff=cutoff)
         if rule.kind == "market"
+        else match_series(rule, series or {}, cutoff)
+        if rule.kind == "series"
         else _macro_rule(rule, dimensions, cutoff=cutoff)
         for rule in step.evidence_rules
     ]
-    states = {str(item["state"]) for item in checks}
+    states = {
+        str(item["state"]) for item in checks if item.get("role", "directional") == "directional"
+    }
     if "supporting" in states and "contradicting" in states:
         state = "mixed"
     elif "contradicting" in states:
@@ -410,9 +415,10 @@ def _evaluate_mechanism(
     dimensions: dict[str, dict[str, Any]],
     *,
     cutoff: datetime,
+    series: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     steps = [
-        _step_result(step, markets, dimensions, cutoff=cutoff)
+        _step_result(step, markets, dimensions, cutoff=cutoff, series=series)
         for step in definition.causal_chain
     ]
     supporting = sum(item["state"] == "supporting" for item in steps)
@@ -484,7 +490,7 @@ async def assess_author_claim(
         raise PermissionError("only a human-confirmed claim can be assessed")
     cutoff = _aware(as_of or datetime.now(UTC))
     playbook, playbook_hash = load_playbook()
-    if claim.mechanism_version != playbook.version:
+    if claim.mechanism_version not in {"1.0.0", playbook.version}:
         raise ValueError("the claim references a playbook version unavailable in this build")
     primary = _mechanism(playbook, claim.mechanism_key)
     mode = cast(DataMode, claim.data_mode)
@@ -497,8 +503,17 @@ async def assess_author_claim(
     }
     dimensions = dict(state_payload.get("dimensions") or {})
     selected = [primary, *[_mechanism(playbook, key) for key in primary.competing_mechanisms]]
+    series_keys = {
+        str(rule.series_key)
+        for item in selected
+        for step in item.causal_chain
+        for rule in step.evidence_rules
+        if rule.kind == "series"
+    }
+    series_data = await load_series_evidence(engine, series_keys, mode, cutoff)
     evaluations = [
-        _evaluate_mechanism(item, market_map, dimensions, cutoff=cutoff) for item in selected
+        _evaluate_mechanism(item, market_map, dimensions, cutoff=cutoff, series=series_data)
+        for item in selected
     ]
     relevant_market_keys = {
         key
@@ -515,6 +530,9 @@ async def assess_author_claim(
         if rule.dimension
     }
     input_snapshot = {
+        "series_evidence": series_data,
+        "playbook_definition": playbook.model_dump(mode="json"),
+        "matcher_version": "1.1.0",
         "claim": claim_payload,
         "source": {
             key: source_payload[key]
@@ -522,9 +540,7 @@ async def assess_author_claim(
         },
         "as_of": cutoff.isoformat(),
         "markets": {
-            key: market_map[key]
-            for key in sorted(relevant_market_keys)
-            if key in market_map
+            key: market_map[key] for key in sorted(relevant_market_keys) if key in market_map
         },
         "macro_dimensions": {
             key: dimensions[key] for key in sorted(relevant_dimensions) if key in dimensions
@@ -545,9 +561,7 @@ async def assess_author_claim(
             "as_of": cutoff.isoformat(),
             "data_mode": claim.data_mode,
             "mechanisms": evaluations,
-            "truthfulness_note": (
-                "状态表示证据与预设机制的一致性，不是因果证明，也不是概率。"
-            ),
+            "truthfulness_note": ("状态表示证据与预设机制的一致性，不是因果证明，也不是概率。"),
         },
     }
     now = datetime.now(UTC)

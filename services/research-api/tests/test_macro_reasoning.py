@@ -49,7 +49,7 @@ def _extract_claim(client: TestClient, source_id: str) -> dict[str, object]:
 
 def test_playbook_is_versioned_strict_and_competitive() -> None:
     playbook, digest = load_playbook()
-    assert playbook.version == "1.0.0"
+    assert playbook.version == "1.1.0"
     assert len(digest) == 64
     assert {item.key for item in playbook.mechanisms} == {
         "energy_supply_shock",
@@ -90,7 +90,7 @@ def test_source_claim_confirmation_and_reproducible_assessment(client: TestClien
     )
     assert review.status_code == 200, review.text
     assert review.json()["confirmed_by"] == "local_user"
-    assert review.json()["mechanism_version"] == "1.0.0"
+    assert review.json()["mechanism_version"] == "1.1.0"
 
     first = client.post(
         f"/v2/reasoning/claims/{claim['id']}/assessments",

@@ -12,7 +12,7 @@ from worldstate.reasoning.schema import MechanismPlaybook
 
 
 def playbook_path() -> Path:
-    return Path(str(files("worldstate.reasoning").joinpath("playbooks/macro_reasoning_v1.yaml")))
+    return Path(str(files("worldstate.reasoning").joinpath("playbooks/macro_reasoning_v1_1.yaml")))
 
 
 def load_playbook() -> tuple[MechanismPlaybook, str]:

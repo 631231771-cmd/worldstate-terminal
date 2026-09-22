@@ -2,6 +2,9 @@ import type { AuthorClaim, MechanismAssessment, ReasoningCase, ReasoningPlaybook
 import { request } from "./transport";
 
 export const reasoningApi = {
+  syncReasoningEvidence: () => request<{ items: Array<{ dataset: string; status: string; inserted?: number }> }>(
+    "/v2/reasoning/evidence/sync", { method: "POST" }, [], 240_000,
+  ),
   reasoningPlaybooks: () => request<{ items: ReasoningPlaybook[]; policy: string }>("/v2/reasoning/playbooks"),
   reasoningCases: () => request<ReasoningCase[]>("/v2/reasoning/cases?data_mode=observed"),
   createResearchSource: (payload: {

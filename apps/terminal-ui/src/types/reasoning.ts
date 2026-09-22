@@ -38,6 +38,11 @@ export interface ResearchSource {
 }
 
 export interface EvidenceCheck {
+  role?: "directional" | "risk" | "context";
+  source_url?: string | null;
+  point_in_time?: boolean;
+  limitation?: string;
+  sample_count?: number;
   rule_key: string;
   label: string;
   state: EvidenceState;

@@ -8,6 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
+from worldstate.application.official_evidence_service import sync_official_evidence
 from worldstate.application.reasoning_service import (
     assess_author_claim,
     create_research_source,
@@ -19,6 +20,11 @@ from worldstate.application.reasoning_service import (
 
 reasoning_read_router = APIRouter(prefix="/reasoning", tags=["reasoning"])
 reasoning_write_router = APIRouter(prefix="/reasoning", tags=["reasoning"])
+
+
+@reasoning_write_router.post("/evidence/sync")
+async def evidence_sync(request: Request) -> dict[str, object]:
+    return await sync_official_evidence(request.app.state.database_engine)
 
 
 class StrictModel(BaseModel):
@@ -67,9 +73,7 @@ async def cases(
 
 
 @reasoning_write_router.post("/sources", status_code=201)
-async def source_create(
-    payload: ResearchSourceInput, request: Request
-) -> dict[str, object]:
+async def source_create(payload: ResearchSourceInput, request: Request) -> dict[str, object]:
     return await create_research_source(
         request.app.state.database_engine,
         title=payload.title,

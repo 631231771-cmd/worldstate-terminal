@@ -1,6 +1,27 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-09-21
+Updated: 2026-09-22
+
+### September 21 Evidence Expansion v1
+
+- Official free exports now feed existing Series/Observation → reasoning evidence:
+  EIA, Treasury, NY Fed, CFTC. Runtime acquisition: 36 series, 5,393 observed rows,
+  seven raw artifacts. No new key, migration, fixture substitution or CPI mutation.
+- All new history is current-version/non-PIT, available only at actual acquisition.
+  Playbook 1.1.0 adds physical oil, nominal/real yields, funding context and COT risk.
+  Risk/background checks do not vote for the directional chain. Old assessments remain immutable.
+- Research Memory has an explicit official-evidence refresh and per-check details;
+  no new dashboard/workspace. Six-hour persistent refresh cache; no new scheduler.
+- Real rerun `a8f56f08-d2c7-4379-a955-edb50eff0f82`: supply shock mixed (3/6),
+  demand has greater directional consistency, gold/USD price gaps remain. COT gold
+  ~95th percentile is a risk marker, not a directional forecast or institutional motive.
+- Method, acquisition counts, exact result and remaining gaps:
+  `docs/macro/evidence-expansion-v1.md`. Earlier slice results below are historical snapshots.
+- September 22 actual Windows production WebView validated sync + reassessment:
+  `a0552cbb-040d-45e9-a8a8-933373345828`. Latest curves reverse the rates evidence:
+  2Y unchanged, 10Y -5bp, real10Y -6bp; supply chain remains mixed, 2/6 continuous.
+  10,796 acquisition-vintage rows represent 5,403 distinct series-period points,
+  not 10,796 independent samples. Python 241 tests, Ruff/mypy and native UI checked.
 
 ### September 21 Macro Reasoning vertical slice
 

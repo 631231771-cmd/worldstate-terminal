@@ -12,7 +12,11 @@ class EvidenceRule(BaseModel):
 
     key: str = Field(pattern=r"^[a-z0-9_]+$")
     label: str = Field(min_length=1)
-    kind: Literal["market", "macro_dimension"]
+    kind: Literal["market", "macro_dimension", "series"]
+    series_key: str | None = None
+    transform: Literal["change", "level", "percentile"] = "change"
+    role: Literal["directional", "risk", "context"] = "directional"
+    minimum_samples: int = Field(default=104, ge=20)
     market_keys: list[str] = Field(default_factory=list)
     dimension: str | None = None
     expected_direction: Literal["up", "down"]
@@ -26,6 +30,8 @@ class EvidenceRule(BaseModel):
             raise ValueError("market evidence requires market_keys")
         if self.kind == "macro_dimension" and not self.dimension:
             raise ValueError("macro dimension evidence requires dimension")
+        if self.kind == "series" and not self.series_key:
+            raise ValueError("series evidence requires series_key")
         return self
 
 

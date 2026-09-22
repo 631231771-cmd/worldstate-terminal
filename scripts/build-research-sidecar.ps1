@@ -95,7 +95,7 @@ if (-not $SkipSmoke) {
     Copy-Item -Path (Join-Path $builtRoot "*") -Destination $SmokeInstall -Recurse -Force
     $SmokeExe = Join-Path $SmokeInstall "worldstate-research-api.exe"
     $FrozenCatalog = Join-Path $SmokeInstall "_internal\data\macro"
-    $FrozenPlaybook = Join-Path $SmokeInstall "_internal\worldstate\reasoning\playbooks\macro_reasoning_v1.yaml"
+    $FrozenPlaybook = Join-Path $SmokeInstall "_internal\worldstate\reasoning\playbooks\macro_reasoning_v1_1.yaml"
     & $Python -c "import sys; from pathlib import Path; from worldstate.provider_kit.catalog import load_catalog; rows=load_catalog(Path(sys.argv[1])); assert rows; print('Frozen catalog validated:', len(rows), 'series')" $FrozenCatalog
     if ($LASTEXITCODE -ne 0) { throw "Frozen sidecar macro catalog is missing or invalid" }
     if (-not (Test-Path -LiteralPath $FrozenPlaybook)) { throw "Frozen sidecar reasoning playbook is missing" }
@@ -135,7 +135,7 @@ if (-not $SkipSmoke) {
             }
         }
         $playbooks = Invoke-RestMethod -Uri "http://127.0.0.1:8765/v2/reasoning/playbooks" -TimeoutSec 5
-        if ($playbooks.items.Count -lt 1 -or $playbooks.items[0].version -ne "1.0.0") {
+        if ($playbooks.items.Count -lt 1 -or $playbooks.items[0].version -ne "1.1.0") {
             throw "Frozen sidecar reasoning playbook smoke failed"
         }
     } finally {
