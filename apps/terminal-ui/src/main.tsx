@@ -5,5 +5,6 @@ import "./styles/charts.css";
 import "./styles/components.css";
 import "./styles/events.css";
 import "./styles/intelligence.css";
+import "./styles/market-desk.css";
 
 render(<App />, document.getElementById("app")!);

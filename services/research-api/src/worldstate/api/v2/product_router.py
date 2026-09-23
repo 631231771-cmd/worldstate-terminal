@@ -15,6 +15,7 @@ from worldstate.api.v2.schemas import (
     ProductMarketsResponse,
     ProductTodayResponse,
 )
+from worldstate.application.market_workbench_service import OfficialHeadlines, market_factors
 from worldstate.application.product_projection_service import (
     build_country_projection,
     build_event_detail_projection,
@@ -33,6 +34,17 @@ product_router = APIRouter(prefix="/product", tags=["product"])
 async def product_quotes(request: Request) -> QuotesResponse:
     service: QuoteService = request.app.state.quote_service
     return await service.read()
+
+
+@product_router.get("/headlines")
+async def product_headlines(request: Request) -> dict[str, object]:
+    service: OfficialHeadlines = request.app.state.official_headlines
+    return await service.read()
+
+
+@product_router.get("/factors/{asset}")
+async def product_factors(asset: str, request: Request) -> dict[str, object]:
+    return await market_factors(request.app.state.database_engine, asset)
 
 
 def _requested_data_mode(request: Request, explicit: DataMode | None) -> DataMode:

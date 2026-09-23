@@ -86,6 +86,25 @@ export interface ProductMarketItem {
   };
 }
 
+export interface DisplayQuote {
+  key: string; label: string; symbol: string; kind: string; unit: string;
+  price: number | null; change: number | null; change_unit: string;
+  quoted_at: string | null; retrieved_at: string | null; delay_minutes: number | null;
+  status: "indicative" | "delayed" | "stale" | "unavailable";
+  error: string | null; source_url: string; limitation: string;
+  points: Array<{ time: string; value: number }>;
+}
+export interface WorkbenchFactor {
+  label: string; series_key: string; value: number | null; previous_value: number | null;
+  unit: string | null; frequency: string | null; period: string | null;
+  available_at: string | null; source_url: string | null;
+  observed: boolean; proxy: boolean; point_in_time: boolean; limitation: string | null;
+}
+export interface OfficialHeadline {
+  title: string; url: string; source: string; topic: string;
+  published_at: string; retrieved_at: string;
+}
+
 export interface ProductCountry {
   key: string;
   label: string;

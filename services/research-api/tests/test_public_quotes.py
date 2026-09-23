@@ -43,7 +43,7 @@ async def test_cache_bounds_calls_and_preserves_timestamp_on_failure() -> None:
         fetch.return_value = good
         await service.read()
         await service.read()
-        assert fetch.call_count == 8
+        assert fetch.call_count == len(empty_quotes())
         service.next_refresh = 0
         fetch.side_effect = ValueError("offline")
         response = await service.read()

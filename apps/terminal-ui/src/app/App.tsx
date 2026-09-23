@@ -44,7 +44,7 @@ function SeriesDrawerContent({ data }: { data: Record<string, unknown> }) {
 
 import { useReadModel } from "./useReadModel";
 import { NAV, parseRoute, preferredRelease, type ProductView } from "./navigation";
-import { RadarWorkspace } from "../workspaces/intelligence/RadarWorkspace";
+import { MarketDeskWorkspace } from "../workspaces/intelligence/MarketDeskWorkspace";
 import { MarketInvestigation } from "../workspaces/intelligence/MarketInvestigation";
 import { MemoryWorkspace } from "../workspaces/intelligence/MemoryWorkspace";
 
@@ -155,14 +155,14 @@ export function App() {
   const refreshCurrent=()=>{if(view==="today"){markets.refresh();events.refresh();}else if(view==="markets")markets.refresh();else if(view==="macro")macro.refresh();else{events.refresh();eventDetail.refresh();}};
 
   return <div class={collapsed?"terminal-shell intelligence-shell terminal-shell--collapsed":"terminal-shell intelligence-shell"}>
-    <aside class="sidebar"><div class="brand"><div class="brand__mark">W</div><div><strong>WorldState</strong><span>Personal intelligence</span></div></div><button type="button" class="shell-toggle" aria-label="收起侧栏" onClick={()=>toggle("worldstate.sidebar_collapsed",collapsed,setCollapsed)}>{collapsed?"→":"←"}</button>
+    <aside class="sidebar"><div class="brand"><div class="brand__mark" aria-hidden="true">W</div><div class="brand__wordmark"><strong>WorldState</strong></div></div><button type="button" class="shell-toggle" aria-label="收起侧栏" onClick={()=>toggle("worldstate.sidebar_collapsed",collapsed,setCollapsed)}>{collapsed?"→":"←"}</button>
       <nav aria-label="主导航">{NAV.map((n,i)=><button type="button" key={n.key} title={n.label} class={view===n.key||(n.key==="markets"&&view==="macro")?"nav-item nav-item--active":"nav-item"} onClick={()=>navigate(n.key)}><span class="nav-item__index">0{i+1}</span><span><strong>{n.label}</strong><small>{n.note}</small></span></button>)}</nav>
-      <div class="shell-footer"><span>事件 → 定价 → 证据</span><button type="button" class="mode-toggle" onClick={()=>setToolsOpen(v=>!v)} aria-expanded={toolsOpen}>工具与设置</button>{toolsOpen?<div class="tools-menu"><button type="button" onClick={()=>navigate("data-control")}>数据源与连接</button><button type="button" onClick={()=>navigate("data-methods")}>方法与研究详情</button><button type="button" onClick={()=>toggle("worldstate.advanced_mode",advancedMode,setAdvancedMode)}>{advancedMode?"关闭高级模式":"开启高级模式"}</button></div>:null}</div>
+      <div class="shell-footer"><button type="button" class="mode-toggle" aria-label="工具与设置" title="工具与设置" onClick={()=>setToolsOpen(v=>!v)} aria-expanded={toolsOpen}><span class="shell-footer__full">工具与设置</span><span class="shell-footer__short" aria-hidden="true">···</span></button>{toolsOpen?<div class="tools-menu"><button type="button" onClick={()=>navigate("data-control")}>数据源与连接</button><button type="button" onClick={()=>navigate("data-methods")}>方法与研究详情</button><button type="button" onClick={()=>toggle("worldstate.advanced_mode",advancedMode,setAdvancedMode)}>{advancedMode?"关闭高级模式":"开启高级模式"}</button></div>:null}</div>
     </aside>
     <main class="main" ref={mainRef}><header class="topbar"><strong>{pageTitle}</strong><div class="topbar__status"><button type="button" class="shell-command" onClick={()=>setCommandOpen(true)}>搜索市场、事件、序列 <kbd>Ctrl K</kbd></button><button type="button" class={learningMode?"mode-toggle mode-toggle--active":"mode-toggle"} onClick={()=>toggle("worldstate.learning_mode",learningMode,setLearningMode)}>{learningMode?"学习：开":"学习"}</button>{advancedMode?<Badge>高级</Badge>:null}<button type="button" class="mode-toggle" onClick={refreshCurrent}>刷新</button><span class={health?.database.status==="ok"?"connection-indicator ready":"connection-indicator"} title={serviceError??"服务状态不代表行情实时性"}>{health?.database.status==="ok"?"服务已连接":serviceError?"离线 · 保留记录":"连接中"}</span></div></header>
     <WorkspaceBoundary key={view}>
-      {view==="today"||view==="markets"?<QuoteBoard/>:null}
-      {view==="today"?<><ReadStatus label="市场" resource={markets} advanced={advancedMode}/><ReadStatus label="事件" resource={events} advanced={advancedMode}/><RadarWorkspace markets={marketList} events={releases} onEvent={openEvent} onData={()=>navigate("data-control")} advanced={advancedMode} learningMode={learningMode}/></>:null}
+      {view==="markets"?<QuoteBoard/>:null}
+      {view==="today"?<><ReadStatus label="市场" resource={markets} advanced={advancedMode}/><ReadStatus label="事件" resource={events} advanced={advancedMode}/><MarketDeskWorkspace markets={marketList} events={releases} onEvent={openEvent} onData={()=>navigate("data-control")} advanced={advancedMode}/></>:null}
       {view==="markets"||view==="macro"?<div class="context-navigation tabs-bar"><button type="button" class={view==="markets"?"active":""} onClick={()=>navigate("markets")}>跨资产市场</button><button type="button" class={view==="macro"?"active":""} onClick={()=>navigate("macro")}>全球宏观环境</button></div>:null}
       {view==="markets"?<><ReadStatus label="市场" resource={markets} advanced={advancedMode}/>{markets.data?<MarketsBoard items={marketList} onOpen={openMarket}/>:null}</>:null}
       {view==="macro"?<><ReadStatus label="宏观环境" resource={macro} advanced={advancedMode}/>{macro.data?<MacroBoard data={macro.data} selectedCountryKey={selectedCountryKey} learningMode={learningMode} onOpenCountry={openCountry}/>:null}</>:null}

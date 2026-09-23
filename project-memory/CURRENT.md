@@ -1,6 +1,31 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-09-22
+Updated: 2026-09-23
+
+### September 23 Market Desk experience checkpoint
+
+- Default page is now a single market workbench: watchlist, quote/chart, linked
+  official observations, Federal Reserve/EIA public headlines and calendar.
+  Gold and oil change the centre pane directly; Research remains optional.
+- Expanded display-only public quote coverage to CL/ES/NQ/BTC/DXY. Spot gold/silver
+  remain indicative; futures are delayed continuous public symbols, not verified
+  contracts or event-research bars. The local MT5 package was present but no
+  terminal session responded, so MT5 is not presented as an active feed.
+- Factors read only persisted observed Series/Observation with source, period and
+  frequency. Oil includes EIA stocks, production, imports, exports, products
+  supplied (proxy), and refinery utilization. The page kicks off the existing
+  six-hour-cached official evidence sync in the background, not a new scheduler.
+- The native Windows release window was built and opened against the existing
+  local Research API/runtime database. Actual Gold/Oil switching, official
+  factor/news display and calendar were inspected. This was **not** a bundled
+  sidecar cold-start verification. The user accepted this first-look direction.
+  The sidebar slogan and decorative brand were removed; the desktop release
+  window was rebuilt and reopened on September 23.
+- ATAS/Rithmic feasibility: official ATAS custom indicators can access trades
+  and best bid/ask without a second Rithmic login. However, the trial's right
+  to export data into WorldState is not confirmed, and ATAS was not running
+  during the check. No bridge was installed and no live futures feed is claimed.
+  Details: `docs/data/atas-rithmic-feasibility.md`.
 
 ### September 21 Evidence Expansion v1
 

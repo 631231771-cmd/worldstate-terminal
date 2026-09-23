@@ -1,9 +1,12 @@
-import type { ProductCountryDetail, ProductEventDetail, ProductEventsResponse, ProductMacroResponse, ProductMarketsResponse, ProductTodayResponse } from "../types/product";
+import type { DisplayQuote, OfficialHeadline, ProductCountryDetail, ProductEventDetail, ProductEventsResponse, ProductMacroResponse, ProductMarketsResponse, ProductTodayResponse, WorkbenchFactor } from "../types/product";
 import { request } from "./transport";
 
 export type ProductDataMode = "observed" | "fixture" | "all";
 
 export const productApi = {
+  productQuotes: () => request<{as_of:string;refresh_seconds:number;items:DisplayQuote[]}>("/v2/product/quotes", undefined, [], 20_000),
+  productHeadlines: () => request<{as_of:string;items:OfficialHeadline[];source_scope:string}>("/v2/product/headlines", undefined, [], 30_000),
+  productFactors: (asset:string) => request<{asset:string;as_of:string;items:WorkbenchFactor[]}>(`/v2/product/factors/${encodeURIComponent(asset)}`),
   productToday: (dataMode: ProductDataMode = "observed") =>
     request<ProductTodayResponse>(`/v2/product/today?data_mode=${dataMode}`, undefined, [], 45_000),
   productMarkets: (dataMode: ProductDataMode = "observed") =>

@@ -1,7 +1,7 @@
 import type { ReleaseSummary } from '../types';
 export type ProductView = 'today'|'events'|'markets'|'macro'|'research'|'data-control'|'data-methods';
 export const NAV = [
-  {key:'today' as const,label:'雷达',note:'变化与解释'},
+  {key:'today' as const,label:'市场工作台',note:'行情 · 信息 · 日历'},
   {key:'events' as const,label:'事件台',note:'预期到反应'},
   {key:'markets' as const,label:'市场脉络',note:'跨资产与宏观'},
   {key:'research' as const,label:'研究记忆',note:'复盘与判断'},

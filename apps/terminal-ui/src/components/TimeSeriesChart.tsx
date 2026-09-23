@@ -15,7 +15,7 @@ const HORIZON_DAYS: Record<ChartHorizon, number> = {
   "1y": 367,
 };
 
-export function TimeSeriesChart({ points, horizon, intraday = false }: { points: ChartPoint[]; horizon: ChartHorizon; intraday?: boolean }) {
+export function TimeSeriesChart({ points, horizon, intraday = false, height = 270 }: { points: ChartPoint[]; horizon: ChartHorizon; intraday?: boolean; height?: number }) {
   const container = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState<{ time: string; value: number } | null>(null);
   const visible = useMemo(() => {
@@ -32,7 +32,7 @@ export function TimeSeriesChart({ points, horizon, intraday = false }: { points:
     if (!container.current || !visible.length) return;
     const chart = createChart(container.current, {
       autoSize: true,
-      height: 270,
+      height,
       layout: {
         background: { type: ColorType.Solid, color: "#0d1216" },
         textColor: "#84909a",
@@ -77,7 +77,7 @@ export function TimeSeriesChart({ points, horizon, intraday = false }: { points:
       setHovered({ time: intraday ? timestamp.toLocaleString("zh-CN") : timestamp.toLocaleDateString("zh-CN"), value: value.value });
     });
     return () => chart.remove();
-  }, [visible, intraday]);
+  }, [visible, intraday, height]);
 
   if (!visible.length) return <div class="chart-empty">当前区间没有可绘制的连续观测。</div>;
   const latestPoint = visible.at(-1)!;
@@ -87,7 +87,7 @@ export function TimeSeriesChart({ points, horizon, intraday = false }: { points:
   };
   return <div class="timeseries-chart">
     <div class="timeseries-chart__tooltip"><span>{latest.time}</span><strong>{latest.value.toLocaleString("zh-CN", { maximumFractionDigits: 4 })}</strong></div>
-    <div class="timeseries-chart__canvas" ref={container} />
+    <div class="timeseries-chart__canvas" ref={container} style={{height: `${height}px`}} />
     <small class="timeseries-chart__credit">Charts by TradingView Lightweight Charts™</small>
   </div>;
 }
