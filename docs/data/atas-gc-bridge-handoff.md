@@ -4,6 +4,15 @@
 
 ## 本次执行结果与下一步
 
+最终进展（同日 15:13 左右）：已在现有 GCZ6 图表底部状态栏找到并点击
+指标库重载，ATAS 提示更新成功。Indicators 搜索 `WorldState` 后添加并启用
+`WorldState Bridge (GC)`。新实例日志记录 `accepted GC root`、socket
+connected、真实 Trade callback accepted、snapshot sent；API 返回实时价格、
+bid/ask 和 1m OHLCV。ATAS 图表和 API 近同时均显示 4316.8；WorldState
+市场工作台也已显示“ATAS 本机实时 · 仅展示”和“合约月份未核验”。10 秒观察中连接
+保持、接收时间持续更新。GC UI-only 路径已接通。仍未核验真实月份、试用授权、
+断线重连；不能将该流写入事件研究。无需再请用户重开图表或重导 DLL。
+
 后续修正（同日）：用户确认当前图表本来就是 GCZ6，不再要求另开图表。
 公开指标 SDK 对此图仍只返回 `GC`。桥接现允许它作为**仅供工作台展示**的
 未核验月份报价，协议中 `contract=null`、`source_symbol=GC`，UI 明示

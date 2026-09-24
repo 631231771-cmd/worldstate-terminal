@@ -1,7 +1,7 @@
 # ATAS local GC bridge PoC
 
-Status: root-only display correction imported, but the running ATAS indicator
-has not reloaded; **live quote path not yet validated** (2026-09-24).
+Status: root-only display quote received and rendered in Market Desk on
+2026-09-24; dated contract identity and entitlement remain unverified.
 This is an optional UI-only experiment, not an activated research provider.
 
 ## Scope and safety
@@ -78,12 +78,18 @@ operational quote only. Do not hardcode the toolbar month or relabel undated
 data as a verified contract.
 
 At 14:36 the new DLL was backed up and copied into ATAS's Indicators directory;
-ATAS logged `Changed library` but no new indicator initialization. The existing
-indicator must be reloaded once on the **same** chart before live acceptance
-can be tested. WorldState API is healthy on the existing database, but the
-latest bridge state is still `enabled=true, connected=false, quote=null`.
-The main-window computer-use surface is unavailable, so no coordinate-based
-indicator action was attempted. This does not validate a live quote.
+ATAS logged `Changed library` but the active instance did not reload itself.
+Later the main-window bottom-right indicator-reload icon successfully refreshed
+the library. Searching `WorldState` in the existing GC chart's Indicators
+dialog found the bridge; it was added, enabled and applied. The new diagnostic
+instance logged `accepted GC root`, connected WebSocket, real Trade callback
+and snapshot sent. API `/v2/product/live-gc` showed a current live quote,
+bid/ask and 1m OHLCV. ATAS's displayed 4316.8 matched the API's 4316.8 in a
+near-contemporaneous check; Market Desk then visibly switched to the local
+quote with an unverified-month label. Over 10 seconds the connection remained
+up and receipt timestamps advanced. This validates the **UI-only operational
+path**, not a dated contract identity, market-data redistribution rights or
+reconnect handling. No historical/event data were imported.
 
 The remaining paragraphs describe the earlier observations leading to that
 diagnosis. Updated task prompt: `docs/data/atas-gc-bridge-handoff.md`.

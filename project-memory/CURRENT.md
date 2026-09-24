@@ -2,6 +2,26 @@
 
 Updated: 2026-09-24
 
+### September 24 ATAS GC bridge live acceptance
+
+- ATAS's bottom-right status icon successfully reloaded indicator libraries.
+  In the existing `#GCZ6` chart, searched `WorldState`, added the updated
+  `WorldState Bridge (GC)`, enabled its local bridge and applied it. The user
+  chart and Rithmic login/settings were not changed.
+- Real indicator diagnostics show `accepted GC root`, WebSocket connected,
+  real Trade callback accepted, and snapshot sent. `/v2/product/live-gc`
+  reported connected with live price/bid/ask/1m OHLCV; ATAS chart and API
+  both displayed 4316.8 in a near-contemporaneous check. Market Desk visibly
+  switched from public reference to `ATAS 本机实时 · 仅展示` and displayed the
+  unverified contract month. The API received fresh snapshots throughout a
+  10-second observation; ATAS stayed running and showed no measured CPU
+  increase at the coarse process-sample resolution.
+- This validates the UI-only operational quote path, **not** a dated GCZ6
+  contract feed, trial data export entitlement, reconnect recovery, or strict
+  event-research suitability. `contract_code=null` and
+  `event_research_eligible=false`; no quote is persisted to MarketDataManifest
+  or AnalysisRun. Keep those boundaries until separately verified.
+
 ### September 24 GC root-only display bridge correction
 
 - The user confirmed the existing chart is already GCZ6; do not ask them to
