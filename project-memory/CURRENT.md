@@ -2,6 +2,26 @@
 
 Updated: 2026-09-24
 
+### September 24 GC root-only display bridge correction
+
+- The user confirmed the existing chart is already GCZ6; do not ask them to
+  open another chart. The indicator SDK still provides only `GC`, not the
+  dated contract. WorldState now accepts that root only for an ephemeral,
+  opt-in, UI-only quote with `contract_code=null` and an explicit unverified-
+  month label. No inferred GCZ6 identity, research-bar import, or AnalysisRun.
+- Backend, UI and bridge changes build/test (six focused bridge tests). The
+  imported DLL was backed up under ignored `.runtime` and replaced. ATAS
+  detected the file change at 14:36 but did not reinstantiate its running
+  indicator. API was restarted on the existing database (`database=ok`),
+  `enabled=true`; as of that check `connected=false, quote=null`. This is
+  **not a validated live feed**. The ATAS main-window computer-use surface is
+  unavailable; the next action is reloading the bridge indicator on the
+  *existing* chart, then checking a real quote and timestamps. No ATAS login,
+  Rithmic setting, or research table was changed.
+- Existing local launcher config had an empty `OLLAMA_BASE_URL`, which current
+  settings validation rejects. Set it to the normal loopback Ollama URL and
+  corrected the launcher's default so WorldState restarts cleanly.
+
 ### September 24 bridge diagnosis handoff
 
 - User requested GPT-6-Sol to take over the bounded GC bridge diagnosis.

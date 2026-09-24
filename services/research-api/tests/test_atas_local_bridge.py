@@ -72,6 +72,14 @@ def test_websocket_end_to_end_loopback_only(client: TestClient) -> None:
             assert response.json()["connected"]
             assert response.json()["quote"]["symbol"] == "GCZ6"
             assert not response.json()["quote"]["event_research_eligible"]
+            root_only = payload()
+            root_only["contract"] = None
+            root_only["source_symbol"] = "GC"
+            socket.send_text(json.dumps(root_only))
+            response = loopback_client.get("/v2/product/live-gc")
+            assert response.json()["quote"]["symbol"] == "GC"
+            assert response.json()["quote"]["contract_code"] is None
+            assert not response.json()["quote"]["event_research_eligible"]
         assert not loopback_client.get("/v2/product/live-gc").json()["connected"]
     finally:
         service.enabled = False
@@ -92,6 +100,13 @@ def test_reject_ambiguous_and_non_gc_contracts() -> None:
     wrong_source["source_symbol"] = "#GCG7"
     with pytest.raises(ValidationError, match="source symbol"):
         AtasChartSnapshot.model_validate(wrong_source)
+    unverified = payload()
+    unverified["contract"] = None
+    unverified["source_symbol"] = "GC"
+    assert AtasChartSnapshot.model_validate(unverified).contract is None
+    unverified["source_symbol"] = "#GCZ6"
+    with pytest.raises(ValidationError, match="retain its GC root"):
+        AtasChartSnapshot.model_validate(unverified)
 
 
 async def test_live_quote_normalizes_without_research_eligibility() -> None:
@@ -135,3 +150,21 @@ async def test_reject_replayed_snapshot_and_isolate_contract_change() -> None:
     assert result.quote is not None
     assert result.quote.symbol == "GCG7"
     assert len(result.quote.points) == 1  # no spliced contract history
+
+
+async def test_undated_sdk_identity_stays_unverified_and_display_only() -> None:
+    service = LiveQuoteService(enabled=True)
+    connection = await service.connect()
+    raw = payload()
+    raw["contract"] = None
+    raw["source_symbol"] = "GC"
+    await service.ingest(connection, AtasChartSnapshot.model_validate(raw))
+    result = await service.read()
+    assert result.connected
+    assert result.quote is not None
+    assert result.quote.status == "live"
+    assert result.quote.symbol == "GC"
+    assert result.quote.contract_code is None
+    assert result.quote.source_symbol == "GC"
+    assert "月份未核验" in result.quote.label
+    assert not result.quote.event_research_eligible

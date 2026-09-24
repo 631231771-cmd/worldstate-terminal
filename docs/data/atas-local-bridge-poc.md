@@ -1,6 +1,7 @@
 # ATAS local GC bridge PoC
 
-Status: corrected DLL imported and indicator enabled, **live quote path not yet validated** (2026-09-24).
+Status: root-only display correction imported, but the running ATAS indicator
+has not reloaded; **live quote path not yet validated** (2026-09-24).
 This is an optional UI-only experiment, not an activated research provider.
 
 ## Scope and safety
@@ -12,13 +13,15 @@ This is an optional UI-only experiment, not an activated research provider.
 - API binds `127.0.0.1`; the WebSocket rejects non-loopback peers and browser
   Origins. The indicator has a literal loopback URL. It does not use Rithmic
   credentials or create a second login. No cloud endpoint or file export.
-- Only a concrete GC chart **month** is accepted (`GCZ6`, for example), not
-  an undated continuous alias. ATAS may display `#GCZ6` on a continuous chart:
-  the bridge preserves that exact `source_symbol` and identifies the current
-  month as `GCZ6`, while the UI discloses the chart mode. If ATAS rolls the
-  chart while the indicator is attached, sending stops rather than relabeling
-  old observations. Exchange is included only when ATAS provides it. Trades
-  and best bid/ask retain distinct SDK callbacks.
+- A concrete SDK GC contract (`GCZ6`, for example) is preserved if available.
+  On the user's existing `#GCZ6` chart the public indicator SDK instead returns
+  only `GC`. For this case the bridge may emit **UI-only** root identity:
+  `source_symbol=GC`, `contract=null`. The workbench prominently marks the
+  contract month unverified; it must not infer `GCZ6` from the toolbar or use
+  the quote for event research. With only root identity, a chart roll cannot
+  be distinguished by the SDK, so even the in-memory graph is not a verified
+  single-contract series. Exchange is included only when ATAS provides it.
+  Trades and best bid/ask retain distinct SDK callbacks.
 - Only the latest trade/size, best bid/ask and an in-memory 1m OHLCV accumulator
   are sent at most once per second. There is no DOM, MBO, footprint, delta,
   iceberg, order routing or historical tick export. Disconnect marks the quote
@@ -39,8 +42,9 @@ dotnet build apps/atas-local-bridge/WorldStateBridge.csproj -p:AtasHome='E:\ATAS
 
 The output is `apps/atas-local-bridge/bin/Debug/net10.0-windows/WorldStateBridge.dll`.
 ATAS's official Indicators window can load a custom DLL into the current chart.
-Select a *specific* GC contract; do not select a synthetic continuous chart.
-Enable the indicator's local bridge property only after confirming the GC chart.
+Use the existing GC chart; do not reopen another chart merely to obtain a
+dated SDK identity. Enable the indicator's local bridge property only after
+confirming it is a GC chart. Root-only data remain unverified display data.
 Do not restart ATAS or change its Rithmic connection merely for this step.
 
 Start the WorldState Research API with `ATAS_LIVE_BRIDGE_ENABLED=1` in **its
@@ -49,7 +53,8 @@ already running does nothing. The Desktop passes inherited environment to its
 child API, but if an older API already owns port 8000 it must be stopped and
 restarted normally. Never stop a working session without checking it first.
 `GET /v2/product/live-gc` reports enabled/connected/last-seen state; the
-Market Desk shows `GC <contract>`, bid/ask, event/receive clocks and current
+Market Desk shows a verified `GC <contract>` when available, otherwise a clear
+unverified-month label, plus bid/ask, event/receive clocks and current
 1m OHLCV only while the quote is fresh. With the gate off, the page is unchanged.
 
 ## Validation boundary and handoff (2026-09-24)
@@ -67,10 +72,18 @@ earlier assembly warning does not explain this instance's failure to connect.
 
 An independent .NET ClientWebSocket empty handshake with the real running
 receiver succeeded and temporarily produced `connected=true`. No fabricated
-market values were sent. The receiver and opt-in gate work; a genuine dated
-contract identifier still needs to be obtained through the official SDK or an
-explicit dated chart before the current bridge protocol can start. Do not
-hardcode the toolbar month or relabel undated data as a verified contract.
+market values were sent. The receiver and opt-in gate work. The later
+root-only display correction removes the dated-ID requirement for this
+operational quote only. Do not hardcode the toolbar month or relabel undated
+data as a verified contract.
+
+At 14:36 the new DLL was backed up and copied into ATAS's Indicators directory;
+ATAS logged `Changed library` but no new indicator initialization. The existing
+indicator must be reloaded once on the **same** chart before live acceptance
+can be tested. WorldState API is healthy on the existing database, but the
+latest bridge state is still `enabled=true, connected=false, quote=null`.
+The main-window computer-use surface is unavailable, so no coordinate-based
+indicator action was attempted. This does not validate a live quote.
 
 The remaining paragraphs describe the earlier observations leading to that
 diagnosis. Updated task prompt: `docs/data/atas-gc-bridge-handoff.md`.
@@ -107,15 +120,15 @@ instrument identifier failing the strict dated-contract guard, or WebSocket
 startup. The current indicator swallows socket exceptions to protect ATAS, so
 the three cases are not yet distinguishable from the API response alone.
 
-Next model: do not ask the user to re-import again or blame delayed data.
-First add minimal, local-only diagnostics for indicator load/contract guard/
-socket connection without logging credentials, trade history or sensitive
-account details; then rebuild and verify how ATAS reloads that revision before
-touching the chart. Check ATAS's own log and `/v2/product/live-gc` after one
-controlled Apply. Only if `connected=true` and a fresh quote arrives, compare
-contract, price, bid/ask, event/receive timestamps, 1m OHLCV, reconnect and
-ATAS stability. The UI helper intermittently reports the main ATAS window
-outside the captured monitor; stop unsafe coordinate input when that occurs.
+Next: do not ask the user to open another GC chart or blame delayed data.
+Diagnostics and the root-only display correction are built and copied, but
+ATAS has not reloaded the active indicator instance. Reload that one indicator
+on the existing chart once; then check its diagnostic log and
+`/v2/product/live-gc`. Only if `connected=true` and a fresh quote arrives,
+compare the displayed price, bid/ask, event/receive timestamps, 1m OHLCV,
+reconnect and ATAS stability. The contract month is **not** verified from
+the indicator SDK. The current computer-use surface cannot operate the ATAS
+main window; stop unsafe coordinate input rather than guessing.
 
 ## References and reuse
 

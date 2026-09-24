@@ -49,7 +49,8 @@ class LiveQuoteService:
             if self._connection != connection:
                 raise ValueError("ATAS bridge connection is no longer active")
             previous = self._quote
-            if previous and previous.symbol != snapshot.contract:
+            display_symbol = snapshot.contract or "GC"
+            if previous and previous.symbol != display_symbol:
                 previous = None  # Do not join two contracts into one chart.
             points = list(previous.points) if previous else []
             if snapshot.bar_1m:
@@ -60,12 +61,16 @@ class LiveQuoteService:
             price = snapshot.last_trade or (previous.price if previous else None)
             trade_at = snapshot.last_trade_timestamp or (previous.quoted_at if previous else None)
             self._quote = DisplayQuote(
-                key="gc_quote", label="黄金期货", symbol=snapshot.contract,
+                key="gc_quote",
+                label="黄金期货" if snapshot.contract else "黄金期货（合约月份未核验）",
+                symbol=display_symbol,
                 kind="futures", unit="USD/盎司", provider="atas_local_bridge", source_url="",
                 price=price, quoted_at=trade_at, retrieved_at=now, delay_minutes=0,
                 status="live", error=None,
-                limitation=("ATAS 当前 GC 图表的本机展示流；仅供观察，不保存至事件研究。"
-                            "试用数据授权仍需用户确认。"),
+                limitation=("ATAS 当前 GC 图表的本机展示流；"
+                            + ("合约月份由 SDK 返回；" if snapshot.contract else
+                               "SDK 只返回 GC，合约月份未核验；")
+                            + "仅供观察，不保存至事件研究。试用数据授权仍需用户确认。"),
                 event_research_eligible=False, points=points,
                 contract_code=snapshot.contract, exchange=snapshot.exchange,
                 source_symbol=snapshot.source_symbol,

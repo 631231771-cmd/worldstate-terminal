@@ -38,7 +38,7 @@ class AtasChartSnapshot(BaseModel):
 
     schema_version: Literal[1]
     symbol: Literal["GC"]
-    contract: str
+    contract: str | None = None
     source_symbol: str
     exchange: str | None = None
     event_timestamp: datetime
@@ -51,9 +51,12 @@ class AtasChartSnapshot(BaseModel):
 
     @model_validator(mode="after")
     def check_identity(self) -> "AtasChartSnapshot":
-        if not _GC_CONTRACT.fullmatch(self.contract):
+        if self.contract is None:
+            if self.source_symbol != "GC":
+                raise ValueError("unverified GC chart must retain its GC root")
+        elif not _GC_CONTRACT.fullmatch(self.contract):
             raise ValueError("a specific GC chart contract is required")
-        if self.source_symbol not in {self.contract, f"#{self.contract}"}:
+        elif self.source_symbol not in {self.contract, f"#{self.contract}"}:
             raise ValueError("ATAS source symbol does not resolve to GC contract")
         if self.event_timestamp.tzinfo is None or self.event_timestamp.utcoffset() is None:
             raise ValueError("event timestamp must be UTC")

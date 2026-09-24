@@ -8,7 +8,8 @@ using ATAS.Indicators;
 namespace WorldState.AtasBridge;
 
 /// <summary>
-/// Opt-in, display-only snapshot exporter for ONE concrete GC chart contract.
+/// Opt-in, display-only snapshot exporter for ONE GC chart.
+/// When the SDK only exposes GC, the contract month stays unverified.
 /// No orders, history, DOM, Rithmic login, quote file output, or remote network access.
 /// Lifecycle diagnostics are written to a small, bounded local log.
 /// </summary>
@@ -97,19 +98,19 @@ public sealed class WorldStateBridge : Indicator
 
     protected override void OnCalculate(int bar, decimal value) => TryStart();
 
-    private string? CurrentDatedSymbol()
+    private string? CurrentChartSymbol()
     {
-        // Use only a dated contract exposed by the public indicator properties.
-        // On the observed continuous GC chart both properties returned "GC";
-        // its toolbar month is not a verifiable SDK identity. Fail closed.
+        // The SDK can expose only the GC root even when the toolbar shows a
+        // dated contract. Never turn that root into a guessed contract month.
 #pragma warning disable CS0618 // Legacy chart symbol is only a dated-contract fallback.
-        foreach (var candidate in new[] { InstrumentInfo?.Instrument, Instrument })
+        var candidates = new[] { InstrumentInfo?.Instrument, Instrument };
 #pragma warning restore CS0618
+        foreach (var candidate in candidates)
         {
             if (candidate is not null && ContractPattern.IsMatch(candidate))
                 return candidate;
         }
-        return null;
+        return candidates.Contains("GC") ? "GC" : null;
     }
 
     private void TryStart()
@@ -120,18 +121,20 @@ public sealed class WorldStateBridge : Indicator
         lock (_gate)
         {
             if (_stop is not null) return;
-            var instrument = CurrentDatedSymbol();
+            var instrument = CurrentChartSymbol();
             var contractMatch = instrument is null ? null : ContractPattern.Match(instrument);
-            if (contractMatch is null || !contractMatch.Success)
+            if (instrument is null)
             {
 #pragma warning disable CS0618
                 Diagnostic("contract", $"rejected info={DiagnosticSymbol(InstrumentInfo?.Instrument)} legacy={DiagnosticSymbol(Instrument)} provider={(DataProvider is null ? "absent" : "present")}");
 #pragma warning restore CS0618
-                return; // Undated continuous aliases and non-GC charts fail closed.
+                return; // Unknown symbols and non-GC charts fail closed.
             }
-            Diagnostic("contract", $"accepted {DiagnosticSymbol(instrument)}");
+            Diagnostic("contract", contractMatch?.Success == true
+                ? $"accepted dated {DiagnosticSymbol(instrument)}"
+                : "accepted GC root; contract month unverified");
             _sourceSymbol = instrument;
-            _contract = contractMatch.Groups[1].Value;
+            _contract = contractMatch?.Success == true ? contractMatch.Groups[1].Value : null;
             _exchange = InstrumentInfo?.Exchange;
             var stop = new CancellationTokenSource();
             _stop = stop;
@@ -201,10 +204,10 @@ public sealed class WorldStateBridge : Indicator
     {
         lock (_gate)
         {
-            if (!EnableLocalBridge || _contract is null || _sourceSymbol is null || !_eventAt.HasValue || !_lastTrade.HasValue || !_tradeAt.HasValue)
+            if (!EnableLocalBridge || _sourceSymbol is null || !_eventAt.HasValue || !_lastTrade.HasValue || !_tradeAt.HasValue)
                 return null;
-            if (CurrentDatedSymbol() != _sourceSymbol)
-                return null; // A continuous chart rolled; never relabel the old contract.
+            if (CurrentChartSymbol() != _sourceSymbol)
+                return null; // Stop when the SDK chart identity changes.
             if ((DateTime.UtcNow - _eventAt.Value).TotalSeconds > 30)
                 return null; // Do not heartbeat an old price as live.
             return new

@@ -4,14 +4,25 @@
 
 ## 本次执行结果与下一步
 
+后续修正（同日）：用户确认当前图表本来就是 GCZ6，不再要求另开图表。
+公开指标 SDK 对此图仍只返回 `GC`。桥接现允许它作为**仅供工作台展示**的
+未核验月份报价，协议中 `contract=null`、`source_symbol=GC`，UI 明示
+“合约月份未核验”；不进入 Event Manifest、AnalysisRun 或其他研究数据。
+没有把图表标题的 GCZ6 猜填进数据。后端/前端改动与新 DLL 已构建，
+6 项桥接测试通过。2026-09-24 14:36 本机已备份原 DLL 并覆盖 ATAS 导入副本，
+ATAS 日志确认 `Changed library`，但旧指标实例**没有自动重新初始化**；
+当前 `/v2/product/live-gc` 仍为 `enabled=true, connected=false, quote=null`。
+WorldState API 已恢复，数据库 `ok`。ATAS 主窗口的 computer-use 接口
+不可用，不再尝试坐标点击；只需在**现有图表**中重新加载这一指标一次，
+然后核验诊断日志中 `accepted GC root`、WebSocket 和真实报价。
+
 GPT-6-Sol已实际加载诊断版并找到断点。05:54:42 UTC日志显示
 `initialized`、`contract: rejected info=GC legacy=GC provider=present`，
 05:54:52收到真实`Trade`回调。指标在合约guard处停止，尚未创建WebSocket。
 加载失败和接收端故障均不能解释这个已观测到的断点。
 
 公开SDK的IInstrumentInfo、IChart、MarketDataArg未提供可用于此图的额外月份字段。
-下一次优先用现有连接打开独立的、明确月份的GCZ6合约图，保留原连续图，
-通过诊断日志验证SDK实际返回的身份，再测试报价。不要硬编码标题上的月份。
+原计划打开独立合约图已被用户纠正，不再执行。不要硬编码标题上的月份。
 本轮尝试进入合约选择时，主窗口捕获连续失败，未更改图表或连接。
 
 当前诊断版构建0警告0错误，接收端5项测试通过。最后读取仍为
