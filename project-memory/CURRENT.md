@@ -1,6 +1,6 @@
 # CURRENT — WorldState Macro Research Terminal
 
-Updated: 2026-09-23
+Updated: 2026-09-24
 
 ### September 23 ATAS local GC bridge checkpoint
 
@@ -8,21 +8,22 @@ Updated: 2026-09-23
   endpoint. The workbench switches to the specific GC contract only while its
   local quote is fresh; otherwise it falls back to the separate public gold
   reference. No Rithmic credentials, second session or research-table writes.
-- On September 24 the user approved the load. ATAS imported the initial DLL
-  (indicator count 283→284), added it to the current `#GCZ6@COMEX` chart,
-  visibly checked its opt-in property and applied it. The API test gate was
-  enabled, but no WebSocket connection or GC quote arrived. **Do not call this
-  a validated live feed.** The ATAS chart still exposed `Delayed 15m` text;
-  the connected Rithmic badge alone does not establish the chart's feed.
-- Source was adjusted to retry startup on live callbacks and consider ATAS's
-  dated chart-symbol fallback; that newer DLL compiled cleanly but has not
-  been loaded or tested in ATAS. The Windows window-capture helper failed on
-  reopening the chart settings, so UI interaction stopped. WorldState was
-  restarted with `ATAS_LIVE_BRIDGE_ENABLED` off; existing DB preserved. Next:
-  safely reload the newer DLL, identify the chart feed, then compare price,
-  timestamps, reconnect, CPU and stability. Trial export/display rights remain
-  unconfirmed. Do not use or modify the unrelated ATAS PatchTool. See
-  `docs/data/atas-local-bridge-poc.md`.
+- On September 24 the user approved the load. ATAS imported the corrected DLL
+  into the `#GCZ6@COMEX` chart; the installed DLL hash matches the build, and
+  `Added (1)` / checked opt-in / Apply were observed. The API test gate is
+  enabled, but `connected=false`, `last_seen_at=null`, `quote=null` remain.
+  **Do not call this a validated live feed.** ATAS logged assembly-resolution
+  warnings before the latest import; their relevance to the current instance
+  is unconfirmed. The next step is minimal local diagnostics of indicator
+  initialization, dated-contract detection and socket startup, not another
+  blind re-import. No research table was changed.
+- Correction: the previously cited `Delayed 15m` status belongs to other ATAS
+  connections in the user's screenshot, not proven to be this Rithmic GC
+  chart's feed. Do not attribute the bridge failure to delayed data. The
+  Windows window-capture helper remains unreliable for the ATAS main window;
+  no unsafe source or login changes were made. Trial export/display rights
+  remain unconfirmed. Do not use or modify the unrelated PatchTool. Details
+  and handoff: `docs/data/atas-local-bridge-poc.md`.
 
 ### September 23 Market Desk experience checkpoint
 

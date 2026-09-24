@@ -1,6 +1,6 @@
 # ATAS local GC bridge PoC
 
-Status: ATAS indicator loaded, **live quote path not yet validated** (2026-09-24).
+Status: corrected DLL imported and indicator enabled, **live quote path not yet validated** (2026-09-24).
 This is an optional UI-only experiment, not an activated research provider.
 
 ## Scope and safety
@@ -52,34 +52,49 @@ restarted normally. Never stop a working session without checking it first.
 Market Desk shows `GC <contract>`, bid/ask, event/receive clocks and current
 1m OHLCV only while the quote is fresh. With the gate off, the page is unchanged.
 
-## Validation boundary
+## Validation boundary and handoff (2026-09-24)
 
-On 2026-09-24 the user opened the `#GCZ6@COMEX` chart and approved loading
-the locally compiled indicator. ATAS imported `WorldState Bridge (GC)` (its
-indicator count rose from 283 to 284); it was added to that chart, the local
-bridge checkbox was visibly checked, and Apply closed the settings dialog.
-The WorldState API gate was enabled for the test, yet `/v2/product/live-gc`
-remained `connected=false` with no quote. Neither ATAS nor WorldState reported
-a verified market packet. The chart still displayed `Delayed 15m` in its
-accessibility text, while the user-shown Rithmic connection itself was active;
-that is not sufficient to prove which feed supplied the chart. No price/time,
-reconnect or CPU comparison can be claimed.
+The user opened `#GCZ6@COMEX` and approved the read-only indicator test. ATAS
+imported `WorldState Bridge (GC)` and its settings showed `Added (1)` with
+`Enable local GC bridge` checked; Apply closed the dialog. The revised DLL was
+subsequently imported again. Its SHA-256 in ATAS's Indicators directory and
+the build output are identical:
+`BA67836EB429530FBF704354838794C1A9D523BC9424F5D3F99FFADA9065CBC6`.
+This verifies the file, **not** that the currently instantiated indicator
+successfully loaded/executed that revision.
 
-After this observation, source was adjusted to retry startup on the first
-live trade/quote callback and to consider the SDK's dated chart-symbol
-fallback. The adjusted DLL builds with zero warnings, but ATAS has **not**
-reloaded or validated that newer build. Windows window capture then failed
-repeatedly when reopening the chart settings; we stopped UI input instead of
-guessing at controls. The API was restarted normally with the bridge gate
-**off** (`enabled=false`, `connected=false`) and the existing runtime DB was
-retained. The user may remove the attached indicator in ATAS; it cannot send
-to WorldState while the API gate is off.
+The API health was 200 (`worldstate-terminal`, v2, database `ok`). The test
+gate is currently enabled (`/v2/product/live-gc` reports `enabled=true`), but
+`connected=false`, `last_seen_at=null`, `quote=null` after Apply and another
+short wait. No WebSocket session or market packet has been verified, so no
+price, timestamp, reconnection or CPU agreement can be claimed. No quote was
+written to research tables.
 
-Before calling this a real live feed, load the newer DLL safely, inspect one
-concrete GC chart and compare ATAS vs WorldState last price, bid/ask, contract,
-event/receive timestamps, 1m OHLCV, disconnect/reconnect and ATAS CPU/stability
-over a non-trivial interval. Record whether that chart itself is live, delayed
-or unverified. Do not infer chart feed freshness from the Rithmic login badge.
+Important correction: an earlier note interpreted ATAS's accessibility text
+`Delayed 15m` as applying to the GC chart. The user's screenshot shows the
+15-minute labels belong to *other* status-bar connections (ATAS Sim/dxFeed),
+while the Rithmic connection displays fresh market-data updates. That earlier
+delay claim was unsupported and must not be used as the bridge failure cause.
+
+ATAS's 2026-09-24 log contains `Could not resolve type ... WorldStateBridge`
+warnings at 13:08 and 13:16, before the latest import at 13:32. The log also
+records `Changed library ... WorldStateBridge.dll` at 13:32; no later matching
+load error was found in the inspected lines. The warnings are a diagnostic
+lead, **not** proof that the latest instance failed for the same reason. The
+remaining alternatives include indicator initialization, ATAS's actual
+instrument identifier failing the strict dated-contract guard, or WebSocket
+startup. The current indicator swallows socket exceptions to protect ATAS, so
+the three cases are not yet distinguishable from the API response alone.
+
+Next model: do not ask the user to re-import again or blame delayed data.
+First add minimal, local-only diagnostics for indicator load/contract guard/
+socket connection without logging credentials, trade history or sensitive
+account details; then rebuild and verify how ATAS reloads that revision before
+touching the chart. Check ATAS's own log and `/v2/product/live-gc` after one
+controlled Apply. Only if `connected=true` and a fresh quote arrives, compare
+contract, price, bid/ask, event/receive timestamps, 1m OHLCV, reconnect and
+ATAS stability. The UI helper intermittently reports the main ATAS window
+outside the captured monitor; stop unsafe coordinate input when that occurs.
 
 ## References and reuse
 
