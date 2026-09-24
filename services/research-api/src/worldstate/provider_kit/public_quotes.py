@@ -10,6 +10,8 @@ from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, Field
 
+from worldstate.provider_kit.atas_local import LiveMinuteBar
+
 
 class QuotePoint(BaseModel):
     time: datetime
@@ -31,11 +33,20 @@ class DisplayQuote(BaseModel):
     quoted_at: datetime | None = None
     retrieved_at: datetime | None = None
     delay_minutes: int | None = None
-    status: Literal["indicative", "delayed", "stale", "unavailable"] = "unavailable"
+    status: Literal["live", "indicative", "delayed", "stale", "unavailable"] = "unavailable"
     error: str | None = None
     limitation: str
     event_research_eligible: bool = False
     points: list[QuotePoint] = Field(default_factory=list)
+    contract_code: str | None = None
+    source_symbol: str | None = None
+    exchange: str | None = None
+    best_bid: float | None = None
+    best_ask: float | None = None
+    last_trade_volume: float | None = None
+    bar_1m: LiveMinuteBar | None = None
+    event_at: datetime | None = None
+    received_at: datetime | None = None
 
 
 SPECS = (

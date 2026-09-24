@@ -108,6 +108,9 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="WORLDSTATE_PUBLIC_PROVIDER_SYNC_ENABLED",
     )
+    atas_live_bridge_enabled: bool = Field(
+        default=False, validation_alias="ATAS_LIVE_BRIDGE_ENABLED",
+    )
     bls_api_key: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices("BLS_API_KEY", "WORLDSTATE_BLS_API_KEY"),

@@ -16,6 +16,8 @@ test-results/
 .sidecar-build/
 .sidecar-dist/
 apps/desktop-tauri/src-tauri/bin/
+apps/atas-local-bridge/bin/
+apps/atas-local-bridge/obj/
 
 # Local state and secrets
 .env

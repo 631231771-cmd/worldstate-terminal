@@ -90,10 +90,17 @@ export interface DisplayQuote {
   key: string; label: string; symbol: string; kind: string; unit: string;
   price: number | null; change: number | null; change_unit: string;
   quoted_at: string | null; retrieved_at: string | null; delay_minutes: number | null;
-  status: "indicative" | "delayed" | "stale" | "unavailable";
-  error: string | null; source_url: string; limitation: string;
-  points: Array<{ time: string; value: number }>;
-}
+    status: "live" | "indicative" | "delayed" | "stale" | "unavailable";
+    error: string | null; source_url: string; limitation: string;
+    points: Array<{ time: string; value: number }>;
+    contract_code?: string | null; source_symbol?: string | null; exchange?: string | null;
+    best_bid?: number | null; best_ask?: number | null;
+    last_trade_volume?: number | null; event_at?: string | null; received_at?: string | null;
+    bar_1m?: {start:string;open:number;high:number;low:number;close:number;volume:number} | null;
+  }
+  export interface LiveGcResponse {
+    enabled: boolean; connected: boolean; last_seen_at: string | null; quote: DisplayQuote | null;
+  }
 export interface WorkbenchFactor {
   label: string; series_key: string; value: number | null; previous_value: number | null;
   unit: string | null; frequency: string | null; period: string | null;

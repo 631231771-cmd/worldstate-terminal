@@ -2,6 +2,10 @@
 
 Checked 2026-09-23. This is a boundary decision, not an activated market feed.
 
+Later on 2026-09-23 an opt-in GC-only bridge PoC was implemented, but not yet
+live-validated. See [ATAS local GC bridge PoC](atas-local-bridge-poc.md). The
+account-rights uncertainty below remains unchanged.
+
 ## Local and product state
 
 - Classic ATAS 8.0.14.399 is installed at `E:\ATAS Platform`; its documented

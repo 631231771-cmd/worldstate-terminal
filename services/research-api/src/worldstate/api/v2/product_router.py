@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 
 from worldstate.api.v2.schemas import (
     ProductCountryResponse,
@@ -15,6 +16,7 @@ from worldstate.api.v2.schemas import (
     ProductMarketsResponse,
     ProductTodayResponse,
 )
+from worldstate.application.live_quote_service import LiveGcResponse, LiveQuoteService
 from worldstate.application.market_workbench_service import OfficialHeadlines, market_factors
 from worldstate.application.product_projection_service import (
     build_country_projection,
@@ -25,6 +27,7 @@ from worldstate.application.product_projection_service import (
     build_today_projection,
 )
 from worldstate.application.quote_service import QuoteService, QuotesResponse
+from worldstate.provider_kit.atas_local import AtasChartSnapshot
 
 DataMode = Literal["observed", "fixture", "all"]
 product_router = APIRouter(prefix="/product", tags=["product"])
@@ -34,6 +37,49 @@ product_router = APIRouter(prefix="/product", tags=["product"])
 async def product_quotes(request: Request) -> QuotesResponse:
     service: QuoteService = request.app.state.quote_service
     return await service.read()
+
+
+@product_router.get("/live-gc", response_model=LiveGcResponse)
+async def product_live_gc(request: Request) -> LiveGcResponse:
+    service: LiveQuoteService = request.app.state.live_quote_service
+    return await service.read()
+
+
+@product_router.websocket("/local-bridge/gc")
+async def atas_gc_bridge(websocket: WebSocket) -> None:
+    """One loopback-only ATAS chart connection; never stores research data."""
+    service: LiveQuoteService = websocket.app.state.live_quote_service
+    peer = websocket.client.host if websocket.client else None
+    if not bridge_peer_allowed(peer, websocket.headers.get("origin"), service.enabled):
+        await websocket.close(code=1008, reason="local bridge disabled or non-loopback peer")
+        return
+    try:
+        connection = await service.connect()
+    except ValueError:
+        await websocket.close(code=1008, reason="bridge already connected")
+        return
+    await websocket.accept()
+    try:
+        while True:
+            payload = await websocket.receive_text()
+            if len(payload) > 4096:
+                await websocket.close(code=1009, reason="snapshot too large")
+                break
+            try:
+                snapshot = AtasChartSnapshot.model_validate_json(payload)
+                await service.ingest(connection, snapshot)
+            except (ValidationError, ValueError):
+                await websocket.close(code=1008, reason="invalid GC chart snapshot")
+                break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await service.disconnect(connection)
+
+
+def bridge_peer_allowed(peer: str | None, origin: str | None, enabled: bool) -> bool:
+    # Browser WebSockets carry Origin; ATAS ClientWebSocket does not.
+    return enabled and peer in {"127.0.0.1", "::1"} and origin is None
 
 
 @product_router.get("/headlines")

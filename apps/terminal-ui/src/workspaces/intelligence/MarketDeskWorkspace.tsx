@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../../api/client";
 import { TimeSeriesChart, type ChartHorizon } from "../../components/TimeSeriesChart";
 import type { ReleaseSummary } from "../../types";
-import type { DisplayQuote, OfficialHeadline, ProductMarketItem, WorkbenchFactor } from "../../types/product";
+import type { DisplayQuote, LiveGcResponse, OfficialHeadline, ProductMarketItem, WorkbenchFactor } from "../../types/product";
 import { eventName, eventTime, recentEvents, upcomingEvents } from "./RadarWorkspace";
 import { focusMarkets, marketRole, ROLE_LABELS, type MarketRole } from "./marketContext";
 
@@ -23,6 +23,10 @@ function stamp(value: string | null | undefined) {
   if (!value || Number.isNaN(Date.parse(value))) return "时间未记录";
   return new Date(value).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 }
+function liveStamp(value: string | null | undefined) {
+  if (!value || Number.isNaN(Date.parse(value))) return "—";
+  return new Date(value).toLocaleTimeString("zh-CN", {hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"});
+}
 function number(value: number | null | undefined, digits = 2) {
   return value == null ? "—" : value.toLocaleString("zh-CN", { maximumFractionDigits: digits });
 }
@@ -31,7 +35,8 @@ function move(value: number | null | undefined, unit: string) {
 }
 function quoteStatus(q: DisplayQuote, now: number) {
   if (q.price == null) return "暂不可用";
-  if (q.status === "stale" || q.error || !q.quoted_at || now - Date.parse(q.quoted_at) > ((q.delay_minutes ?? 0) * 60 + 300) * 1000) return "旧报价";
+  if (q.status === "stale" || q.error || !q.quoted_at || now - Date.parse(q.quoted_at) > (q.status === "live" ? 30_000 : ((q.delay_minutes ?? 0) * 60 + 300) * 1000)) return "旧报价";
+  if (q.status === "live") return "ATAS 本机实时 · 仅展示";
   return q.delay_minutes ? `约延迟 ${q.delay_minutes} 分钟` : "参考价 · 延迟未承诺";
 }
 function factorFrequency(value: string | null) {
@@ -57,6 +62,7 @@ export function MarketDeskWorkspace({ markets, events, onEvent, onData, advanced
     return saved && ORDER.includes(saved) ? saved : "gold";
   });
   const [quotes, setQuotes] = useState<DisplayQuote[]>([]);
+  const [liveGc, setLiveGc] = useState<LiveGcResponse | null>(null);
   const [quoteError, setQuoteError] = useState(false);
   const [headlines, setHeadlines] = useState<OfficialHeadline[]>([]);
   const [newsScope, setNewsScope] = useState("");
@@ -77,6 +83,13 @@ export function MarketDeskWorkspace({ markets, events, onEvent, onData, advanced
     document.addEventListener("visibilitychange", visible);
     return () => { active = false; clearInterval(timer); clearInterval(clock); document.removeEventListener("visibilitychange", visible); };
   }, [refreshKey]);
+  useEffect(() => {
+    let active = true;
+    const load = () => void api.productLiveGc().then(data => { if (active) setLiveGc(data); }).catch(() => { if (active) setLiveGc(null); });
+    load();
+    const timer = window.setInterval(load, 2000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
   useEffect(() => {
     let active = true;
     const load = () => void api.productHeadlines().then(data => { if (active) { setHeadlines(data.items); setNewsScope(data.source_scope); setNewsError(false); } }).catch(() => { if (active) setNewsError(true); });
@@ -100,10 +113,11 @@ export function MarketDeskWorkspace({ markets, events, onEvent, onData, advanced
   const daily = useMemo(() => new Map(focusMarkets(markets).map(item => [marketRole(item)!, item])), [markets]);
   const quoteMap = useMemo(() => new Map(quotes.map(item => [item.key, item])), [quotes]);
   const display = (role: MarketRole) => {
+    const live = role === "gold" && liveGc?.enabled && liveGc.quote?.status === "live" && quoteStatus(liveGc.quote, now) !== "旧报价" ? liveGc.quote : null;
     const q = quoteMap.get(QUOTE_KEYS[role] ?? "");
     const day = daily.get(role);
     const currentQuote = q?.price != null && quoteStatus(q, now) !== "旧报价";
-    return { q: currentQuote || !day ? q : undefined, day };
+    return { q: live ?? (currentQuote || !day ? q : undefined), day };
   };
   const choose = (role: MarketRole) => { setSelected(role); localStorage.setItem("worldstate.workbench.asset", role); };
   const active = display(selected);
@@ -114,7 +128,7 @@ export function MarketDeskWorkspace({ markets, events, onEvent, onData, advanced
   const chart = active.q?.points && active.q.points.length > 1 ? active.q.points : active.day?.chart_points ?? [];
   const intraday = Boolean(active.q?.points && active.q.points.length > 1);
   const chartLabel = intraday
-    ? `${active.q?.label ?? ROLE_LABELS[selected]} · 公开分钟参考图，不进入事件研究`
+    ? active.q?.status === "live" ? `${active.q.symbol} · 本次 ATAS 连接以来的 1 分钟图，不进入事件研究` : `${active.q?.label ?? ROLE_LABELS[selected]} · 公开分钟参考图，不进入事件研究`
     : active.day
       ? `${active.day.label}${active.day.symbol ? ` (${active.day.symbol})` : ""} · 日频历史${active.q ? "；与上方参考报价来源/合约不同" : ""}`
       : "暂无可用图表";
@@ -145,6 +159,7 @@ export function MarketDeskWorkspace({ markets, events, onEvent, onData, advanced
       <div class="desk-main">
         <section class="desk-focus" aria-label={`${ROLE_LABELS[selected]}详情`}><div class="desk-focus__top"><div><span class="desk-kicker">SELECTED MARKET</span><h2>{ROLE_LABELS[selected]}<small>{active.q?.symbol ?? active.day?.symbol ?? ""}</small></h2></div><div class="desk-focus__number"><strong>{number(latest, selected === "rates10" ? 3 : 2)}<small>{latestUnit}</small></strong><span class={(activeChange ?? 0) < 0 ? "desk-down" : "desk-up"}>{move(activeChange, activeChangeUnit)}</span></div></div>
           <div class="desk-source-line"><span>{active.q ? quoteStatus(active.q,now) : active.day ? "日频市场记录" : "暂无报价"}</span><span>记录时间 {stamp(active.q?.quoted_at ?? active.day?.details.timestamp)}</span>{active.q?.error ? <span>来源暂不可用</span> : null}</div>
+          {selected === "gold" && liveGc?.enabled ? <div class="desk-live-strip">{active.q?.status === "live" ? <><span>GC {active.q.contract_code}{active.q.exchange ? ` · ${active.q.exchange}` : ""}{active.q.source_symbol?.startsWith("#") ? " · ATAS 连续图当前合约" : ""}</span><span>买 {number(active.q.best_bid)} / 卖 {number(active.q.best_ask)} · 最近成交量 {number(active.q.last_trade_volume,0)}</span><span>事件 {liveStamp(active.q.event_at)} · 接收 {liveStamp(active.q.received_at)}</span><span>1 分钟 O {number(active.q.bar_1m?.open)} · H {number(active.q.bar_1m?.high)} · L {number(active.q.bar_1m?.low)} · C {number(active.q.bar_1m?.close)} · V {number(active.q.bar_1m?.volume,0)}</span></> : <span>GC 本机行情未连接或已断开；上方为其他来源的参考价。</span>}</div> : null}
           {chart.length > 1 ? <><div class="desk-chart-switch">{(["1w","1m","3m","1y"] as ChartHorizon[]).map(item => <button key={item} type="button" class={horizon === item ? "active" : ""} onClick={() => setHorizon(item)}>{item.toUpperCase()}</button>)}</div><p class="desk-chart-basis">{chartLabel}</p><TimeSeriesChart points={chart} horizon={horizon} intraday={intraday} height={220}/></> : <div class="desk-chart-empty">暂无可用走势；不补画不存在的历史。<button type="button" onClick={onData}>查看数据来源 →</button></div>}
           <div class="desk-related"><div class="desk-pane-head"><h3>相关市场</h3><span>仅作并列观察，不推断因果</span></div><div>{related.map(role => { const {q,day} = display(role); return <button type="button" key={role} onClick={() => choose(role)}><span>{ROLE_LABELS[role]}</span><strong>{number(q?.price ?? day?.value, role === "rates10" || role === "real" ? 3 : 2)}</strong><small>{q ? quoteStatus(q,now) : day ? "日频" : "缺失"}</small></button>; })}</div></div>
         </section>
