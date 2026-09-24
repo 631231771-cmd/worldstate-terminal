@@ -2,6 +2,17 @@
 
 Updated: 2026-09-24
 
+### September 24 bridge diagnosis handoff
+
+- User requested GPT-6-Sol to take over the bounded GC bridge diagnosis.
+  Reusable task: `docs/data/atas-gc-bridge-handoff.md`.
+- A real .NET ClientWebSocket empty handshake succeeded against the running
+  loopback endpoint; `connected=true` was observed during it, then the socket
+  closed normally. No synthetic prices were sent. Receiver transport works.
+- Local `diag-v1` lifecycle logging was added to our indicator and builds
+  cleanly. At handoff it has not yet been loaded into ATAS. Diagnose the
+  loaded instance, actual SDK symbol and sender state before changing guards.
+
 ### September 23 ATAS local GC bridge checkpoint
 
 - Added an opt-in, loopback-only ATAS custom indicator and ephemeral GC quote
