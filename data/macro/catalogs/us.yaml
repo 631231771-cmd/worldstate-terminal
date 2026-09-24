@@ -178,6 +178,18 @@ series:
     weight: 1.0
     source_url: https://fred.stlouisfed.org/series/DGS2
   - <<: *daily_rate
+    canonical_key: US.POLICY.TREASURY_3M
+    native_id: DGS3MO
+    title: 3-Month Treasury Constant Maturity Rate
+    weight: 0.7
+    source_url: https://fred.stlouisfed.org/series/DGS3MO
+  - <<: *daily_rate
+    canonical_key: US.POLICY.TREASURY_5Y
+    native_id: DGS5
+    title: 5-Year Treasury Constant Maturity Rate
+    weight: 0.8
+    source_url: https://fred.stlouisfed.org/series/DGS5
+  - <<: *daily_rate
     canonical_key: US.POLICY.TREASURY_10Y
     native_id: DGS10
     title: 10-Year Treasury Constant Maturity Rate
@@ -201,6 +213,49 @@ series:
     title: 10-Year Inflation-Indexed Treasury Rate
     weight: 0.8
     source_url: https://fred.stlouisfed.org/series/DFII10
+
+  # Market-only current-public context. These series are persisted through the
+  # same provenance path but intentionally do not enter World State scoring.
+  - <<: *daily_rate
+    canonical_key: US.MARKET.NASDAQ_100
+    native_id: NASDAQ100
+    title: Nasdaq-100 Cash Index
+    unit: index
+    transform: level
+    state_dimensions: []
+    weight: 0.5
+    tags: [market_context, equities]
+    source_url: https://fred.stlouisfed.org/series/NASDAQ100
+  - <<: *daily_rate
+    canonical_key: US.MARKET.EURUSD
+    native_id: DEXUSEU
+    title: U.S. Dollars per Euro
+    unit: USD_per_EUR
+    transform: level
+    state_dimensions: []
+    weight: 0.5
+    tags: [market_context, fx]
+    source_url: https://fred.stlouisfed.org/series/DEXUSEU
+  - <<: *daily_rate
+    canonical_key: US.MARKET.USDJPY
+    native_id: DEXJPUS
+    title: Japanese Yen per U.S. Dollar
+    unit: JPY_per_USD
+    transform: level
+    state_dimensions: []
+    weight: 0.5
+    tags: [market_context, fx]
+    source_url: https://fred.stlouisfed.org/series/DEXJPUS
+  - <<: *daily_rate
+    canonical_key: US.MARKET.USDCNY
+    native_id: DEXCHUS
+    title: Chinese Yuan per U.S. Dollar
+    unit: CNY_per_USD
+    transform: level
+    state_dimensions: []
+    weight: 0.5
+    tags: [market_context, fx]
+    source_url: https://fred.stlouisfed.org/series/DEXCHUS
 
   - <<: *monthly
     canonical_key: US.GROWTH.YIELD_CURVE_10Y2Y

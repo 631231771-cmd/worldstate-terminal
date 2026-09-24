@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 import uuid
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 from pydantic import ValidationError
 from sqlalchemy import select, text
@@ -29,7 +31,7 @@ from worldstate.api.v2.data_router import (
     serialize_backfill_job,
     start_backfill,
 )
-from worldstate.api.v2.schemas import BackfillRequestInput
+from worldstate.api.v2.schemas import BackfillAsset, BackfillEventType, BackfillRequestInput
 from worldstate.application.analysis_orchestrator import analyze_release
 from worldstate.application.bootstrap_service import bootstrap_research_data
 from worldstate.application.evidence_service import get_evidence_pack
@@ -45,6 +47,14 @@ from worldstate.config import Settings
 from worldstate.db.models import BackfillJob, MacroRelease
 from worldstate.db.session import create_engine
 from worldstate.macro_core.errors import MacroEngineError
+
+
+def service_root() -> Path:
+    """Locate Alembic resources in source and PyInstaller sidecar builds."""
+    frozen_root = getattr(sys, "_MEIPASS", None)
+    if frozen_root:
+        return Path(str(frozen_root)).resolve()
+    return Path(__file__).resolve().parents[2]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -163,8 +173,10 @@ def _backfill_input(args: argparse.Namespace, settings: Settings) -> BackfillReq
     return BackfillRequestInput(
         start_date=args.start_date or settings.data_start_date,
         end_date=args.end_date or date.today(),
-        event_types=parse_csv_values(args.event_types, DEFAULT_EVENT_TYPES),
-        assets=parse_csv_values(args.assets, DEFAULT_ASSETS),
+        event_types=cast(
+            list[BackfillEventType], list(parse_csv_values(args.event_types, DEFAULT_EVENT_TYPES))
+        ),
+        assets=cast(list[BackfillAsset], list(parse_csv_values(args.assets, DEFAULT_ASSETS))),
     )
 
 
@@ -359,9 +371,7 @@ async def _run_async(args: argparse.Namespace, settings: Settings) -> int:
                 ("ecb", "boe", "boj", "china")
                 if args.providers is None
                 else tuple(
-                    item.strip().lower()
-                    for item in args.providers.split(",")
-                    if item.strip()
+                    item.strip().lower() for item in args.providers.split(",") if item.strip()
                 )
             )
             try:
@@ -454,8 +464,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         from alembic import command
         from alembic.config import Config
 
-        service_root = Path(__file__).resolve().parents[2]
-        command.upgrade(Config(service_root / "alembic.ini"), "head")
+        command.upgrade(Config(service_root() / "alembic.ini"), "head")
         _emit({"status": "ok", "revision": "head"})
         return 0
     return asyncio.run(_run_async(args, settings))

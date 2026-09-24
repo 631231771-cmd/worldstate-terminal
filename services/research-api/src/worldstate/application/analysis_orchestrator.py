@@ -22,7 +22,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from worldstate.ai_researcher.claims import deterministic_claims, validate_claims
+from worldstate.application.consensus_policy import evaluate_consensus_eligibility
 from worldstate.application.data_foundation_service import redact_sensitive_text
+from worldstate.application.event_intraday_service import resolve_release_t0
+from worldstate.application.event_readiness import AnalysisReadiness, build_analysis_readiness
 from worldstate.application.market_selection_service import select_release_market_data
 from worldstate.config import repository_root
 from worldstate.db.models import (
@@ -87,6 +90,14 @@ CODE_VERSION = "macro-research-terminal-v0.5"
 _NAMESPACE = uuid.UUID("fbf59be7-d632-4f3c-a5a0-104425f478c2")
 
 
+class AnalysisReadinessError(ValueError):
+    """Raised when a release is not eligible for a completed analysis run."""
+
+    def __init__(self, readiness: AnalysisReadiness) -> None:
+        self.readiness = readiness
+        super().__init__("analysis readiness blocked: " + "; ".join(readiness.blockers))
+
+
 def _factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)
 
@@ -97,6 +108,19 @@ def _stable_uuid(value: str) -> uuid.UUID:
 
 def _aware(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+async def _release_t0(session: AsyncSession, release: MacroRelease) -> datetime:
+    stages = list(
+        (
+            await session.scalars(
+                select(ReleaseStage)
+                .where(ReleaseStage.macro_release_id == release.id)
+                .order_by(ReleaseStage.sequence)
+            )
+        ).all()
+    )
+    return resolve_release_t0(release, stages)
 
 
 def _as_datetime(value: str) -> datetime:
@@ -168,6 +192,13 @@ async def _ensure_catalog(session: AsyncSession) -> None:
         row.canonical_key: row for row in (await session.scalars(select(MarketInstrument))).all()
     }
     for instrument_definition in INSTRUMENTS:
+        instrument_metadata = {
+            "catalog_version": CODE_VERSION,
+            "derived": instrument_definition.is_derived,
+            "input_datasets": list(instrument_definition.input_datasets),
+            "formula": instrument_definition.formula,
+            "calculation_version": instrument_definition.calculation_version,
+        }
         existing_instrument = existing_instruments.get(instrument_definition.key)
         if existing_instrument is not None:
             existing_instrument.symbol = instrument_definition.symbol
@@ -181,7 +212,7 @@ async def _ensure_catalog(session: AsyncSession) -> None:
             existing_instrument.is_proxy = instrument_definition.is_proxy
             existing_instrument.proxy_for = instrument_definition.proxy_for
             existing_instrument.active = True
-            existing_instrument.metadata_json = {"catalog_version": CODE_VERSION}
+            existing_instrument.metadata_json = instrument_metadata
             continue
         session.add(
             MarketInstrument(
@@ -198,7 +229,7 @@ async def _ensure_catalog(session: AsyncSession) -> None:
                 is_proxy=instrument_definition.is_proxy,
                 proxy_for=instrument_definition.proxy_for,
                 active=True,
-                metadata_json={"catalog_version": CODE_VERSION},
+                metadata_json=instrument_metadata,
                 created_at=now,
                 updated_at=now,
             )
@@ -550,6 +581,16 @@ async def _seed_release(session: AsyncSession, fixture: dict[str, Any]) -> uuid.
                     "fixture": True,
                     "no_cross_contract_splice": True,
                     "source_content_hash": manifest_hash,
+                    "is_fixture": True,
+                    "event_intraday_eligibility": "eligible",
+                    "event_intraday_eligibility_v1": {
+                        "policy_version": "event-intraday-v1",
+                        "status": "eligible",
+                        "eligible": True,
+                        "data_mode": "fixture",
+                        "is_fixture": True,
+                        "window_coverage": {},
+                    },
                 },
             )
         )
@@ -857,7 +898,7 @@ async def select_analysis_inputs(
 ]:
     """Select the exact point-in-time actual and consensus inputs used by analysis."""
 
-    cutoff = _aware(release.released_at or release.scheduled_at)
+    cutoff = await _release_t0(session, release)
     values = list(
         (
             await session.scalars(
@@ -878,7 +919,6 @@ async def select_analysis_inputs(
                     ConsensusSnapshot.macro_release_id == release.id,
                     ConsensusSnapshot.data_mode == release.data_mode,
                     ConsensusSnapshot.captured_at < cutoff,
-                    ConsensusSnapshot.quality_grade.in_(("A", "B", "C")),
                 )
                 .order_by(ConsensusSnapshot.captured_at)
             )
@@ -894,6 +934,7 @@ async def select_analysis_inputs(
         values=values,
         consensus=consensus,
         artifacts=artifacts,
+        t0=cutoff,
     )
     return selected_values, selected_consensus, artifacts
 
@@ -904,6 +945,7 @@ def select_analysis_inputs_from_rows(
     values: list[ReleaseValue],
     consensus: list[ConsensusSnapshot],
     artifacts: dict[uuid.UUID, SourceArtifact],
+    t0: datetime | None = None,
 ) -> tuple[
     dict[tuple[uuid.UUID, str], ReleaseValue],
     dict[uuid.UUID, ConsensusSnapshot],
@@ -914,20 +956,28 @@ def select_analysis_inputs_from_rows(
     confused with the row being eligible for point-in-time analysis.
     """
 
-    cutoff = _aware(release.released_at or release.scheduled_at)
+    cutoff = _aware(t0 or release.released_at or release.scheduled_at)
     eligible_values = [
         row
         for row in values
         if row.macro_release_id == release.id and row.data_mode == release.data_mode
     ]
-    eligible_consensus = [
-        row
-        for row in consensus
-        if row.macro_release_id == release.id
-        and row.data_mode == release.data_mode
-        and _aware(row.captured_at) < cutoff
-        and row.quality_grade in {"A", "B", "C"}
-    ]
+    eligible_consensus: list[ConsensusSnapshot] = []
+    for row in consensus:
+        if row.macro_release_id != release.id or row.data_mode != release.data_mode:
+            continue
+        if release.data_mode == "fixture":
+            if _aware(row.captured_at) < cutoff and row.quality_grade in {"A", "B", "C"}:
+                eligible_consensus.append(row)
+            continue
+        artifact = artifacts.get(row.source_artifact_id) if row.source_artifact_id else None
+        if evaluate_consensus_eligibility(
+            row,
+            artifact,
+            t0=cutoff,
+            release_data_mode=release.data_mode,
+        ).eligible:
+            eligible_consensus.append(row)
     return (
         _select_release_values(eligible_values, artifacts),
         _select_consensus_snapshots(eligible_consensus, artifacts),
@@ -1017,7 +1067,7 @@ async def _historical_surprises(
     session: AsyncSession, release: MacroRelease, indicators: dict[str, Indicator]
 ) -> dict[str, list[HistoricalSurpriseObservation]]:
     """Load only contemporaneous historical actual/consensus pairs before T0."""
-    cutoff = _aware(release.released_at or release.scheduled_at)
+    cutoff = await _release_t0(session, release)
     historical = (
         await session.scalars(
             select(MacroRelease)
@@ -1215,6 +1265,7 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
         }
         if not stages:
             raise ValueError("release has no stages")
+        release_t0 = resolve_release_t0(release, list(stages))
         market_selection = await select_release_market_data(session, release, list(stages))
         instruments_by_id = {row.id: row for row in instruments}
         selected_instrument_ids = {
@@ -1262,8 +1313,7 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
                 .where(
                     ConsensusSnapshot.macro_release_id == release.id,
                     ConsensusSnapshot.data_mode == release.data_mode,
-                    ConsensusSnapshot.captured_at
-                    <= _aware(release.released_at or release.scheduled_at),
+                    ConsensusSnapshot.captured_at < release_t0,
                 )
                 .order_by(ConsensusSnapshot.captured_at, ConsensusSnapshot.id)
             )
@@ -1280,7 +1330,7 @@ async def _execute_analysis(engine: AsyncEngine, release_id: str) -> str:
             "release_type": release.release_type,
             "data_mode": release.data_mode,
             "scheduled_at": _aware(release.scheduled_at).isoformat(),
-            "released_at": _aware(release.released_at or release.scheduled_at).isoformat(),
+            "released_at": release_t0.isoformat(),
             "contamination_level": release.contamination_level,
             "clean_window": release.clean_window,
             "values": serialized_values,
@@ -2113,9 +2163,21 @@ async def analyze_release(
             )
             if existing is not None:
                 return str(existing.id)
+    # Observed analysis is gated before the transactional run is created.  A
+    # missing consensus or minute manifest therefore cannot leave a misleading
+    # completed/failed run behind; fixture demonstrations retain their legacy
+    # workflow and remain explicitly fixture-labelled.
+    async with factory() as session:
+        release = await session.get(MacroRelease, release_uuid)
+    if release is None:
+        raise LookupError("macro release not found")
+    if release.data_mode == "observed":
+        readiness = await build_analysis_readiness(engine, release_id)
+        if not readiness.ready:
+            raise AnalysisReadinessError(readiness)
     try:
         run_id = await _execute_analysis(engine, release_id)
-    except LookupError:
+    except (LookupError, AnalysisReadinessError):
         raise
     except Exception as exc:
         # The analysis transaction has rolled back all partial windows/reactions.
@@ -2601,7 +2663,30 @@ async def get_release_detail(
             historical_surprises=history,
             released_at=_aware(release.released_at or release.scheduled_at),
         )
-        surprises = dict(run.parameters_json.get("indicator_surprises", {})) if run else {}
+        surprises = (
+            dict(run.parameters_json.get("indicator_surprises", {}))
+            if run
+            else {
+                item.key: {
+                    "raw_surprise": _float(item.raw_surprise),
+                    "oriented_surprise": item.oriented_surprise,
+                    "relative_surprise": item.relative_surprise,
+                    "threshold_scaled_surprise": item.threshold_scaled_surprise,
+                    "surprise_z": item.surprise_z,
+                    "direction": item.direction,
+                    "revision": _float(item.revision),
+                    "history_sample_count": item.history_sample_count,
+                    "history_mean": item.history_mean,
+                    "history_std": item.history_std,
+                    "history_cutoff_at": (
+                        item.history_cutoff_at.isoformat() if item.history_cutoff_at else None
+                    ),
+                    "surprise_method": item.surprise_method,
+                    "z_score_unavailable_reason": item.z_score_unavailable_reason,
+                }
+                for item in bundle.indicators
+            }
+        )
         for key, item in values.items():
             item["surprise"] = surprises.get(key)
         stages = (

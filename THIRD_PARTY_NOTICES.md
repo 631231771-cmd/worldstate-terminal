@@ -11,6 +11,7 @@ remain governed by each dependency's own license.
 | Macrosynergy | BSD-3-Clause | optional Python dependency behind `MacrosynergyAdapter`; no database/API types exposed |
 | OpenBB | AGPL-3.0 | optional isolated provider only; core runs without it |
 | Fincept Terminal | AGPL-3.0 or commercial | product research only; no source or visual identity copied |
+| TradingView Lightweight Charts 5.2.0 | Apache-2.0 | runtime chart dependency used by the reusable `TimeSeriesChart`; TradingView attribution remains visible in the chart UI |
 
 The exact repositories, audited commits, candidate source files, maintenance
 risks and copyright obligations are recorded in

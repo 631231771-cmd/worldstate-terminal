@@ -82,6 +82,12 @@ class ConsensusCalendarBatch(ProviderBatch):
     pit_query_at: AwareDatetime | None = None
 
 
+class TradingEconomicsBrowserPage(ProviderModel):
+    source_url: str
+    captured_at: AwareDatetime
+    html: str = Field(min_length=100)
+
+
 def _utc_datetime(value: object) -> datetime | None:
     if value in {None, ""}:
         return None
@@ -456,6 +462,82 @@ class TradingEconomicsConsensusProvider:
             quota=quota,
             pit_query_at=pit_query_at,
         )
+
+    def adapt_browser_calendar(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        pages: tuple[TradingEconomicsBrowserPage, ...],
+    ) -> ConsensusCalendarBatch:
+        """Normalize rows read from visible Trading Economics pages."""
+
+        if not pages or any(
+            not page.source_url.startswith("https://tradingeconomics.com/")
+            for page in pages
+        ):
+            raise ProviderError(
+                self.key,
+                ProviderErrorCode.INVALID_REQUEST,
+                "browser consensus capture must use Trading Economics pages",
+            )
+        base = self.adapt_calendar(
+            rows,
+            captured_at=max(page.captured_at for page in pages),
+            source_url=pages[0].source_url,
+        )
+        raw = json.dumps(
+            {
+                "pages": [
+                    {
+                        "source_url": page.source_url,
+                        "captured_at": page.captured_at.isoformat(),
+                        "html": page.html,
+                    }
+                    for page in pages
+                ],
+                "rows": rows,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        captured_at = max(page.captured_at for page in pages)
+        artifact = base.artifacts[0].model_copy(
+            update={
+                "source_url": "https://tradingeconomics.com/united-states/inflation-cpi",
+                "content_type": "application/json+browser-capture",
+                "content": raw,
+                "content_hash": hashlib.sha256(raw).hexdigest(),
+                "byte_length": len(raw),
+                "retrieved_at": captured_at,
+                "metadata": {
+                    **base.artifacts[0].metadata,
+                    "acquisition_transport": "browser_capture",
+                    "official_source": False,
+                    "manual_user_entry": False,
+                    "page_urls": [page.source_url for page in pages],
+                    "forecast_semantics": (
+                        "Forecast=survey_consensus; TEForecast=proprietary_forecast"
+                    ),
+                },
+            }
+        )
+        quality = base.quality.model_copy(
+            update={
+                "source_type": "licensed_browser_capture",
+                "acquired_at": captured_at,
+                "metadata": {
+                    **base.quality.metadata,
+                    "acquisition_transport": "browser_capture",
+                    "official_source": False,
+                    "manual_user_entry": False,
+                    "forecast_semantics": (
+                        "Forecast=survey_consensus; TEForecast=proprietary_forecast"
+                    ),
+                },
+            }
+        )
+        return base.model_copy(update={"artifacts": (artifact,), "quality": quality})
 
     @staticmethod
     def select_last_pre_release_snapshot(

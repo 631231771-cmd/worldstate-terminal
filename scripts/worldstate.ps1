@@ -110,7 +110,7 @@ function Ensure-Config {
         "WORLDSTATE_AI_MODEL=gpt-5.6-sol"
         "WORLDSTATE_AI_BASE_URL=https://api.openai.com/v1"
         "OPENAI_API_KEY="
-        "OLLAMA_BASE_URL="
+        "OLLAMA_BASE_URL=http://127.0.0.1:11434"
         "WORLDSTATE_OLLAMA_MODEL=qwen3:8b"
         "FRED_API_KEY="
         "BLS_API_KEY="

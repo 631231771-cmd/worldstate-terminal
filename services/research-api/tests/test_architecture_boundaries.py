@@ -92,3 +92,15 @@ def test_application_router_uses_focused_services_and_legacy_facade_stays_small(
     facade = (PACKAGE_ROOT / "application" / "events.py").read_text(encoding="utf-8")
     assert len(facade.splitlines()) < 80
     assert "Compatibility facade" in facade
+
+
+def test_product_routes_live_in_focused_router() -> None:
+    router_source = (PACKAGE_ROOT / "api" / "v2" / "router.py").read_text(encoding="utf-8")
+    product_source = (PACKAGE_ROOT / "api" / "v2" / "product_router.py").read_text(
+        encoding="utf-8"
+    )
+    assert '@router.get("/product' not in router_source
+    assert "router.include_router(product_router)" in router_source
+    assert 'APIRouter(prefix="/product"' in product_source
+    assert "ProductTodayResponse" in product_source
+    assert "ProductEventDetail" in product_source

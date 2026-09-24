@@ -1,0 +1,212 @@
+schema_version: "1"
+playbook_key: worldstate_macro_transmission
+version: 1.0.0
+title: WorldState 宏观传导机制
+source_framework: WorldState generic macro mechanisms
+description: >-
+  用预先声明的跨资产和宏观状态条件检查竞争性解释。它只判断当前证据与机制是否一致，
+  不把共振当作因果证明，也不输出概率。
+mechanisms:
+  - key: energy_supply_shock
+    title: 能源供给冲击
+    summary: 原油供给约束推高能源价格，可能经通胀与政策路径传导到美元、黄金和成长股。
+    causal_chain:
+      - key: oil_impulse
+        label: 原油出现上行冲击
+        mechanism: 供给收缩首先应在能源价格中留下可观察痕迹。
+        evidence_rules:
+          - key: oil_up
+            label: WTI 最近有效交易日上涨
+            kind: market
+            market_keys: [wti_cl, wti_spot]
+            expected_direction: up
+            horizon: 1d
+            minimum_absolute: 0.10
+            max_age_days: 10
+      - key: inflation_pressure
+        label: 通胀压力得到确认
+        mechanism: 持续的能源上涨需要进入更广泛通胀数据，才支持宏观传导已经走到这一环。
+        evidence_rules:
+          - key: inflation_up
+            label: 美国通胀状态偏强
+            kind: macro_dimension
+            dimension: inflation
+            expected_direction: up
+            minimum_absolute: 0.10
+            max_age_days: 120
+      - key: policy_repricing
+        label: 短端利率向更鹰路径重定价
+        mechanism: 若市场上修政策利率路径，2 年期收益率通常应上行。
+        evidence_rules:
+          - key: two_year_up
+            label: 美国 2Y 收益率上升
+            kind: market
+            market_keys: [ust2y_yield_context]
+            expected_direction: up
+            horizon: 1d
+            minimum_absolute: 1.0
+            max_age_days: 10
+      - key: dollar_confirmation
+        label: 美元确认政策重定价
+        mechanism: 相对利率优势通常对美元形成支持，但不是必然结果。
+        evidence_rules:
+          - key: dollar_up
+            label: 广义美元走强
+            kind: market
+            market_keys: [dollar_broad_context, dollar_dxy]
+            expected_direction: up
+            horizon: 1d
+            minimum_absolute: 0.05
+            max_age_days: 10
+      - key: gold_pressure
+        label: 黄金受到实际利率或美元压力
+        mechanism: 美元与利率共同上行时，黄金通常承压；避险需求可能打断这一关系。
+        evidence_rules:
+          - key: gold_down
+            label: 黄金下跌
+            kind: market
+            market_keys: [gold_gc]
+            expected_direction: down
+            horizon: 1d
+            minimum_absolute: 0.10
+            max_age_days: 10
+      - key: growth_equity_pressure
+        label: 成长股受到估值压力
+        mechanism: 贴现率上升通常压低长久期成长资产估值。
+        evidence_rules:
+          - key: nasdaq_down
+            label: 纳斯达克 100 下跌
+            kind: market
+            market_keys: [nasdaq100_cash, nasdaq_nq]
+            expected_direction: down
+            horizon: 1d
+            minimum_absolute: 0.10
+            max_age_days: 10
+    falsifiers:
+      - 原油回落且没有可核验的供给约束证据。
+      - 通胀、短端利率与美元连续反向，说明传导未按该机制展开。
+      - 股指与黄金同步上涨且实际利率下降，更符合宽松或流动性解释。
+    limitations:
+      - 价格共振只能支持机制一致性，不能证明供给冲击是唯一原因。
+      - 日线数据不能说明事件发生后的分钟先后顺序。
+      - 系统当前不自动读取地缘政治新闻作为供给中断事实。
+    competing_mechanisms: [demand_acceleration, dollar_liquidity_easing]
+
+  - key: demand_acceleration
+    title: 需求加速
+    summary: 需求改善同时推高能源、增长预期和利率，股票表现通常比供给冲击更有韧性。
+    causal_chain:
+      - key: growth_state
+        label: 增长状态改善
+        mechanism: 需求叙事首先需要实体增长数据确认。
+        evidence_rules:
+          - key: growth_up
+            label: 美国增长状态偏强
+            kind: macro_dimension
+            dimension: growth
+            expected_direction: up
+            minimum_absolute: 0.10
+            max_age_days: 120
+      - key: oil_demand
+        label: 原油随需求预期上涨
+        mechanism: 更强活动水平通常提高能源需求。
+        evidence_rules:
+          - key: oil_up
+            label: WTI 上涨
+            kind: market
+            market_keys: [wti_cl, wti_spot]
+            expected_direction: up
+            horizon: 1d
+            minimum_absolute: 0.10
+            max_age_days: 10
+      - key: rates_growth
+        label: 利率反映更强增长
+        mechanism: 更强增长会减少宽松预期并抬高短端利率。
+        evidence_rules:
+          - key: two_year_up
+            label: 美国 2Y 收益率上升
+            kind: market
+            market_keys: [ust2y_yield_context]
+            expected_direction: up
+            horizon: 1d
+            minimum_absolute: 1.0
+            max_age_days: 10
+      - key: equity_resilience
+        label: 股票确认需求改善
+        mechanism: 若增长改善压过贴现率压力，纳指不应呈现明显风险规避走势。
+        evidence_rules:
+          - key: nasdaq_up
+            label: 纳斯达克 100 上涨
+            kind: market
+            market_keys: [nasdaq100_cash, nasdaq_nq]
+            expected_direction: up
+            horizon: 1d
+            minimum_absolute: 0.10
+            max_age_days: 10
+    falsifiers:
+      - 增长数据继续走弱，股票与信用同步恶化。
+      - 原油上涨但需求指标没有改善，更可能是供给侧或仓位变化。
+    limitations:
+      - 日线股票上涨也可能来自流动性，而非需求改善。
+      - 增长状态使用低频官方数据，确认通常滞后于市场。
+    competing_mechanisms: [energy_supply_shock, dollar_liquidity_easing]
+
+  - key: dollar_liquidity_easing
+    title: 美元与流动性宽松
+    summary: 美元走弱或金融条件放松可同时支持商品、黄金和成长股。
+    causal_chain:
+      - key: dollar_down
+        label: 美元走弱
+        mechanism: 以美元计价资产首先受益于计价货币回落。
+        evidence_rules:
+          - key: dollar_down
+            label: 广义美元下跌
+            kind: market
+            market_keys: [dollar_broad_context, dollar_dxy]
+            expected_direction: down
+            horizon: 1d
+            minimum_absolute: 0.05
+            max_age_days: 10
+      - key: gold_up
+        label: 黄金获得支持
+        mechanism: 美元和实际利率回落通常支持黄金。
+        evidence_rules:
+          - key: gold_up
+            label: 黄金上涨
+            kind: market
+            market_keys: [gold_gc]
+            expected_direction: up
+            horizon: 1d
+            minimum_absolute: 0.10
+            max_age_days: 10
+      - key: oil_up
+        label: 原油获得金融条件支持
+        mechanism: 美元走弱与风险偏好可能共同抬高油价。
+        evidence_rules:
+          - key: oil_up
+            label: WTI 上涨
+            kind: market
+            market_keys: [wti_cl, wti_spot]
+            expected_direction: up
+            horizon: 1d
+            minimum_absolute: 0.10
+            max_age_days: 10
+      - key: risk_assets_up
+        label: 成长股同步走强
+        mechanism: 更宽松的金融条件通常支持长久期风险资产。
+        evidence_rules:
+          - key: nasdaq_up
+            label: 纳斯达克 100 上涨
+            kind: market
+            market_keys: [nasdaq100_cash, nasdaq_nq]
+            expected_direction: up
+            horizon: 1d
+            minimum_absolute: 0.10
+            max_age_days: 10
+    falsifiers:
+      - 美元与实际利率持续上升。
+      - 黄金和成长股没有确认，且信用压力扩大。
+    limitations:
+      - 美元下跌可能由海外因素驱动，不能自动归因于美国流动性。
+      - 当前规则不包含资金流与仓位数据。
+    competing_mechanisms: [energy_supply_shock, demand_acceleration]

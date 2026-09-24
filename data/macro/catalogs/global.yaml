@@ -1,3 +1,235 @@
 version: 1
-series: []
-
+series:
+  # Current public FRED graph CSV observations. These are not PIT vintages;
+  # they provide an auditable daily macro context until an official national
+  # statistics export is configured.
+  - canonical_key: CHN.INFLATION.CPI
+    provider: fred_alfred
+    native_id: CHNCPIALLMINMEI
+    entity: CHN
+    title: China Consumer Price Index
+    frequency: monthly
+    unit: index
+    transform: yoy
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 1.0
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [china, inflation]
+    source_url: https://fred.stlouisfed.org/series/CHNCPIALLMINMEI
+  - canonical_key: CHN.GROWTH.INDUSTRIAL_PRODUCTION
+    provider: fred_alfred
+    # FRED's current OECD export uses the country-prefixed identifier.
+    # The older CHNPROINDMISMEI alias returns a not-found response.
+    native_id: CHNPRINTO01IXPYM
+    entity: CHN
+    title: China Industrial Production
+    frequency: monthly
+    # This OECD export is already an index with the same period in the prior
+    # year equal to 100.  Do not apply a second year-over-year transform.
+    unit: index_yoy
+    transform: level
+    orientation: 1
+    state_dimensions: [growth]
+    weight: 1.0
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [china, growth]
+    source_url: https://fred.stlouisfed.org/series/CHNPRINTO01IXPYM
+  - canonical_key: CHN.GROWTH.RETAIL_SALES
+    provider: fred_alfred
+    native_id: CHNSLRTTO02MLM
+    entity: CHN
+    title: China Total Retail Sales
+    frequency: monthly
+    unit: yuan
+    transform: yoy
+    orientation: 1
+    state_dimensions: [growth]
+    weight: 0.8
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [china, growth, consumption]
+    source_url: https://fred.stlouisfed.org/series/CHNSLRTTO02MLM
+  - canonical_key: CHN.INFLATION.PPI
+    provider: fred_alfred
+    native_id: CHNPIEATI01GYM
+    entity: CHN
+    title: China Producer Prices
+    frequency: monthly
+    # The OECD/FRED export is already a same-period-prior-year growth rate.
+    unit: percent_yoy
+    transform: level
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 0.9
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [china, inflation, producer_prices]
+    source_url: https://fred.stlouisfed.org/series/CHNPIEATI01GYM
+  - canonical_key: CHN.CREDIT.PRIVATE_NONFINANCIAL
+    provider: fred_alfred
+    native_id: CRDQCNAPABIS
+    entity: CHN
+    title: China Private Non-Financial Sector Credit
+    frequency: quarterly
+    unit: billions_of_yuan
+    transform: yoy
+    orientation: 1
+    state_dimensions: [credit]
+    weight: 1.0
+    freshness_half_life_days: 120
+    minimum_history: 20
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [china, credit, bis]
+    source_url: https://fred.stlouisfed.org/series/CRDQCNAPABIS
+  - canonical_key: JPN.INFLATION.CPI
+    provider: fred_alfred
+    native_id: JPNCPIALLMINMEI
+    entity: JPN
+    title: Japan Consumer Price Index
+    frequency: monthly
+    unit: index
+    transform: yoy
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 1.0
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [japan, inflation]
+    source_url: https://fred.stlouisfed.org/series/JPNCPIALLMINMEI
+  - canonical_key: JPN.GROWTH.INDUSTRIAL_PRODUCTION
+    provider: fred_alfred
+    native_id: JPNPROINDMISMEI
+    entity: JPN
+    title: Japan Industrial Production
+    frequency: monthly
+    unit: index
+    transform: yoy
+    orientation: 1
+    state_dimensions: [growth]
+    weight: 1.0
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [japan, growth]
+    source_url: https://fred.stlouisfed.org/series/JPNPROINDMISMEI
+  - canonical_key: JPN.POLICY.CALL_RATE
+    provider: fred_alfred
+    native_id: IRSTCI01JPM156N
+    entity: JPN
+    title: Japan Call Money / Interbank Rate
+    frequency: monthly
+    unit: percent
+    transform: level
+    orientation: 1
+    state_dimensions: [policy_tightness]
+    weight: 1.0
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [japan, policy, rates]
+    source_url: https://fred.stlouisfed.org/series/IRSTCI01JPM156N
+  - canonical_key: JPN.LIQUIDITY.BOJ_TOTAL_ASSETS
+    provider: fred_alfred
+    native_id: JPNASSETS
+    entity: JPN
+    title: Bank of Japan Total Assets
+    frequency: monthly
+    unit: hundred_million_yen
+    transform: percent_change
+    orientation: 1
+    state_dimensions: [liquidity]
+    weight: 1.1
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [japan, liquidity, central_bank]
+    source_url: https://fred.stlouisfed.org/series/JPNASSETS
+  - canonical_key: JPN.LIQUIDITY.M3_GROWTH
+    provider: fred_alfred
+    native_id: JPNMABMM301GYSAQ
+    entity: JPN
+    title: Japan M3 Growth
+    frequency: quarterly
+    # This OECD/FRED export is already a same-period-prior-year growth rate.
+    unit: percent_yoy
+    transform: level
+    orientation: 1
+    state_dimensions: [liquidity]
+    weight: 0.8
+    freshness_half_life_days: 120
+    minimum_history: 20
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [japan, liquidity, money]
+    source_url: https://fred.stlouisfed.org/series/JPNMABMM301GYSAQ
+  - canonical_key: EA.GROWTH.REAL_GDP
+    provider: fred_alfred
+    native_id: CLVMNACSCAB1GQEA19
+    entity: EA19
+    title: Euro Area Real Gross Domestic Product
+    frequency: quarterly
+    unit: millions_of_chained_2010_euros
+    transform: yoy
+    orientation: 1
+    state_dimensions: [growth]
+    weight: 1.0
+    freshness_half_life_days: 120
+    minimum_history: 20
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [euro_area, growth, gdp]
+    source_url: https://fred.stlouisfed.org/series/CLVMNACSCAB1GQEA19
+  - canonical_key: EA.LIQUIDITY.M3_GROWTH
+    provider: fred_alfred
+    native_id: EA19MABMM301GYSAQ
+    entity: EA19
+    title: Euro Area M3 Growth
+    frequency: quarterly
+    unit: percent_yoy
+    transform: level
+    orientation: 1
+    state_dimensions: [liquidity]
+    weight: 0.9
+    freshness_half_life_days: 120
+    minimum_history: 20
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [euro_area, liquidity, money]
+    source_url: https://fred.stlouisfed.org/series/EA19MABMM301GYSAQ
+  - canonical_key: GBR.GROWTH.REAL_GDP
+    provider: fred_alfred
+    native_id: GBRGDPRQPSMEI
+    entity: GBR
+    title: United Kingdom Real GDP Growth
+    frequency: quarterly
+    unit: percent_yoy
+    transform: level
+    orientation: 1
+    state_dimensions: [growth]
+    weight: 1.0
+    freshness_half_life_days: 120
+    minimum_history: 20
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [united_kingdom, growth, gdp]
+    source_url: https://fred.stlouisfed.org/series/GBRGDPRQPSMEI
+  - canonical_key: GBR.INFLATION.CPI
+    provider: fred_alfred
+    native_id: GBRCPIHICMINMEI
+    entity: GBR
+    title: United Kingdom Consumer Price Index
+    frequency: monthly
+    unit: index_2015_100
+    transform: yoy
+    orientation: 1
+    state_dimensions: [inflation]
+    weight: 1.0
+    freshness_half_life_days: 45
+    minimum_history: 24
+    availability: {method: provider_realtime_start, precision: day}
+    tags: [united_kingdom, inflation, cpi]
+    source_url: https://fred.stlouisfed.org/series/GBRCPIHICMINMEI

@@ -16,7 +16,7 @@ from datetime import UTC, date, datetime, timedelta
 from itertools import pairwise
 from typing import Any, Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from worldstate.db.models import EconomicEntity, Observation, Provider, Series
@@ -51,6 +51,60 @@ class SeriesSignal:
     quality: str
     missing_reason: str | None
     evidence_ids: tuple[str, ...]
+    freshness_half_life_days: float = 45.0
+
+
+async def load_point_in_time_observations(
+    session: AsyncSession,
+    *,
+    series_id: object,
+    as_of: datetime,
+    data_mode: DataMode,
+    limit: int | None = None,
+) -> list[Observation]:
+    """Select one latest-known vintage per period at ``as_of``.
+
+    Repeated current-public captures and revised PIT observations must not be
+    counted as extra history. The most recently available vintage at the cutoff
+    is selected for each period; the id is only a deterministic final tie-break.
+    """
+
+    filters = [
+        Observation.series_id == series_id,
+        Observation.available_at.is_not(None),
+        Observation.available_at <= as_of,
+        Observation.vintage_date <= as_of.date(),
+    ]
+    if data_mode != "all":
+        filters.append(Observation.data_mode == data_mode)
+    ranked = (
+        select(
+            Observation.id.label("id"),
+            func.row_number()
+            .over(
+                partition_by=Observation.period_start,
+                order_by=(
+                    Observation.available_at.desc(),
+                    Observation.vintage_date.desc(),
+                    Observation.id.desc(),
+                ),
+            )
+            .label("rank"),
+        )
+        .where(*filters)
+        .subquery()
+    )
+    query = (
+        select(Observation)
+        .join(ranked, Observation.id == ranked.c.id)
+        .where(ranked.c.rank == 1)
+        .order_by(Observation.period_start.desc())
+    )
+    if limit is not None:
+        query = query.limit(limit)
+    rows = list((await session.scalars(query)).all())
+    rows.reverse()
+    return rows
 
 
 def _finite(value: object) -> float | None:
@@ -116,9 +170,12 @@ def calculate_signal(
     return score, momentum, None
 
 
-def aggregate_dimension(signals: Iterable[SeriesSignal]) -> dict[str, Any]:
-    usable = [item for item in signals if item.score is not None]
-    total_weight = len(list(signals)) if not isinstance(signals, list) else len(signals)
+def aggregate_dimension(
+    signals: Iterable[SeriesSignal], *, as_of: datetime | None = None
+) -> dict[str, Any]:
+    signal_rows = list(signals)
+    usable = [item for item in signal_rows if item.score is not None]
+    total_weight = len(signal_rows)
     if not usable:
         return {
             "score": None,
@@ -128,17 +185,20 @@ def aggregate_dimension(signals: Iterable[SeriesSignal]) -> dict[str, Any]:
             "coverage": 0.0,
             "freshness": None,
             "top_drivers": [],
-            "missing_inputs": [item.missing_reason or item.series_key for item in signals],
+            "missing_inputs": [item.missing_reason or item.series_key for item in signal_rows],
         }
     score = sum(item.score or 0 for item in usable) / len(usable)
     momentum_values = [item.momentum for item in usable if item.momentum is not None]
-    latest_times = [item.available_at for item in usable if item.available_at is not None]
-    freshness = None
-    if latest_times:
-        age_days = max(
-            0.0, (datetime.now(UTC) - max(latest_times).astimezone(UTC)).total_seconds() / 86400
+    reference_date = (as_of or datetime.now(UTC)).astimezone(UTC).date()
+    freshness_values = [
+        math.exp(
+            -max(0, (reference_date - item.period_start).days)
+            / max(1.0, item.freshness_half_life_days)
         )
-        freshness = math.exp(-age_days / 45.0)
+        for item in usable
+        if item.period_start is not None
+    ]
+    freshness = sum(freshness_values) / len(freshness_values) if freshness_values else None
     direction = "strong" if score >= 0.35 else "weak" if score <= -0.35 else "mixed"
     return {
         "score": round(clamp(score), 4),
@@ -166,7 +226,7 @@ def aggregate_dimension(signals: Iterable[SeriesSignal]) -> dict[str, Any]:
             for item in sorted(usable, key=lambda row: abs(row.score or 0), reverse=True)[:5]
         ],
         "missing_inputs": [
-            item.missing_reason or item.series_key for item in signals if item.score is None
+            item.missing_reason or item.series_key for item in signal_rows if item.score is None
         ],
     }
 
@@ -228,16 +288,11 @@ async def _load_signals(
         dimensions = metadata.get("state_dimensions") or []
         if not isinstance(dimensions, list) or not dimensions:
             continue
-        observations_query = select(Observation).where(
-            Observation.series_id == series.id,
-            Observation.available_at.is_not(None),
-            Observation.available_at <= as_of,
-            Observation.vintage_date <= as_of.date(),
-        )
-        if data_mode != "all":
-            observations_query = observations_query.where(Observation.data_mode == data_mode)
-        observations = list(
-            (await session.scalars(observations_query.order_by(Observation.period_start))).all()
+        observations = await load_point_in_time_observations(
+            session,
+            series_id=series.id,
+            as_of=as_of,
+            data_mode=data_mode,
         )
         key = str(series.canonical_key)
         if not observations:
@@ -258,6 +313,7 @@ async def _load_signals(
                     "UNKNOWN",
                     "该数据模式没有可用的点时观测",
                     (),
+                    float(metadata.get("freshness_half_life_days") or 45.0),
                 )
                 for dimension in dimensions
             )
@@ -292,6 +348,7 @@ async def _load_signals(
                 "A" if provider.key in {"fred_alfred", "bls_official"} else "B",
                 gap,
                 (str(latest.id),),
+                float(metadata.get("freshness_half_life_days") or 45.0),
             )
             for dimension in dimensions
         )
@@ -309,7 +366,9 @@ async def build_world_state(
     for signal in signals:
         if signal.dimension in by_dimension:
             by_dimension[signal.dimension].append(signal)
-    dimensions = {key: aggregate_dimension(items) for key, items in by_dimension.items()}
+    dimensions = {
+        key: aggregate_dimension(items, as_of=cutoff) for key, items in by_dimension.items()
+    }
     regime = classify_regime(dimensions)
     return {
         "as_of": cutoff.isoformat(),

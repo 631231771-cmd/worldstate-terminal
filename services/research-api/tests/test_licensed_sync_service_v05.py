@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Never
 
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
@@ -120,7 +121,7 @@ async def test_databento_aggregate_budget_blocks_before_contract_or_download(
     )
     settings = Settings(
         database_url="sqlite+aiosqlite:///unused.db",
-        databento_api_key="secret",
+        databento_api_key=SecretStr("secret"),
         allow_paid_download=True,
         databento_max_estimated_cost_usd=Decimal("0.10"),
         scheduler_enabled=False,
@@ -285,7 +286,7 @@ async def test_fallback_quote_never_authorizes_paid_download(
         lambda _settings: SimpleNamespace(databento=provider),
     )
     settings = Settings(
-        databento_api_key="secret",
+        databento_api_key=SecretStr("secret"),
         allow_paid_download=True,
         databento_max_estimated_cost_usd=Decimal("10"),
         scheduler_enabled=False,
@@ -435,7 +436,7 @@ async def test_te_cross_check_compares_all_fields_and_downgrades_quality(
         engine,
         Settings(
             database_url="sqlite+aiosqlite:///unused.db",
-            trading_economics_api_key="secret",
+            trading_economics_api_key=SecretStr("secret"),
             trading_economics_pit_entitled=True,
             trading_economics_monthly_quota=100,
             scheduler_enabled=False,

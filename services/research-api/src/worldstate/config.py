@@ -1,6 +1,7 @@
 """Typed settings for the local-first WorldState research service."""
 
 import os
+import sys
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -14,6 +15,9 @@ def repository_root() -> Path:
     override = os.getenv("WORLDSTATE_ROOT")
     if override:
         return Path(override).expanduser().resolve()
+    frozen_root = getattr(sys, "_MEIPASS", None)
+    if frozen_root:
+        return Path(str(frozen_root)).resolve()
     for parent in Path(__file__).resolve().parents:
         if (parent / "data").is_dir() and (
             (parent / "services" / "research-api").is_dir() or (parent / "pyproject.toml").is_file()
@@ -103,6 +107,9 @@ class Settings(BaseSettings):
     public_provider_sync_enabled: bool = Field(
         default=True,
         validation_alias="WORLDSTATE_PUBLIC_PROVIDER_SYNC_ENABLED",
+    )
+    atas_live_bridge_enabled: bool = Field(
+        default=False, validation_alias="ATAS_LIVE_BRIDGE_ENABLED",
     )
     bls_api_key: SecretStr | None = Field(
         default=None,

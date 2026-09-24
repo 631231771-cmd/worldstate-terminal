@@ -8,6 +8,52 @@ WorldState Terminal（世界状态终端）是一款个人使用、local-first �
 
 ## v0.7 当前状态
 
+### 2026-09-23 市场信息工作台（等待使用体验反馈）
+
+默认首页现将自选市场、价格/走势、已保存的官方宏观因素、Federal Reserve/EIA
+公开公告及本地经济日历放在同一页。点击黄金或原油即可切换价格、相关市场、
+利率/通胀或 EIA 库存/产量/进出口/炼厂数据及对应主题消息；无需先建立观点。
+官方证据沿用现有六小时缓存，在首页后台更新，失败时保留已有数据。
+
+黄金/白银现货为聚合参考报价；GC、CL、ES、NQ、BTC、美元指数及部分美债行情
+来自公开聚合源，可能延迟，连续期货代码未核实具体合约身份。2Y/10Y 期货
+价格不作为国债收益率。每个报价及日/周/月频因素保留各自时间和来源，
+不把不同来源的报价变化与历史图表拼成同一口径，也不把公告标题当作涨跌原因。
+公告目前仅覆盖 Federal Reserve 与 EIA，不是完整快讯流；没有 ATAS/Rithmic
+研究数据接入。一个默认关闭的 [ATAS 本机 GC 行情桥 PoC](docs/data/atas-local-bridge-poc.md)
+可把现有 ATAS 图表的 GC 报价送到首页内存展示层，不进入事件研究；截至
+2026-09-23 尚未完成真实 ATAS 图表价格对照，试用授权也未确认。
+
+### 2026-09-21 宏观推理纵向切片
+
+研究记忆现已支持：保存可追溯资料、从原文提取候选观点、人工确认机制映射，
+再使用现有 observed 数据逐环检查支持证据、反对证据和缺失证据。第一套
+versioned Playbook 同时比较能源供给冲击、需求加速、美元/流动性宽松；输出
+falsifier 和 limitations，但不把跨资产共振写成唯一因果，也不输出伪概率。
+详见 [Macro Reasoning Engine v1](docs/macro/macro-reasoning-engine-v1.md)。
+
+官方证据扩展已接入 EIA、美国财政部、纽约联储和 CFTC 的免费导出。
+研究记忆中可更新证据并重新检查竞争解释；仓位风险与方向性证据分开。
+这些历史导出明确为 current-version/non-PIT，不是历史首次发布版本。
+真实数据范围与案例结果见 [Evidence Expansion v1](docs/macro/evidence-expansion-v1.md)。
+
+### 2026-09-11 产品工作流重整（进行中）
+
+当前分支为 `feature/v0.7-terminal-rebuild`。主界面改为：
+
+- **市场工作台**：选择市场，同屏查看报价、走势、相关宏观因素、官方消息和日历；深度研究留在其他页面。
+- **事件台**：在一张表内比较预期、实际值、偏差和修订，再进入市场反应、解释、历史与来源。
+- **市场脉络**：市场表、图表和全球宏观环境；点击继续研究。
+- **研究记忆**：已有发布记录、资料来源、作者观点、竞争机制检查和个人研究笔记。
+
+数据源、方法和高级模式在“工具与设置”中。成功读取的 observed 视图保存在本机，重开立即显示并后台刷新；刷新失败保留记录及时间。这只是展示缓存，不进入研究计算。
+
+9 月 8 日桌面验证中，部分日线已同步至 9 月初，黄金仍较旧。CPI 尚缺合格分钟行情，因此**还不能回答实时波动原因，也没有新的真实 CPI AnalysisRun**。本轮没有补造行情、修改共识或下载 Databento。详见 [产品重整记录](docs/product/intelligence-workflow.md)。
+
+桌面冷启动已修复 Windows 数据库路径转换；冻结后端必须与源码同步，构建入口会拒绝旧后端。重新构建时先执行 `scripts/build-research-sidecar.ps1`，再执行 `npm run build --prefix apps/desktop-tauri -- --no-bundle`。读写请求共用明确的本地来源列表，包含 Windows 的 `http://tauri.localhost`；没有关闭 CORS 或 CSP。
+
+以下版本段落保留为历史记录，不代表实时覆盖状态。
+
 当前开发分支 `feature/v0.7-live-global` 在 v0.6 operational macro 基础上
 启用了官方公共宏观数据、数据新鲜度与全球比较的第一条真实链路。产品版本
 为 `0.7.0`，数据库迁移头为 `0009_operational_state`。
@@ -43,8 +89,9 @@ Series Explorer、Thesis Book、结构化上下文助手和全球宏观第一层
   按官方来源工作。没有密钥/权限时 API 会返回 `not_configured` 或 `unavailable`。
 - **Fixture 作用**：干净 demo 数据只用于确认页面和确定性方法链，provider 和
   `data_mode` 都单独标记。真实 observed 覆盖仍需按 v0.5 数据源边界导入。
-- **发布边界**：Tauri/Windows 入口保持可用，但没有冻结 Python sidecar 或签名
-  安装包；空白电脑仍需 Python 3.12、Node.js 20+ 等本机依赖。
+- **发布边界**：已有可重复的 PyInstaller onedir Research API 构建与
+  `/v2/health` smoke，生成物不依赖系统 Python。Tauri 尚未正式捆绑该目录，
+  也没有签名安装包；当前桌面 EXE 仍不是空白电脑独立运行版。
 
 详细方法见 [`docs/macro/v0.6-operational-intelligence.md`](docs/macro/v0.6-operational-intelligence.md)。
 
@@ -56,7 +103,10 @@ v0.5 Data Foundation 正在 PR #8 的 Draft 分支上实施和稳定化，尚未
 - **fixture 已测试**：内置 CPI、非农和 FOMC 研究切片，以及 Provider 响应适配、成本闸门、调度状态机和对账服务的测试样例。fixture 只证明流程可运行，不代表真实数据就绪。
 - **可接真实数据（observed-ready）**：BLS 公共档和 Federal Reserve 公开网页无需密钥；FOMC 支持 2015–2020 官方历史页以及当前/未来会议日历；FRED/ALFRED、Trading Economics 和 Databento 有明确的凭据、PIT、成本和许可边界；CSV 与手工录入仍可用于合法获得的数据。
 - **尚未完成**：本轮无密钥环境没有形成完整 observed 历史。FRED/ALFRED 因缺少 FRED key 被阻塞；TE 当前抓取因缺少 key 被阻塞，历史回放还需要 PIT entitlement；Databento 因缺少 key/数据权限且付费开关默认关闭而被阻塞。BLS 公共模式不需要 key，但本验证网络访问其 schedule HTML 时收到 HTTP 403，且当前 API 不能重建旧的首次公布值；Federal Reserve 公共页已可验证。公开可访问不等于已完成全量回填。
-- **发布打包未就绪**：Tauri 开发构建仍依赖本机 Python 3.12；当前没有冻结 Python sidecar，也没有签名安装包，不能把单独 EXE 当作可在空白电脑独立运行的发布版本。
+- **发布打包未就绪**：日常 Tauri/BAT 启动路径仍使用项目 Python 环境。
+  `scripts/build-research-sidecar.ps1` 已能生成并验证无需系统 Python 的
+  Research API 目录，但尚未接入 Tauri bundle，也没有签名安装包；不能把
+  当前单独桌面 EXE 当作空白电脑独立运行版。
 
 最终测试、迁移和 GitHub CI 结果以 [`docs/stabilization/v0.5-data-foundation-report.md`](docs/stabilization/v0.5-data-foundation-report.md) 的验证记录为准；验证完成前不应将 PR #8 标记为 Ready 或合并。
 

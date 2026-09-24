@@ -13,11 +13,15 @@ from prometheus_client import make_asgi_app
 
 from worldstate import __version__
 from worldstate.api import router
+from worldstate.api.origins import LOCAL_BROWSER_ORIGINS
 from worldstate.application.backfill_worker import BackfillWorker
 from worldstate.application.bootstrap_service import (
     bootstrap_research_data,
     initialize_research_catalog,
 )
+from worldstate.application.live_quote_service import LiveQuoteService
+from worldstate.application.market_workbench_service import OfficialHeadlines
+from worldstate.application.quote_service import QuoteService
 from worldstate.application.scheduler_runtime import SchedulerRuntime
 from worldstate.application.world_state_service import seed_state_fixture_data
 from worldstate.config import Settings
@@ -33,6 +37,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.settings = resolved
+        app.state.quote_service = QuoteService()
+        app.state.live_quote_service = LiveQuoteService(resolved.atas_live_bridge_enabled)
+        app.state.official_headlines = OfficialHeadlines()
         app.state.database_engine = create_engine(resolved.database_url)
         await initialize_research_catalog(app.state.database_engine)
         if resolved.demo_mode:
@@ -71,15 +78,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://127.0.0.1:4173",
-            "http://localhost:4173",
-            "http://127.0.0.1:5173",
-            "http://localhost:5173",
-            "tauri://localhost",
-            "https://tauri.localhost",
-        ],
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_origins=sorted(LOCAL_BROWSER_ORIGINS),
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 

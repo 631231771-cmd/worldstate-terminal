@@ -509,6 +509,96 @@ class Thesis(TimestampMixin, Base):
     data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
 
 
+class ResearchSource(TimestampMixin, Base):
+    """A traceable piece of research material, separate from system conclusions."""
+
+    __tablename__ = "research_sources"
+    __table_args__ = (
+        Index("ix_research_sources_retrieved", "retrieved_at"),
+        CheckConstraint(
+            "data_mode IN ('observed','fixture')",
+            name="ck_research_sources_data_mode",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    author: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_url: Mapped[str | None] = mapped_column(String(2048))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    content_text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    provenance_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
+
+
+class AuthorClaim(TimestampMixin, Base):
+    """A source-attributed claim that requires an explicit human decision."""
+
+    __tablename__ = "author_claims"
+    __table_args__ = (
+        Index("ix_author_claims_source_status", "source_id", "status"),
+        CheckConstraint(
+            "status IN ('draft','confirmed','rejected')",
+            name="ck_author_claims_status",
+        ),
+        CheckConstraint(
+            "extraction_method IN ('manual','ai')",
+            name="ck_author_claims_extraction_method",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("research_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    statement: Mapped[str] = mapped_column(Text, nullable=False)
+    exact_quote: Mapped[str] = mapped_column(Text, nullable=False)
+    extraction_method: Mapped[str] = mapped_column(String(32), nullable=False)
+    extractor_model: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
+    mechanism_key: Mapped[str | None] = mapped_column(String(128))
+    mechanism_version: Mapped[str | None] = mapped_column(String(32))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confirmed_by: Mapped[str | None] = mapped_column(String(128))
+    review_notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), default="observed", nullable=False)
+
+
+class MechanismAssessment(Base):
+    """Immutable deterministic evaluation of one confirmed claim and its competitors."""
+
+    __tablename__ = "mechanism_assessments"
+    __table_args__ = (
+        Index("ix_mechanism_assessments_claim_time", "claim_id", "evaluated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    claim_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("author_claims.id", ondelete="CASCADE"), nullable=False
+    )
+    playbook_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    playbook_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    playbook_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    primary_mechanism_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    data_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    input_snapshot_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    input_snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, default=dict, nullable=False
+    )
+    output_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 class WorldStateSnapshot(Base):
     """Immutable daily world-state output for history and reproducible briefs."""
 

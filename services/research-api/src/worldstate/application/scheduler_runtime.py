@@ -160,7 +160,9 @@ async def execute_scheduled_operation(
         _require_complete(result, operation)
         return result
     if operation == "sync_official":
-        default_start = max(settings.data_start_date, today - timedelta(days=365 * 5))
+        # Daily operation is a bounded recent-release catch-up. Historical
+        # population belongs to explicit bootstrap/backfill jobs.
+        default_start = max(settings.data_start_date, today - timedelta(days=45))
         result = await sync_official_data(
             engine,
             settings,
@@ -198,7 +200,9 @@ async def execute_scheduled_operation(
         _require_complete(result, operation)
         return result
     if operation == "sync_calendar":
-        start = _date_input(run.input_json, "start_date", today)
+        # A desktop may be off on release day. Keep enough lookback to recover
+        # missed official releases and then schedule their post-release work.
+        start = _date_input(run.input_json, "start_date", today - timedelta(days=45))
         end = _date_input(run.input_json, "end_date", today + timedelta(days=370))
         bls = await sync_bls_calendar(engine, settings, start_date=start, end_date=end)
         fomc = await sync_fomc_materials(engine, settings, start_date=start, end_date=end)

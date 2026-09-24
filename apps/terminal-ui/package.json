@@ -7,14 +7,18 @@
     "dev": "vite --host 127.0.0.1 --port 4173",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "test": "node --test tests/intelligence.test.cjs",
+    "test:e2e": "node tests/intelligence.e2e.cjs",
     "preview": "vite preview --host 127.0.0.1 --port 4173"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.0",
+    "lightweight-charts": "^5.2.0",
     "preact": "^10.25.4"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.2",
+    "playwright": "1.62.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.7"
   }

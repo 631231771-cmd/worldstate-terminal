@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import html as html_module
+import io
 import json
 import re
 from datetime import UTC, date, datetime
@@ -14,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from pydantic import AwareDatetime, Field
+from pypdf import PdfReader
 
 from worldstate.data_quality import DataQuality, QualityGrade
 from worldstate.macro_core.enums import ProviderStatus
@@ -140,11 +142,25 @@ class BlsScheduleEntry(ProviderModel):
     source_time_text: str
     source_url: str
     artifact_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reference_period: str | None = None
 
 
 class BlsScheduleBatch(ProviderBatch):
     release_family: Literal["US_CPI", "US_NFP"]
     entries: tuple[BlsScheduleEntry, ...]
+
+
+class BlsInitialReleaseValues(ProviderModel):
+    """Initial values stated in an immutable official release document."""
+
+    release_family: Literal["US_CPI"]
+    reference_period: str
+    published_at: AwareDatetime
+    actual_values: dict[str, Decimal]
+    previous_values: dict[str, Decimal]
+    source_url: str
+    artifact_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    parser_version: str = "dol-cpi-release-pdf-v1"
 
 
 class _ScheduleTableParser(HTMLParser):
@@ -198,6 +214,204 @@ _MONTHS = {
     "dec": 12,
 }
 
+_ICS_PERIOD = re.compile(
+    r"\bfor\s+(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|"
+    r"Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|"
+    r"Nov(?:ember)?|Dec(?:ember)?)\s+(?P<year>20\d{2})\b",
+    re.IGNORECASE,
+)
+_PLAIN_PERIOD = re.compile(
+    r"\b(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|"
+    r"Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|"
+    r"Nov(?:ember)?|Dec(?:ember)?)\s+(?P<year>20\d{2})\b",
+    re.IGNORECASE,
+)
+_BLS_MONTH_CELL = re.compile(
+    r"<td\b[^>]*\bid=[\"']d(?P<month>\d{2})(?P<day>\d{2})[\"'][^>]*>"
+    r"(?P<body>.*?)</td>",
+    re.IGNORECASE | re.DOTALL,
+)
+_BLS_EVENT_PARAGRAPH = re.compile(
+    r"<p>\s*<strong>(?P<title>.*?)</strong>(?P<body>.*?)</p>",
+    re.IGNORECASE | re.DOTALL,
+)
+_DOL_RELEASE_LINKS: dict[str, re.Pattern[str]] = {
+    "US_CPI": re.compile(
+        r'href=["\'](?P<href>[^"\']*/cpi_(?P<date>\d{8})\.pdf)["\']',
+        re.IGNORECASE,
+    ),
+    "US_NFP": re.compile(
+        r'href=["\'](?P<href>[^"\']*/empsit_(?P<date>\d{8})\.pdf)["\']',
+        re.IGNORECASE,
+    ),
+}
+_DOL_RELEASE_HEADER = re.compile(
+    r"(?P<hour>\d{1,2}):(?P<minute>\d{2})\s*a\.m\.\s*\(ET\)\s*"
+    r"(?:Monday|Tuesday|Wednesday|Thursday|Friday),\s*"
+    r"(?P<month>January|February|March|April|May|June|July|August|September|"
+    r"October|November|December)\s+(?P<day>\d{1,2}),\s+(?P<year>20\d{2})",
+    re.IGNORECASE,
+)
+_DOL_PERIOD_HEADINGS: dict[str, re.Pattern[str]] = {
+    "US_CPI": re.compile(
+        r"CONSUMER\s+PRICE\s+INDEX\s*[-–—]\s*"
+        r"(?P<month>January|February|March|April|May|June|July|August|September|"
+        r"October|November|December)\s+(?P<year>20\d{2})",
+        re.IGNORECASE,
+    ),
+    "US_NFP": re.compile(
+        r"(?:THE\s+)?EMPLOYMENT\s+SITUATION\s*[-–—]\s*"
+        r"(?P<month>January|February|March|April|May|June|July|August|September|"
+        r"October|November|December)\s+(?P<year>20\d{2})",
+        re.IGNORECASE,
+    ),
+}
+_DOL_NEXT_RELEASE = re.compile(
+    r"scheduled\s+to\s+be\s+(?:published|released)\s+on\s+"
+    r"(?:Monday|Tuesday|Wednesday|Thursday|Friday),\s*"
+    r"(?P<month>January|February|March|April|May|June|July|August|September|"
+    r"October|November|December)\s+(?P<day>\d{1,2}),\s+(?P<year>20\d{2}),?\s+at\s+"
+    r"(?P<hour>\d{1,2}):(?P<minute>\d{2})\s*a\.m\.\s*\(ET\)",
+    re.IGNORECASE,
+)
+_PERCENT_DIRECTION = {
+    "increased": Decimal("1"),
+    "rose": Decimal("1"),
+    "rising": Decimal("1"),
+    "increasing": Decimal("1"),
+    "decreased": Decimal("-1"),
+    "declined": Decimal("-1"),
+    "declining": Decimal("-1"),
+    "fell": Decimal("-1"),
+    "falling": Decimal("-1"),
+    "decreasing": Decimal("-1"),
+}
+_CPI_HEADLINE_MOM = re.compile(
+    r"Consumer Price Index for All Urban Consumers\s*\(CPI-U\)\s+"
+    r"(?P<direction>increased|rose|decreased|declined|fell)\s+"
+    r"(?P<value>\d+(?:\.\d+)?)\s+percent.*?\bin\s+"
+    r"(?P<month>January|February|March|April|May|June|July|August|September|"
+    r"October|November|December)\b"
+    r"(?:\s+after\s+(?P<previous_direction>rising|increasing|falling|declining|decreasing)"
+    r"\s+(?P<previous>\d+(?:\.\d+)?)\s+percent)?",
+    re.IGNORECASE,
+)
+_CPI_HEADLINE_YOY = re.compile(
+    r"Over the last 12 months,\s+the all items index\s+"
+    r"(?P<direction>increased|rose|decreased|declined|fell)\s+"
+    r"(?P<value>\d+(?:\.\d+)?)\s+percent",
+    re.IGNORECASE,
+)
+_CPI_HEADLINE_YOY_PREVIOUS = re.compile(
+    r"The all items index\s+(?P<direction>increased|rose|decreased|declined|fell)\s+"
+    r"(?P<value>\d+(?:\.\d+)?)\s+percent\s+for the 12 months ending\s+\w+\s+"
+    r"(?:(?:as it did for)|(?:after|following)\s+(?:a\s+)?)\s*"
+    r"(?:(?P<previous>\d+(?:\.\d+)?)[- ]percent\s+)?",
+    re.IGNORECASE,
+)
+_CPI_CORE_MOM = re.compile(
+    r"index for all items less food and energy\s+"
+    r"(?P<direction>increased|rose|decreased|declined|fell)\s+"
+    r"(?P<value>\d+(?:\.\d+)?)\s+percent"
+    r"(?:\s+after\s+(?P<previous_direction>rising|increasing|falling|declining|decreasing)"
+    r"\s+(?P<previous>\d+(?:\.\d+)?)\s+percent)?",
+    re.IGNORECASE,
+)
+_CPI_CORE_YOY = re.compile(
+    r"all items less food and energy index\s+"
+    r"(?P<direction>increased|rose|decreased|declined|fell)\s+"
+    r"(?P<value>\d+(?:\.\d+)?)\s+percent\s+over the year"
+    r"(?:,?\s+(?:following|after)\s+(?:a\s+)?"
+    r"(?P<previous>\d+(?:\.\d+)?)[- ]percent\s+"
+    r"(?P<previous_direction>increase|decrease))?",
+    re.IGNORECASE,
+)
+
+
+def _unfold_ics_lines(payload: bytes | str) -> list[str]:
+    text = payload.decode("utf-8-sig") if isinstance(payload, bytes) else payload
+    physical = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    lines: list[str] = []
+    for line in physical:
+        if line.startswith((" ", "\t")) and lines:
+            lines[-1] += line[1:]
+        else:
+            lines.append(line)
+    return lines
+
+
+def _unescape_ics(value: str) -> str:
+    return (
+        value.replace("\\n", "\n")
+        .replace("\\N", "\n")
+        .replace("\\,", ",")
+        .replace("\\;", ";")
+        .replace("\\\\", "\\")
+    )
+
+
+def _reference_period(text: str) -> str | None:
+    match = _ICS_PERIOD.search(text) or _PLAIN_PERIOD.search(text)
+    if match is None:
+        return None
+    month = _MONTHS[match.group("month")[:3].lower()]
+    return f"{match.group('year')}-{month:02d}"
+
+
+def _plain_html(text: str) -> str:
+    return html_module.unescape(re.sub(r"<[^>]+>", " ", text))
+
+
+def _parse_ics_datetime(value: str, parameters: dict[str, str]) -> datetime | None:
+    raw = value.strip()
+    try:
+        if raw.endswith("Z"):
+            return datetime.strptime(raw, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+        parsed = datetime.strptime(raw, "%Y%m%dT%H%M%S")
+    except ValueError:
+        try:
+            parsed = datetime.strptime(raw, "%Y%m%dT%H%M")
+        except ValueError:
+            return None
+    timezone_name = parameters.get("TZID", "America/New_York")
+    try:
+        return parsed.replace(tzinfo=ZoneInfo(timezone_name))
+    except Exception:
+        return parsed.replace(tzinfo=ZoneInfo("America/New_York"))
+
+
+def _extract_pdf_text(payload: bytes, *, provider_key: str) -> str:
+    try:
+        reader = PdfReader(io.BytesIO(payload))
+        text = " ".join(
+            " ".join((page.extract_text() or "").split()) for page in reader.pages
+        )
+        # Current DOL PDFs occasionally split the initial ligature in "The".
+        # Normalize that extraction artifact without altering any numeric text.
+        return re.sub(r"\bT\s+he\b", "The", text)
+    except Exception as exc:
+        raise ProviderSchemaError(
+            provider_key,
+            "DOL official release PDF could not be read",
+            structure="PDF text with embargo timestamp and release heading",
+        ) from exc
+
+
+def _dol_scheduled(match: re.Match[str]) -> datetime:
+    return datetime(
+        int(match.group("year")),
+        _MONTHS[match.group("month")[:3].lower()],
+        int(match.group("day")),
+        int(match.group("hour")),
+        int(match.group("minute")),
+        tzinfo=ZoneInfo("America/New_York"),
+    )
+
+
+def _signed_percent(match: re.Match[str], *, prefix: str = "") -> Decimal:
+    direction = match.group(f"{prefix}direction").lower()
+    return _PERCENT_DIRECTION[direction] * Decimal(match.group(f"{prefix}value"))
+
 
 class BlsOfficialProvider:
     """Normalize BLS payloads without pretending the current API is a vintage API."""
@@ -208,6 +422,9 @@ class BlsOfficialProvider:
         "US_CPI": "https://www.bls.gov/schedule/news_release/cpi.htm",
         "US_NFP": "https://www.bls.gov/schedule/news_release/empsit.htm",
     }
+    public_calendar_url = "https://www.bls.gov/schedule/news_release/bls.ics"
+    dol_economic_data_url = "https://www.dol.gov/newsroom/economicdata"
+    user_agent = "WorldStateTerminal/0.7 (+https://github.com/631231771-cmd/worldstate-terminal)"
     terms = ProviderTerms(
         license_name="United States Government public data",
         terms_url="https://www.bls.gov/bls/linksite.htm",
@@ -225,6 +442,9 @@ class BlsOfficialProvider:
     ) -> None:
         self._api_key = api_key
         self._historical_schedule_cache: dict[int, tuple[bytes, datetime, str]] = {}
+        self._dol_schedule_cache: dict[
+            Literal["US_CPI", "US_NFP"], tuple[bytes, datetime, str]
+        ] = {}
         self._transport = HttpProviderTransport(
             provider_key=self.key,
             client=client,
@@ -249,7 +469,12 @@ class BlsOfficialProvider:
         return ProviderCapabilities(
             provider_key=self.key,
             domains=(ProviderDomain.MACRO_RELEASE, ProviderDomain.MACRO_SERIES),
-            operations=("fetch_cpi", "fetch_nfp", "healthcheck"),
+            operations=(
+                "fetch_cpi",
+                "fetch_nfp",
+                "fetch_public_calendar",
+                "healthcheck",
+            ),
             supports_point_in_time=False,
             supports_revisions=True,
             supports_batch=True,
@@ -265,6 +490,7 @@ class BlsOfficialProvider:
                     "series_per_query": 25,
                     "years_per_query": 10,
                     "requests_per_day": 25,
+                    "calendar": "public ICS feed does not require a registered API key",
                 },
                 "registered_limits": {
                     "series_per_query": 50,
@@ -415,7 +641,12 @@ class BlsOfficialProvider:
         }
         if self._api_key:
             request_body["registrationkey"] = self._api_key
-        response = await self._transport.request("POST", self.endpoint, json_body=request_body)
+        response = await self._transport.request(
+            "POST",
+            self.endpoint,
+            json_body=request_body,
+            headers={"User-Agent": self.user_agent, "Accept": "application/json"},
+        )
         retrieved_at = datetime.now(UTC)
         return self.adapt_payload(
             response.content,
@@ -687,6 +918,17 @@ class BlsOfficialProvider:
         *,
         year: int,
     ) -> BlsScheduleBatch:
+        # BLS publishes the current and forward release calendar as a public
+        # ICS feed.  It is intentionally independent of the registered Data
+        # API entitlement used by fetch_bundle/fetch_actuals.
+        public_error: ProviderError | ProviderSchemaError | None = None
+        if year >= datetime.now(UTC).year:
+            try:
+                return await self.fetch_public_calendar(family, year=year)
+            except (ProviderError, ProviderSchemaError) as exc:
+                # Keep the official schedule HTML as a secondary fallback;
+                # callers retain the warning/provenance from the final source.
+                public_error = exc
         base_url = self.schedule_urls[family]
         current_year = datetime.now(UTC).year
         source_url = (
@@ -695,25 +937,452 @@ class BlsOfficialProvider:
             else base_url
         )
         cached = self._historical_schedule_cache.get(year) if year < current_year else None
-        if cached is None:
-            response = await self._transport.request("GET", source_url)
-            content = response.content
-            retrieved_at = datetime.now(UTC)
-            resolved_url = str(response.url)
-            if year < current_year:
-                self._historical_schedule_cache[year] = (
-                    content,
-                    retrieved_at,
-                    resolved_url,
+        html_error: ProviderError | ProviderSchemaError | None = None
+        try:
+            if cached is None:
+                response = await self._transport.request(
+                    "GET",
+                    source_url,
+                    headers={
+                        "User-Agent": self.user_agent,
+                        "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
+                    },
                 )
-        else:
-            content, retrieved_at, resolved_url = cached
-        return self.adapt_schedule_html(
-            content,
+                content = response.content
+                retrieved_at = datetime.now(UTC)
+                resolved_url = str(response.url)
+                if year < current_year:
+                    self._historical_schedule_cache[year] = (
+                        content,
+                        retrieved_at,
+                        resolved_url,
+                    )
+            else:
+                content, retrieved_at, resolved_url = cached
+            return self.adapt_schedule_html(
+                content,
+                family=family,
+                year=year,
+                retrieved_at=retrieved_at,
+                source_url=resolved_url,
+                calendar_provider=(
+                    "bls_official_schedule_html_fallback"
+                    if public_error is not None
+                    else "bls_official_schedule_html"
+                ),
+                fallback_from=(self.public_calendar_url if public_error is not None else None),
+            )
+        except (ProviderError, ProviderSchemaError) as exc:
+            html_error = exc
+        if public_error is None:
+            raise html_error
+        try:
+            return await self.fetch_dol_release_calendar(family, year=year)
+        except (ProviderError, ProviderSchemaError) as dol_error:
+            raise ProviderError(
+                self.key,
+                ProviderErrorCode.PUBLIC_CALENDAR_UNAVAILABLE,
+                "BLS calendar endpoints and the official DOL release archive are unavailable",
+                retryable=public_error.retryable,
+                details={
+                    "public_calendar_error": public_error.error_code.value,
+                    "html_fallback_error": type(html_error).__name__,
+                    "dol_fallback_error": type(dol_error).__name__,
+                    "public_calendar_url": self.public_calendar_url,
+                    "fallback_url": source_url,
+                    "official_archive_url": self.dol_economic_data_url,
+                },
+            ) from dol_error
+
+    async def fetch_dol_release_calendar(
+        self,
+        family: Literal["US_CPI", "US_NFP"],
+        *,
+        year: int,
+    ) -> BlsScheduleBatch:
+        """Recover the latest release and next T0 from the official DOL PDF archive."""
+
+        cached = self._dol_schedule_cache.get(family)
+        if cached is None:
+            index_response = await self._transport.request(
+                "GET",
+                self.dol_economic_data_url,
+                headers={
+                    "User-Agent": self.user_agent,
+                    "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
+                },
+            )
+            try:
+                rendered = index_response.content.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ProviderSchemaError(
+                    self.key,
+                    "DOL economic data index was not UTF-8 HTML",
+                    structure="link to the current official CPI or Employment Situation PDF",
+                ) from exc
+            matches = list(_DOL_RELEASE_LINKS[family].finditer(rendered))
+            if not matches:
+                raise ProviderSchemaError(
+                    self.key,
+                    "DOL economic data index did not expose the requested official release PDF",
+                    structure="cpi_MMDDYYYY.pdf or empsit_MMDDYYYY.pdf",
+                    details={"release_family": family},
+                )
+            relative_url = matches[-1].group("href")
+            pdf_url = str(httpx.URL(str(index_response.url)).join(relative_url))
+            pdf_response = await self._transport.request(
+                "GET",
+                pdf_url,
+                headers={"User-Agent": self.user_agent, "Accept": "application/pdf"},
+            )
+            cached = (pdf_response.content, datetime.now(UTC), str(pdf_response.url))
+            self._dol_schedule_cache[family] = cached
+        payload, retrieved_at, source_url = cached
+        return self.adapt_dol_release_pdf(
+            payload,
             family=family,
             year=year,
             retrieved_at=retrieved_at,
-            source_url=resolved_url,
+            source_url=source_url,
+        )
+
+    def adapt_dol_release_pdf(
+        self,
+        payload: bytes,
+        *,
+        family: Literal["US_CPI", "US_NFP"],
+        year: int,
+        retrieved_at: AwareDatetime,
+        source_url: str,
+    ) -> BlsScheduleBatch:
+        """Parse only release identity and timing from an official DOL/BLS PDF."""
+
+        text = _extract_pdf_text(payload, provider_key=self.key)
+        artifact = SourceArtifact.capture(
+            provider_key=self.key,
+            source_url=source_url,
+            retrieved_at=retrieved_at,
+            content_type="application/pdf",
+            content=payload,
+            terms=self.terms,
+            metadata={
+                "release_family": family,
+                "schedule_year": year,
+                "calendar_provider": "dol_official_economicdata_pdf",
+                "official": True,
+                "official_source": "U.S. Department of Labor / BLS",
+                "acquisition_transport": "http",
+                "parser": "dol-economicdata-pdf-v1",
+                "discovery_url": self.dol_economic_data_url,
+            },
+        )
+        heading = _DOL_PERIOD_HEADINGS[family].search(text)
+        release_match = _DOL_RELEASE_HEADER.search(text)
+        if heading is None or release_match is None:
+            raise ProviderSchemaError(
+                self.key,
+                "DOL official release PDF omitted its expected heading or embargo timestamp",
+                structure="release heading plus 8:30 a.m. (ET) publication timestamp",
+                details={"release_family": family},
+            )
+
+        title = "Consumer Price Index" if family == "US_CPI" else "Employment Situation"
+        reference_period = (
+            f"{heading.group('year')}-"
+            f"{_MONTHS[heading.group('month')[:3].lower()]:02d}"
+        )
+        entries: list[BlsScheduleEntry] = []
+        current_t0 = _dol_scheduled(release_match)
+        if current_t0.year == year:
+            entries.append(
+                BlsScheduleEntry(
+                    release_family=family,
+                    title=title,
+                    release_date=current_t0.date(),
+                    scheduled_local=current_t0,
+                    source_time_text=current_t0.strftime("%I:%M %p"),
+                    source_url=source_url,
+                    artifact_hash=artifact.content_hash,
+                    reference_period=reference_period,
+                )
+            )
+        next_match = _DOL_NEXT_RELEASE.search(text)
+        if next_match is not None:
+            next_t0 = _dol_scheduled(next_match)
+            if next_t0.year == year:
+                current_period = date.fromisoformat(f"{reference_period}-01")
+                next_month_index = current_period.year * 12 + current_period.month
+                next_period = f"{next_month_index // 12}-{next_month_index % 12 + 1:02d}"
+                entries.append(
+                    BlsScheduleEntry(
+                        release_family=family,
+                        title=title,
+                        release_date=next_t0.date(),
+                        scheduled_local=next_t0,
+                        source_time_text=next_t0.strftime("%I:%M %p"),
+                        source_url=source_url,
+                        artifact_hash=artifact.content_hash,
+                        reference_period=next_period,
+                    )
+                )
+        if not entries:
+            raise ProviderSchemaError(
+                self.key,
+                "DOL official release PDF did not cover the requested schedule year",
+                structure="current or next release in requested year",
+                details={"release_family": family, "schedule_year": year},
+            )
+        quality = DataQuality(
+            source_name="U.S. Department of Labor economic data release",
+            source_url=source_url,
+            source_type="official_pdf",
+            acquired_at=retrieved_at,
+            is_verified=True,
+            quality_grade=QualityGrade.A,
+            metadata={
+                "source_timezone": "America/New_York",
+                "calendar_provider": "dol_official_economicdata_pdf",
+                "official": True,
+                "parser": "dol-economicdata-pdf-v1",
+            },
+        )
+        return BlsScheduleBatch(
+            provider_key=self.key,
+            retrieved_at=retrieved_at,
+            artifacts=(artifact,),
+            quality=quality,
+            idempotency_key=hashlib.sha256(
+                f"dol-economicdata:{family}:{year}:{artifact.content_hash}".encode()
+            ).hexdigest(),
+            release_family=family,
+            entries=tuple(sorted(entries, key=lambda item: item.scheduled_local)),
+        )
+
+    def adapt_dol_initial_release_values(
+        self,
+        payload: bytes,
+        *,
+        retrieved_at: AwareDatetime,
+        source_url: str,
+    ) -> BlsInitialReleaseValues:
+        """Read the four CPI initial values from the official release PDF.
+
+        The immutable release document is the publication-time source. Local
+        retrieval time remains separate and is never backdated to T0.
+        """
+
+        text = _extract_pdf_text(payload, provider_key=self.key)
+        heading = _DOL_PERIOD_HEADINGS["US_CPI"].search(text)
+        release_match = _DOL_RELEASE_HEADER.search(text)
+        headline_mom = _CPI_HEADLINE_MOM.search(text)
+        headline_yoy = _CPI_HEADLINE_YOY.search(text)
+        core_mom = _CPI_CORE_MOM.search(text)
+        core_yoy = _CPI_CORE_YOY.search(text)
+        required = (heading, release_match, headline_mom, headline_yoy, core_mom, core_yoy)
+        if any(match is None for match in required):
+            raise ProviderSchemaError(
+                self.key,
+                "DOL CPI release PDF omitted one or more required initial values",
+                structure="headline/core CPI month-over-month and year-over-year values",
+            )
+        assert heading is not None
+        assert release_match is not None
+        assert headline_mom is not None
+        assert headline_yoy is not None
+        assert core_mom is not None
+        assert core_yoy is not None
+
+        actual_values = {
+            "US_CPI.HEADLINE.MOM": _signed_percent(headline_mom),
+            "US_CPI.HEADLINE.YOY": _signed_percent(headline_yoy),
+            "US_CPI.CORE.MOM": _signed_percent(core_mom),
+            "US_CPI.CORE.YOY": _signed_percent(core_yoy),
+        }
+        previous_values: dict[str, Decimal] = {}
+        for key, match in (
+            ("US_CPI.HEADLINE.MOM", headline_mom),
+            ("US_CPI.CORE.MOM", core_mom),
+        ):
+            previous = match.groupdict().get("previous")
+            previous_direction = match.groupdict().get("previous_direction")
+            if previous is not None and previous_direction is not None:
+                previous_values[key] = (
+                    _PERCENT_DIRECTION[previous_direction.lower()] * Decimal(previous)
+                )
+
+        core_previous = core_yoy.groupdict().get("previous")
+        core_previous_direction = core_yoy.groupdict().get("previous_direction")
+        if core_previous is not None and core_previous_direction is not None:
+            core_previous_sign = (
+                Decimal("1")
+                if core_previous_direction.lower() == "increase"
+                else Decimal("-1")
+            )
+            previous_values["US_CPI.CORE.YOY"] = core_previous_sign * Decimal(core_previous)
+
+        headline_previous = _CPI_HEADLINE_YOY_PREVIOUS.search(text)
+        if headline_previous is not None:
+            previous = headline_previous.groupdict().get("previous")
+            if previous is None:
+                previous_values["US_CPI.HEADLINE.YOY"] = _signed_percent(
+                    headline_previous
+                )
+            else:
+                previous_values["US_CPI.HEADLINE.YOY"] = Decimal(previous)
+
+        reference_period = (
+            f"{heading.group('year')}-"
+            f"{_MONTHS[heading.group('month')[:3].lower()]:02d}"
+        )
+        return BlsInitialReleaseValues(
+            release_family="US_CPI",
+            reference_period=reference_period,
+            published_at=_dol_scheduled(release_match),
+            actual_values=actual_values,
+            previous_values=previous_values,
+            source_url=source_url,
+            artifact_hash=hashlib.sha256(payload).hexdigest(),
+        )
+
+    async def fetch_public_calendar(
+        self,
+        family: Literal["US_CPI", "US_NFP"],
+        *,
+        year: int,
+    ) -> BlsScheduleBatch:
+        response = await self._transport.request(
+            "GET",
+            self.public_calendar_url,
+            headers={
+                "Accept": "text/calendar,text/plain;q=0.9,*/*;q=0.1",
+                "User-Agent": self.user_agent,
+            },
+        )
+        return self.adapt_schedule_ics(
+            response.content,
+            family=family,
+            year=year,
+            retrieved_at=datetime.now(UTC),
+            source_url=str(response.url),
+        )
+
+    def adapt_schedule_ics(
+        self,
+        payload: bytes | str,
+        *,
+        family: Literal["US_CPI", "US_NFP"],
+        year: int,
+        retrieved_at: AwareDatetime,
+        source_url: str,
+    ) -> BlsScheduleBatch:
+        """Parse BLS's public calendar without requiring a BLS API key."""
+
+        raw = payload.encode() if isinstance(payload, str) else payload
+        artifact = SourceArtifact.capture(
+            provider_key=self.key,
+            source_url=source_url,
+            retrieved_at=retrieved_at,
+            content_type="text/calendar",
+            content=raw,
+            terms=self.terms,
+            metadata={
+                "release_family": family,
+                "schedule_year": year,
+                "calendar_provider": "bls_public_calendar",
+                "official": True,
+                "parser": "bls-public-calendar-ics-v1",
+            },
+        )
+        entries: list[BlsScheduleEntry] = []
+        event: dict[str, tuple[dict[str, str], str]] | None = None
+        for line in [*_unfold_ics_lines(raw), "END:VEVENT"]:
+            if line == "BEGIN:VEVENT":
+                event = {}
+                continue
+            if line == "END:VEVENT":
+                if event is None:
+                    continue
+                summary = _unescape_ics(event.get("SUMMARY", ({}, ""))[1])
+                description = _unescape_ics(event.get("DESCRIPTION", ({}, ""))[1])
+                combined = f"{summary} {description}".lower()
+                marker = (
+                    "consumer price index"
+                    if family == "US_CPI"
+                    else "employment situation"
+                )
+                if marker not in combined:
+                    event = None
+                    continue
+                start_data = event.get("DTSTART")
+                if start_data is None:
+                    event = None
+                    continue
+                scheduled = _parse_ics_datetime(start_data[1], start_data[0])
+                if scheduled is None or scheduled.year != year:
+                    event = None
+                    continue
+                period = _reference_period(f"{summary} {description}")
+                title = (
+                    "Consumer Price Index"
+                    if family == "US_CPI"
+                    else "Employment Situation"
+                )
+                entries.append(
+                    BlsScheduleEntry(
+                        release_family=family,
+                        title=title,
+                        release_date=scheduled.date(),
+                        scheduled_local=scheduled,
+                        source_timezone="America/New_York",
+                        source_time_text=scheduled.strftime("%I:%M %p"),
+                        source_url=source_url,
+                        artifact_hash=artifact.content_hash,
+                        reference_period=period,
+                    )
+                )
+                event = None
+                continue
+            if event is None or ":" not in line:
+                continue
+            name, value = line.split(":", 1)
+            parts = name.split(";")
+            params = {
+                item.split("=", 1)[0].upper(): item.split("=", 1)[1]
+                for item in parts[1:]
+                if "=" in item
+            }
+            event[parts[0].upper()] = (params, value)
+        if not entries:
+            raise ProviderSchemaError(
+                self.key,
+                "BLS public calendar ICS yielded no requested release events",
+                structure="VEVENT with DTSTART and CPI/NFP summary",
+                details={"release_family": family, "schedule_year": year},
+            )
+        quality = DataQuality(
+            source_name="U.S. Bureau of Labor Statistics public release calendar",
+            source_url=source_url,
+            source_type="official_ics",
+            acquired_at=retrieved_at,
+            is_verified=True,
+            quality_grade=QualityGrade.A,
+            metadata={
+                "source_timezone": "America/New_York",
+                "calendar_provider": "bls_public_calendar",
+                "official": True,
+                "parser": "bls-public-calendar-ics-v1",
+            },
+        )
+        return BlsScheduleBatch(
+            provider_key=self.key,
+            retrieved_at=retrieved_at,
+            artifacts=(artifact,),
+            quality=quality,
+            idempotency_key=hashlib.sha256(
+                f"bls-public-calendar:{family}:{year}:{artifact.content_hash}".encode()
+            ).hexdigest(),
+            release_family=family,
+            entries=tuple(sorted(entries, key=lambda item: item.scheduled_local)),
         )
 
     def adapt_schedule_html(
@@ -724,6 +1393,8 @@ class BlsOfficialProvider:
         year: int,
         retrieved_at: AwareDatetime,
         source_url: str,
+        calendar_provider: str = "bls_official_schedule_html",
+        fallback_from: str | None = None,
     ) -> BlsScheduleBatch:
         raw = payload.encode() if isinstance(payload, str) else payload
         try:
@@ -743,54 +1414,112 @@ class BlsOfficialProvider:
             content_type="text/html",
             content=raw,
             terms=self.terms,
-            metadata={"release_family": family, "schedule_year": year},
+            metadata={
+                "release_family": family,
+                "schedule_year": year,
+                "calendar_provider": calendar_provider,
+                "official": True,
+                **({"fallback_from": fallback_from} if fallback_from else {}),
+            },
         )
         entries: list[BlsScheduleEntry] = []
         historical_full_calendar = f"/schedule/{year}/" in source_url
         family_marker = (
             "consumer price index" if family == "US_CPI" else "employment situation"
         )
-        for row in parser.rows:
-            row_text = " ".join(row)
-            if historical_full_calendar and family_marker not in row_text.lower():
-                continue
-            date_match = _SCHEDULE_DATE.search(row_text)
-            time_match = _SCHEDULE_TIME.search(row_text)
-            if date_match is None or time_match is None:
-                continue
-            row_year = int(date_match.group("year") or year)
-            if row_year != year:
-                continue
-            month = _MONTHS[date_match.group("month")[:3].lower()]
-            day = int(date_match.group("day"))
-            hour = int(time_match.group("hour"))
-            if time_match.group("ampm").upper() == "P" and hour != 12:
-                hour += 12
-            if time_match.group("ampm").upper() == "A" and hour == 12:
-                hour = 0
-            try:
-                release_date = date(row_year, month, day)
-            except ValueError:
-                continue
-            local = datetime(
-                row_year,
-                month,
-                day,
-                hour,
-                int(time_match.group("minute")),
-                tzinfo=ZoneInfo("America/New_York"),
-            )
-            entries.append(
-                BlsScheduleEntry(
-                    release_family=family,
-                    title="Consumer Price Index" if family == "US_CPI" else "Employment Situation",
-                    release_date=release_date,
-                    scheduled_local=local,
-                    source_time_text=time_match.group(0),
-                    source_url=source_url,
-                    artifact_hash=artifact.content_hash,
+        if historical_full_calendar:
+            # Month-view pages encode the actual calendar day in the cell id
+            # (for example d0812).  Do not infer that day from the period text.
+            for cell in _BLS_MONTH_CELL.finditer(rendered):
+                month = int(cell.group("month"))
+                day = int(cell.group("day"))
+                for event in _BLS_EVENT_PARAGRAPH.finditer(cell.group("body")):
+                    event_text = _plain_html(
+                        f"{event.group('title')} {event.group('body')}"
+                    )
+                    if family_marker not in event_text.lower():
+                        continue
+                    time_match = _SCHEDULE_TIME.search(event_text)
+                    if time_match is None:
+                        continue
+                    hour = int(time_match.group("hour"))
+                    if time_match.group("ampm").upper() == "P" and hour != 12:
+                        hour += 12
+                    if time_match.group("ampm").upper() == "A" and hour == 12:
+                        hour = 0
+                    try:
+                        release_date = date(year, month, day)
+                    except ValueError:
+                        continue
+                    entries.append(
+                        BlsScheduleEntry(
+                            release_family=family,
+                            title=(
+                                "Consumer Price Index"
+                                if family == "US_CPI"
+                                else "Employment Situation"
+                            ),
+                            release_date=release_date,
+                            scheduled_local=datetime(
+                                year,
+                                month,
+                                day,
+                                hour,
+                                int(time_match.group("minute")),
+                                tzinfo=ZoneInfo("America/New_York"),
+                            ),
+                            source_time_text=time_match.group(0),
+                            source_url=source_url,
+                            artifact_hash=artifact.content_hash,
+                            reference_period=_reference_period(event_text),
+                        )
+                    )
+        if not entries:
+            for row in parser.rows:
+                row_text = " ".join(row)
+                date_match = _SCHEDULE_DATE.search(row_text)
+                time_match = _SCHEDULE_TIME.search(row_text)
+                if date_match is None or time_match is None:
+                    continue
+                row_year = int(date_match.group("year") or year)
+                if row_year != year or (
+                    historical_full_calendar and family_marker not in row_text.lower()
+                ):
+                    continue
+                month = _MONTHS[date_match.group("month")[:3].lower()]
+                day = int(date_match.group("day"))
+                hour = int(time_match.group("hour"))
+                if time_match.group("ampm").upper() == "P" and hour != 12:
+                    hour += 12
+                if time_match.group("ampm").upper() == "A" and hour == 12:
+                    hour = 0
+                try:
+                    release_date = date(row_year, month, day)
+                except ValueError:
+                    continue
+                entries.append(
+                    BlsScheduleEntry(
+                        release_family=family,
+                        title=(
+                            "Consumer Price Index"
+                            if family == "US_CPI"
+                            else "Employment Situation"
+                        ),
+                        release_date=release_date,
+                        scheduled_local=datetime(
+                            row_year,
+                            month,
+                            day,
+                            hour,
+                            int(time_match.group("minute")),
+                            tzinfo=ZoneInfo("America/New_York"),
+                        ),
+                        source_time_text=time_match.group(0),
+                        source_url=source_url,
+                        artifact_hash=artifact.content_hash,
+                        reference_period=_reference_period(row_text),
+                    )
                 )
-            )
         if not entries:
             raise ProviderSchemaError(
                 self.key,
@@ -805,7 +1534,13 @@ class BlsOfficialProvider:
             acquired_at=retrieved_at,
             is_verified=True,
             quality_grade=QualityGrade.A,
-            metadata={"source_timezone": "America/New_York", "parser": "bls-schedule-v1"},
+            metadata={
+                "source_timezone": "America/New_York",
+                "calendar_provider": calendar_provider,
+                "official": True,
+                "parser": "bls-schedule-v1",
+                **({"fallback_from": fallback_from} if fallback_from else {}),
+            },
         )
         return BlsScheduleBatch(
             provider_key=self.key,
@@ -819,6 +1554,62 @@ class BlsOfficialProvider:
             entries=tuple(sorted(entries, key=lambda item: item.scheduled_local)),
         )
 
+    def adapt_browser_schedule_html(
+        self,
+        payload: bytes | str,
+        *,
+        family: Literal["US_CPI", "US_NFP"],
+        year: int,
+        retrieved_at: AwareDatetime,
+        source_url: str,
+    ) -> BlsScheduleBatch:
+        """Adapt an official BLS page captured by the controlled browser.
+
+        This is intentionally separate from HTTP sync so provenance never
+        claims that the Research API fetched a page it did not fetch.
+        """
+
+        if not source_url.startswith("https://www.bls.gov/schedule/"):
+            raise ProviderError(
+                self.key,
+                ProviderErrorCode.INVALID_REQUEST,
+                "browser calendar capture must use an official BLS schedule URL",
+            )
+        batch = self.adapt_schedule_html(
+            payload,
+            family=family,
+            year=year,
+            retrieved_at=retrieved_at,
+            source_url=source_url,
+            calendar_provider="bls_public_calendar",
+        )
+        artifact = batch.artifacts[0].model_copy(
+            update={
+                "provider_key": "bls_public_calendar",
+                "metadata": {
+                    **batch.artifacts[0].metadata,
+                    "provider": "bls_public_calendar",
+                    "calendar_provider": "bls_public_calendar",
+                    "acquisition_transport": "browser_capture",
+                    "official_source": True,
+                    "manual_user_entry": False,
+                }
+            }
+        )
+        quality = batch.quality.model_copy(
+            update={
+                "source_type": "official_browser_capture",
+                "metadata": {
+                    **batch.quality.metadata,
+                    "calendar_provider": "bls_public_calendar",
+                    "acquisition_transport": "browser_capture",
+                    "official_source": True,
+                    "manual_user_entry": False,
+                },
+            }
+        )
+        return batch.model_copy(update={"artifacts": (artifact,), "quality": quality})
+
     async def healthcheck(self) -> ProviderHealth:
         checked_at = datetime.now(UTC)
         try:
@@ -830,6 +1621,7 @@ class BlsOfficialProvider:
                     "startyear": str(checked_at.year - 1),
                     "endyear": str(checked_at.year),
                 },
+                headers={"User-Agent": self.user_agent, "Accept": "application/json"},
             )
             payload = response.json()
             if not isinstance(payload, dict) or payload.get("status") != "REQUEST_SUCCEEDED":
