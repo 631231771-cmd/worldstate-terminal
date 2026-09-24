@@ -54,6 +54,27 @@ Market Desk shows `GC <contract>`, bid/ask, event/receive clocks and current
 
 ## Validation boundary and handoff (2026-09-24)
 
+### Confirmed startup blocker (GPT-6-Sol diagnosis)
+
+At 05:54:42 UTC the diagnostic revision was successfully instantiated in ATAS.
+Its local lifecycle record shows `enabled=True`, `initialized`, followed by
+`contract: rejected info=GC legacy=GC provider=present`. At 05:54:52 it also
+received a real SDK `Trade` callback. Both instrument properties therefore
+return the undated `GC` alias on this chart; the strict dated-contract guard
+returns before creating the WebSocket sender. This is the observed startup
+blocker. The currently running diagnostic instance loaded successfully, so the
+earlier assembly warning does not explain this instance's failure to connect.
+
+An independent .NET ClientWebSocket empty handshake with the real running
+receiver succeeded and temporarily produced `connected=true`. No fabricated
+market values were sent. The receiver and opt-in gate work; a genuine dated
+contract identifier still needs to be obtained through the official SDK or an
+explicit dated chart before the current bridge protocol can start. Do not
+hardcode the toolbar month or relabel undated data as a verified contract.
+
+The remaining paragraphs describe the earlier observations leading to that
+diagnosis. Updated task prompt: `docs/data/atas-gc-bridge-handoff.md`.
+
 The user opened `#GCZ6@COMEX` and approved the read-only indicator test. ATAS
 imported `WorldState Bridge (GC)` and its settings showed `Added (1)` with
 `Enable local GC bridge` checked; Apply closed the dialog. The revised DLL was

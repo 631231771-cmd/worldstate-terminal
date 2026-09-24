@@ -9,9 +9,12 @@ Updated: 2026-09-24
 - A real .NET ClientWebSocket empty handshake succeeded against the running
   loopback endpoint; `connected=true` was observed during it, then the socket
   closed normally. No synthetic prices were sent. Receiver transport works.
-- Local `diag-v1` lifecycle logging was added to our indicator and builds
-  cleanly. At handoff it has not yet been loaded into ATAS. Diagnose the
-  loaded instance, actual SDK symbol and sender state before changing guards.
+- GPT-6-Sol successfully loaded `diag-v1`. Actual log: initialized with
+  DataProvider present, both SDK instrument fields equal `GC`, then a real
+  Trade callback. The strict dated-contract guard rejects `GC` before starting
+  the socket. This is now the confirmed startup blocker; the current instance
+  is loaded and executing. Obtain genuine dated identity using official SDK
+  data or a dated chart; never hardcode GCZ6 or fabricate a contract mapping.
 
 ### September 23 ATAS local GC bridge checkpoint
 

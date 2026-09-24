@@ -2,6 +2,22 @@
 
 日期：2026-09-24。用户要求将接下来的诊断交给 GPT-6-Sol；本文件是可直接复用的任务提示词。
 
+## 本次执行结果与下一步
+
+GPT-6-Sol已实际加载诊断版并找到断点。05:54:42 UTC日志显示
+`initialized`、`contract: rejected info=GC legacy=GC provider=present`，
+05:54:52收到真实`Trade`回调。指标在合约guard处停止，尚未创建WebSocket。
+加载失败和接收端故障均不能解释这个已观测到的断点。
+
+公开SDK的IInstrumentInfo、IChart、MarketDataArg未提供可用于此图的额外月份字段。
+下一次优先用现有连接打开独立的、明确月份的GCZ6合约图，保留原连续图，
+通过诊断日志验证SDK实际返回的身份，再测试报价。不要硬编码标题上的月份。
+本轮尝试进入合约选择时，主窗口捕获连续失败，未更改图表或连接。
+
+当前诊断版构建0警告0错误，接收端5项测试通过。最后读取仍为
+`enabled=true, connected=false, quote=null`；尚无真实报价验收。
+下面保留最初任务框架，所有“尚未导入”的描述指交接时状态；目前诊断版已加载。
+
 ## 目标与范围
 
 在 `F:\Code\world\worldstate-terminal`、`feature/v0.7-terminal-rebuild`

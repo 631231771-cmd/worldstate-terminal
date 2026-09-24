@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -8,7 +9,8 @@ namespace WorldState.AtasBridge;
 
 /// <summary>
 /// Opt-in, display-only snapshot exporter for ONE concrete GC chart contract.
-/// No orders, history, DOM, Rithmic login, file output, or remote network access.
+/// No orders, history, DOM, Rithmic login, quote file output, or remote network access.
+/// Lifecycle diagnostics are written to a small, bounded local log.
 /// </summary>
 [DisplayName("WorldState Bridge (GC)")]
 public sealed class WorldStateBridge : Indicator
@@ -31,6 +33,34 @@ public sealed class WorldStateBridge : Indicator
     private decimal? _tradeVolume;
     private MinuteBar? _bar;
     private bool _enabled;
+    private readonly string _diagnosticId = Guid.NewGuid().ToString("N")[..8];
+    private readonly Dictionary<string, string> _diagnosticStates = new();
+    private static readonly object DiagnosticFileGate = new();
+
+    // Bounded local lifecycle diagnostics only: no credentials or quote history.
+    private void Diagnostic(string area, string detail)
+    {
+        try
+        {
+            lock (_diagnosticStates)
+            {
+                if (_diagnosticStates.GetValueOrDefault(area) == detail) return;
+                _diagnosticStates[area] = detail;
+            }
+            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WorldStateTerminal", "logs");
+            lock (DiagnosticFileGate)
+            {
+                Directory.CreateDirectory(directory);
+                var path = Path.Combine(directory, "atas-gc-bridge.log");
+                if (File.Exists(path) && new FileInfo(path).Length >= 131072) return;
+                File.AppendAllText(path, $"{DateTime.UtcNow:O} diag-v1 {_diagnosticId} {area}: {detail}{Environment.NewLine}");
+            }
+        }
+        catch { /* Diagnostics must never interrupt the chart. */ }
+    }
+
+    private static string DiagnosticSymbol(string? symbol) => symbol is null ? "<null>" :
+        new string(symbol.Take(80).Where(c => char.IsLetterOrDigit(c) || "#@()._- ".Contains(c)).ToArray());
 
     [DisplayName("Enable local GC bridge")]
     [Description("Off by default. Also requires ATAS_LIVE_BRIDGE_ENABLED=1 in WorldState Research API.")]
@@ -41,6 +71,7 @@ public sealed class WorldStateBridge : Indicator
         {
             if (_enabled == value) return;
             _enabled = value;
+            Diagnostic("enabled", value.ToString());
             if (value) TryStart();
             else
             {
@@ -60,6 +91,7 @@ public sealed class WorldStateBridge : Indicator
 
     protected override void OnInitialize()
     {
+        Diagnostic("lifecycle", "initialized");
         TryStart();
     }
 
@@ -67,9 +99,9 @@ public sealed class WorldStateBridge : Indicator
 
     private string? CurrentDatedSymbol()
     {
-        // ATAS can expose the continuous chart name via InstrumentInfo while
-        // the Indicator's live Instrument is its resolved, dated contract.
-        // Neither an undated alias nor an unrelated instrument may pass.
+        // Use only a dated contract exposed by the public indicator properties.
+        // On the observed continuous GC chart both properties returned "GC";
+        // its toolbar month is not a verifiable SDK identity. Fail closed.
 #pragma warning disable CS0618 // Legacy chart symbol is only a dated-contract fallback.
         foreach (var candidate in new[] { InstrumentInfo?.Instrument, Instrument })
 #pragma warning restore CS0618
@@ -91,7 +123,13 @@ public sealed class WorldStateBridge : Indicator
             var instrument = CurrentDatedSymbol();
             var contractMatch = instrument is null ? null : ContractPattern.Match(instrument);
             if (contractMatch is null || !contractMatch.Success)
+            {
+#pragma warning disable CS0618
+                Diagnostic("contract", $"rejected info={DiagnosticSymbol(InstrumentInfo?.Instrument)} legacy={DiagnosticSymbol(Instrument)} provider={(DataProvider is null ? "absent" : "present")}");
+#pragma warning restore CS0618
                 return; // Undated continuous aliases and non-GC charts fail closed.
+            }
+            Diagnostic("contract", $"accepted {DiagnosticSymbol(instrument)}");
             _sourceSymbol = instrument;
             _contract = contractMatch.Groups[1].Value;
             _exchange = InstrumentInfo?.Exchange;
@@ -103,13 +141,18 @@ public sealed class WorldStateBridge : Indicator
 
     protected override void OnNewTrade(MarketDataArg arg)
     {
+        if (EnableLocalBridge) Diagnostic("trade_callback", $"received type={arg.DataType} time_kind={arg.Time.Kind}");
         // A chart can apply indicator properties after its initial calculation;
         // the first live callback is another chance to start without replay.
         if (EnableLocalBridge && _stop is null) TryStart();
         if (!EnableLocalBridge || _stop is null || !string.Equals(arg.DataType.ToString(), "Trade", StringComparison.Ordinal))
             return;
         if (!TryUtc(arg.Time, out var at) || arg.Price <= 0 || arg.Volume < 0)
+        {
+            Diagnostic("trade_validation", "rejected timestamp or price/volume");
             return;
+        }
+        Diagnostic("trade_validation", "accepted");
         lock (_gate)
         {
             if (_tradeAt.HasValue && at < _tradeAt.Value) return;
@@ -197,7 +240,9 @@ public sealed class WorldStateBridge : Indicator
             try
             {
                 using var socket = new ClientWebSocket();
+                Diagnostic("socket", "connecting");
                 await socket.ConnectAsync(BridgeUri, stop);
+                Diagnostic("socket", "connected");
                 while (socket.State == WebSocketState.Open && !stop.IsCancellationRequested)
                 {
                     var snapshot = Capture();
@@ -205,14 +250,17 @@ public sealed class WorldStateBridge : Indicator
                     {
                         var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(snapshot));
                         await socket.SendAsync(bytes, WebSocketMessageType.Text, true, stop);
+                        Diagnostic("snapshot", "sent");
                     }
+                    else Diagnostic("snapshot", "waiting for current valid trade");
                     await Task.Delay(1000, stop); // bounded 1 snapshot/sec, no tick history
                 }
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
-            catch (Exception)
+            catch (Exception exception)
             {
                 // ATAS chart must remain usable if WorldState is closed or restarted.
+                Diagnostic("socket_error", $"{exception.GetType().Name} hresult={exception.HResult}");
             }
             try { await Task.Delay(3000, stop); }
             catch (OperationCanceledException) { break; }
@@ -221,6 +269,7 @@ public sealed class WorldStateBridge : Indicator
 
     protected override void OnDispose()
     {
+        Diagnostic("lifecycle", "disposed");
         _stop?.Cancel();
         base.OnDispose();
     }
